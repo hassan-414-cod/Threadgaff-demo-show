@@ -601,8 +601,8 @@ interface ActiveFilterChip {
       flex: 1;
       align-items: stretch;
       -webkit-overflow-scrolling: touch;
-      -webkit-mask-image: linear-gradient(to right, transparent 0%, black 15%);
-      mask-image: linear-gradient(to right, transparent 0%, black 15%);
+      -webkit-mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+      mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
     }
     .hero-rail::-webkit-scrollbar { display: none; }
     @keyframes heroFadeUp {
@@ -1171,9 +1171,9 @@ export class HomePageComponent implements OnInit, OnDestroy {
 
       const maxScroll = el.scrollWidth - el.clientWidth;
 
-      if (this.heroScrollDir === 1 && el.scrollLeft >= maxScroll - 5) {
+      if (this.heroScrollDir === 1 && el.scrollLeft >= maxScroll - 40) {
         this.heroScrollDir = -1;
-      } else if (this.heroScrollDir === -1 && el.scrollLeft <= 5) {
+      } else if (this.heroScrollDir === -1 && el.scrollLeft <= 40) {
         this.heroScrollDir = 1;
       }
 
@@ -1182,7 +1182,7 @@ export class HomePageComponent implements OnInit, OnDestroy {
       const card = el.querySelector('.hero-card') as HTMLElement | null;
       const step = card ? card.offsetWidth + 16 : 200;
       const predictedScroll = el.scrollLeft + (this.heroScrollDir * step);
-      const nextIsEdge = predictedScroll <= 5 || predictedScroll >= maxScroll - 5;
+      const nextIsEdge = predictedScroll <= 40 || predictedScroll >= maxScroll - 40;
 
       this.heroScrollInterval = setTimeout(nextScroll, nextIsEdge ? 2000 : 1500);
     };
