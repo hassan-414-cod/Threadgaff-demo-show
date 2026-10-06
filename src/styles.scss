@@ -254,8 +254,16 @@ select option:hover {
 /* Shared product cards (home + products) */
 .shop-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 26px 16px;
+}
+.shop-grid:not(#productGrid) {
+  grid-template-columns: repeat(20, minmax(0, 1fr));
+}
+.shop-grid:not(#productGrid) > .pc {
+  grid-column: span 4;
+}
+.shop-grid:not(#productGrid) > .pc:nth-child(-n+4) {
+  grid-column: span 5;
 }
 
 .pc {
@@ -264,7 +272,7 @@ select option:hover {
   flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: 12px;
   overflow: hidden;
   text-decoration: none;
   color: inherit;
@@ -285,6 +293,11 @@ select option:hover {
   object-fit: contain;
   object-position: center;
   display: block;
+  transition: transform 0.35s ease;
+}
+
+.pc:hover .pc-media img {
+  transform: scale(1.05);
 }
 
 .pc-badge {
@@ -519,6 +532,10 @@ select option:hover {
   .shop-grid:not(#productGrid) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .shop-grid:not(#productGrid) > .pc,
+  .shop-grid:not(#productGrid) > .pc:nth-child(-n+4) {
+    grid-column: span 1;
+  }
 }
 
 @media (max-width: 768px) {
@@ -529,5 +546,9 @@ select option:hover {
 
   .shop-grid:not(#productGrid) {
     grid-template-columns: 1fr;
+  }
+  .shop-grid:not(#productGrid) > .pc,
+  .shop-grid:not(#productGrid) > .pc:nth-child(-n+4) {
+    grid-column: span 1;
   }
 }
