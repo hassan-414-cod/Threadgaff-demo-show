@@ -125,13 +125,12 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
             </section>
 
             <section class="steps-col" aria-label="Configuration steps">
-              <article class="step" [class.open]="openSteps().has(1)">
-                <button type="button" class="step-h" (click)="setStep(1)">
+              <article class="step open">
+                <div class="step-h" style="cursor: default;">
                   <span class="step-n">1</span>
                   <span><strong>Garment</strong><small>Sleeve, neckline, fabric and colour</small></span>
-                </button>
-                @if (openSteps().has(1)) {
-                  <div class="step-body">
+                </div>
+                <div class="step-body">
                     <div class="field">
                       <div class="lbl">Sleeve Length</div>
                       @if (!sleeveOptions().length) {
@@ -201,7 +200,6 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                       <p class="hint">No colour variants with a hex set for this product in admin.</p>
                     }
                   </div>
-                }
               </article>
 
               <article class="step" [class.open]="openSteps().has(2)">
@@ -901,10 +899,12 @@ export class DesignerPageComponent implements OnInit {
   }
 
   setStep(n: number) {
+    if (n === 1) return; // Garment step is always open
     this.openSteps.update((s) => {
       const next = new Set(s);
       if (next.has(n)) next.delete(n);
       else next.add(n);
+      next.add(1); // Ensure 1 is always in the set
       return next;
     });
   }
@@ -1347,7 +1347,7 @@ export class DesignerPageComponent implements OnInit {
     this.decorationMethods.set(decor);
     this.decorationValue.set(decor[0] || '');
     this.serviceAddOns.set(this.serviceAddOnsFromProduct(p));
-    this.openStep.set(1);
+    this.openSteps.set(new Set([1]));
     this.zoom.set(100);
   }
 
