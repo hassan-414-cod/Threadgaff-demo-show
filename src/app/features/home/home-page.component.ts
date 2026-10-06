@@ -88,13 +88,14 @@ interface ActiveFilterChip {
           #heroRail
           (scroll)="onHeroRailScroll()"
         >
-          @for (card of heroCards(); track card.slug) {
+          @for (card of heroCards(); track card.slug; let i = $index) {
             <a
               class="hero-card"
+              [style.animation-delay]="(i * 0.04) + 's'"
               [routerLink]="['/products']"
               [queryParams]="{ collection: card.slug }"
             >
-              <img [src]="card.image" [alt]="card.name" loading="lazy" />
+              <img [src]="card.image" [alt]="card.name" fetchpriority="high" />
               <div class="hero-card-meta">
                 <div>
                   <strong>{{ card.name }}</strong>
@@ -573,6 +574,10 @@ interface ActiveFilterChip {
       -webkit-overflow-scrolling: touch;
     }
     .hero-rail::-webkit-scrollbar { display: none; }
+    @keyframes heroFadeUp {
+      from { opacity: 0; transform: translateY(15px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
     .hero-card {
       position: relative;
       flex: 0 0 clamp(168px, 22vw, 210px);
@@ -585,6 +590,8 @@ interface ActiveFilterChip {
       color: #fff;
       box-shadow: 0 18px 40px rgba(40, 36, 28, 0.22);
       background: #2a2a28;
+      opacity: 0;
+      animation: heroFadeUp 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
     }
     .hero-card img {
       position: absolute;
