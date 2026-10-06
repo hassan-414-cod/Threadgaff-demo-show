@@ -374,6 +374,20 @@ export class QuotePageComponent {
     if (routeParam && allowed.includes(routeParam)) {
       this.segment = routeParam;
     }
+
+    try {
+      const savedLogo = sessionStorage.getItem('tg_quote_logo');
+      const savedLogoName = sessionStorage.getItem('tg_quote_logo_name');
+      if (savedLogo) {
+        this.samplePreview.set(savedLogo);
+        this.sampleName = savedLogoName || 'logo.png';
+        // Only consume it once
+        sessionStorage.removeItem('tg_quote_logo');
+        sessionStorage.removeItem('tg_quote_logo_name');
+      }
+    } catch {
+      // ignore
+    }
   }
 
   onSample(event: Event) {

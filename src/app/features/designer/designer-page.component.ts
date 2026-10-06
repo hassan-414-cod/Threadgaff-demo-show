@@ -983,6 +983,19 @@ export class DesignerPageComponent implements OnInit {
   private goToQuote(extra: Record<string, string | number | undefined> = {}) {
     const p = this.product();
     if (!p) return;
+
+    if (this.logoPreview()) {
+      try {
+        sessionStorage.setItem('tg_quote_logo', this.logoPreview()!);
+        sessionStorage.setItem('tg_quote_logo_name', this.logoName());
+      } catch (e) {
+        // quota exceeded
+      }
+    } else {
+      sessionStorage.removeItem('tg_quote_logo');
+      sessionStorage.removeItem('tg_quote_logo_name');
+    }
+
     const qty = this.totalQty() || 50;
     const unit = effectiveUnitPrice(p, this.selectedColorId());
     const total = estimatedTotal(p, qty, this.selectedColorId());
