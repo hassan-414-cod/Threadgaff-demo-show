@@ -2,6 +2,7 @@ import {
   Component,
   ElementRef,
   OnInit,
+  OnDestroy,
   ViewChild,
   inject,
   signal,
@@ -1008,8 +1009,11 @@ interface ActiveFilterChip {
     }
   `,
 })
-export class HomePageComponent implements OnInit {
+export class HomePageComponent implements OnInit, OnDestroy {
   @ViewChild('heroRail') heroRailRef?: ElementRef<HTMLElement>;
+
+  private heroScrollInterval: any;
+  private heroScrollDir = 1;
 
   readonly catalog = inject(CatalogService);
   readonly featured = signal<Product[]>([]);
@@ -1103,6 +1107,21 @@ export class HomePageComponent implements OnInit {
   }
 
   ngOnInit() {
+    this.heroScrollInterval = setInterval(() => {
+      const el = this.heroRailRef?.nativeElement;
+      if (!el || !this.heroCards().length) return;
+      
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      
+      if (this.heroScrollDir === 1 && el.scrollLeft >= maxScroll - 5) {
+        this.heroScrollDir = -1;
+      } else if (this.heroScrollDir === -1 && el.scrollLeft <= 5) {
+        this.heroScrollDir = 1;
+      }
+      
+      this.scrollHeroRail(this.heroScrollDir);
+    }, 1500);
+
     this.catalog.getAttributes().subscribe({
       next: (defs) => {
         this.attrDefs.set(defs.filter((d) => d.isActive !== false));
@@ -1162,6 +1181,12 @@ export class HomePageComponent implements OnInit {
           'Could not load products. Check the API connection.',
         ),
     });
+  }
+
+  ngOnDestroy() {
+    if (this.heroScrollInterval) {
+      clearInterval(this.heroScrollInterval);
+    }
   }
 
   private defaultHeroCards() {
