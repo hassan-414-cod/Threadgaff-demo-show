@@ -622,7 +622,7 @@ interface ActiveFilterChip {
       box-shadow: 0 6px 16px rgba(40, 36, 28, 0.12);
       background: #2a2a28;
       opacity: 0;
-      animation: heroFadeUp 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+      animation: heroFadeUp 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
     }
     .hero-card img {
       position: absolute;
@@ -1127,7 +1127,14 @@ export class HomePageComponent implements OnInit, OnDestroy {
 
   readonly heroCards = signal<
     { slug: string; name: string; styles: string; image: string; _isCustom?: boolean }[]
-  >([]);
+  >([
+    { slug: 'hoodies', name: 'Hoodies', styles: 'Styles', image: '/assets/images/prod_hoodie.jpg' },
+    { slug: 't-shirts', name: 'T-Shirts', styles: 'Styles', image: '/assets/images/prod_tshirt.jpg' },
+    { slug: 'sweatshirts', name: 'Sweatshirts', styles: 'Styles', image: '/assets/images/prod_sweatshirt.jpg' },
+    { slug: 'joggers', name: 'Joggers', styles: 'Styles', image: '/assets/images/prod_joggers.jpg' },
+    { slug: 'polo-shirts', name: 'Polo Shirts', styles: 'Styles', image: '/assets/images/prod_polo.jpg' },
+    { slug: 'sets', name: 'Sets/Co-ords', styles: 'Styles', image: '/assets/images/prod_sets.jpg' },
+  ]);
 
   heroDotIndexes() {
     return this.heroCards().map((_, i) => i);
