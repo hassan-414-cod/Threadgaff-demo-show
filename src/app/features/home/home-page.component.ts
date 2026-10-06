@@ -601,8 +601,8 @@ interface ActiveFilterChip {
       flex: 1;
       align-items: stretch;
       -webkit-overflow-scrolling: touch;
-      -webkit-mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
-      mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to right, black 0%, black 85%, transparent 100%);
+      mask-image: linear-gradient(to right, black 0%, black 85%, transparent 100%);
     }
     .hero-rail::-webkit-scrollbar { display: none; }
     @keyframes heroFadeUp {
