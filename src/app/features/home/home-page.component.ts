@@ -1007,7 +1007,7 @@ interface ActiveFilterChip {
         background:
           linear-gradient(180deg, #f3efe6 0%, rgba(243, 239, 230, 0.2) 18%, transparent 40%),
           linear-gradient(180deg, rgba(232, 224, 210, 0.55) 0%, rgba(210, 200, 182, 0.35) 100%),
-          url('/assets/images/hero-split.jpg') center / cover no-repeat;
+          url('/assets/images/hero-split-new.png') center / cover no-repeat;
       }
       .hero-card { min-height: 320px; height: 58vw; max-height: 420px; }
       .shop-hero-inner { grid-template-columns: 1fr; }
