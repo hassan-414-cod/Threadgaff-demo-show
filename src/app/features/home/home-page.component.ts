@@ -39,7 +39,7 @@ interface ActiveFilterChip {
         <h1 class="home-hero-name">Premium Apparel Manufacturing for Growing Brands</h1>
         <p class="home-hero-lede">
           Custom garment manufacturing and wholesale apparel for brands that think bigger.
-          From concept to production, we help you create high-quality, on-brand clothing —
+          From concept to production, we help you create high-quality, on-brand clothing
           at scale.
         </p>
         <div class="home-hero-actions">
@@ -127,6 +127,17 @@ interface ActiveFilterChip {
         </div>
       </div>
     </section>
+
+    <div class="marquee-strip">
+      <div class="marquee-track">
+        <div class="marquee-content">
+          <span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span>
+        </div>
+        <div class="marquee-content" aria-hidden="true">
+          <span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span>
+        </div>
+      </div>
+    </div>
 
     <section class="shop-hero" id="featuredCollection" aria-labelledby="featuredCollectionHeading">
       <div class="shop-hero-inner">
@@ -706,8 +717,37 @@ interface ActiveFilterChip {
       font-weight: 700;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      color: #5c5a52;
+      color: var(--forest, #4b533c);
     }
+    
+    .marquee-strip {
+      background: var(--ink, #1c1c1c);
+      color: #f3efe6;
+      padding: 9px 0;
+      overflow: hidden;
+      display: flex;
+    }
+    .marquee-track {
+      display: flex;
+      animation: marquee 30s linear infinite;
+    }
+    .marquee-content {
+      display: flex;
+      gap: 48px;
+      padding-right: 48px;
+    }
+    .marquee-content span {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.74rem;
+      font-weight: 600;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+    @keyframes marquee {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-100%); }
+    }
+
     #featuredCollection { scroll-margin-top: 118px; }
 
     .shop-hero {
@@ -1121,15 +1161,15 @@ export class HomePageComponent implements OnInit, OnDestroy {
       this.heroScrollInterval = setInterval(() => {
         const el = this.heroRailRef?.nativeElement;
         if (!el || !this.heroCards().length) return;
-        
+
         const maxScroll = el.scrollWidth - el.clientWidth;
-        
+
         if (this.heroScrollDir === 1 && el.scrollLeft >= maxScroll - 5) {
           this.heroScrollDir = -1;
         } else if (this.heroScrollDir === -1 && el.scrollLeft <= 5) {
           this.heroScrollDir = 1;
         }
-        
+
         this.scrollHeroRail(this.heroScrollDir);
       }, 1500);
     }, 1000);
@@ -1242,10 +1282,10 @@ export class HomePageComponent implements OnInit, OnDestroy {
       const slug = p.category?.slug;
       if (!slug) continue;
       counts.set(slug, (counts.get(slug) || 0) + 1);
-      
+
       const pImage = this.catalog.cardImageUrl(p);
       const isCustom = !pImage.includes('/assets/');
-      
+
       if (!images.has(slug)) {
         images.set(slug, pImage);
       } else if (isCustom && images.get(slug)?.includes('/assets/')) {
