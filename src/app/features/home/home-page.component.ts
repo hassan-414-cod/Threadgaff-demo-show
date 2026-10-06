@@ -351,10 +351,17 @@ interface ActiveFilterChip {
               <ng-container *ngTemplateOutlet="productCard; context: { p: p }"></ng-container>
             }
           </div>
+          @if (filteredProducts().length > 4 && openGroups().size > 2) {
+            <div class="shop-grid" style="margin-top: 26px;">
+              @for (p of filteredProducts().slice(4); track p.id) {
+                <ng-container *ngTemplateOutlet="productCard; context: { p: p }"></ng-container>
+              }
+            </div>
+          }
         </div>
       </div>
 
-      @if (filteredProducts().length > 4) {
+      @if (filteredProducts().length > 4 && openGroups().size <= 2) {
         <div class="shop-grid bottom-grid" style="margin-top: 26px;">
           @for (p of filteredProducts().slice(4); track p.id) {
             <ng-container *ngTemplateOutlet="productCard; context: { p: p }"></ng-container>
