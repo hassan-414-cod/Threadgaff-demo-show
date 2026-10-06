@@ -529,15 +529,15 @@ export class ProductsPageComponent implements OnInit {
   /** productId → selected colour id for card preview */
   readonly cardColorIds = signal<Record<string, string>>({});
   /** When set, that product’s colour variants fill the grid in sequence. */
-  readonly expandedProductId = signal<string | null>(null);
+  readonly expandedProductIds = signal<Set<string>>(new Set());
 
   readonly displayCards = computed((): DisplayCard[] => {
-    const expanded = this.expandedProductId();
+    const expandedIds = this.expandedProductIds();
     const cards: DisplayCard[] = [];
     for (const p of this.products()) {
       const colors = p.colors || [];
       const canExpand = colors.length > 1;
-      if (expanded === p.id && canExpand) {
+      if (expandedIds.has(p.id) && canExpand) {
         for (const c of colors) {
           cards.push({
             key: `${p.id}:${c.id}`,
@@ -595,7 +595,7 @@ export class ProductsPageComponent implements OnInit {
 
   selectCollection(cat: Category | null) {
     const slug = cat?.slug ?? null;
-    this.expandedProductId.set(null);
+    this.expandedProductIds.set(new Set());
     this.router.navigate([], {
       relativeTo: this.route,
       queryParams: slug ? { collection: slug } : {},
@@ -606,11 +606,13 @@ export class ProductsPageComponent implements OnInit {
   toggleExpand(card: DisplayCard, event?: Event) {
     event?.preventDefault();
     event?.stopPropagation();
+    const current = new Set(this.expandedProductIds());
     if (card.expanded) {
-      this.expandedProductId.set(null);
-      return;
+      current.delete(card.product.id);
+    } else {
+      current.add(card.product.id);
     }
-    this.expandedProductId.set(card.product.id);
+    this.expandedProductIds.set(current);
   }
 
   setFit(v: string) {
@@ -674,7 +676,7 @@ export class ProductsPageComponent implements OnInit {
 
   private applySlug(slug: string | null) {
     if (this.selectedSlug() !== slug) {
-      this.expandedProductId.set(null);
+      this.expandedProductIds.set(new Set());
     }
     this.selectedSlug.set(slug);
     const cat = slug
