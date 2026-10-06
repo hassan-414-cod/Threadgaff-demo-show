@@ -547,7 +547,7 @@ interface ActiveFilterChip {
       background:
         linear-gradient(105deg, #f3efe6 0%, rgba(243, 239, 230, 0.35) 18%, transparent 42%),
         linear-gradient(180deg, rgba(232, 224, 210, 0.55) 0%, rgba(210, 200, 182, 0.35) 100%),
-        url('/assets/images/hero-split.jpg') center / cover no-repeat;
+        url('/assets/images/hero-split-new.png') center / cover no-repeat;
     }
     .hero-rail-controls {
       display: flex;
