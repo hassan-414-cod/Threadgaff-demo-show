@@ -1,3 +1,5 @@
+import { AdminSalesDeskComponent } from './admin-sales-desk.component';
+import { SalesDeskStore } from '../../core/services/sales-desk.store';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
@@ -22,6 +24,8 @@ type AdminView =
   | 'attributes'
   | 'orders'
   | 'enquiries'
+  | 'quotations'
+  | 'invoices'
   | 'settings';
 type CatalogMode = 'collections' | 'extras';
 type ProductNav = 'all' | 'add' | 'brands' | 'categories' | 'attributes';
@@ -45,7 +49,7 @@ interface CategoryTreeListRow {
 @Component({
   selector: 'tg-admin-page',
   standalone: true,
-  imports: [FormsModule, RouterLink, AdminProductEditorComponent],
+  imports: [FormsModule, RouterLink, AdminProductEditorComponent, AdminSalesDeskComponent],
   template: `
     <div class="shell">
       <aside class="sidebar">
@@ -118,6 +122,40 @@ interface CategoryTreeListRow {
           }
         </div>
 
+        <div class="nav-section-label">Sales</div>
+        <button
+          type="button"
+          class="nav-btn"
+          [class.active]="view() === 'enquiries'"
+          (click)="setView('enquiries')"
+        >
+          Inquiries
+          @if (enquiries().length) {
+            <span class="nav-count">{{ enquiries().length }}</span>
+          }
+        </button>
+        <button
+          type="button"
+          class="nav-btn"
+          [class.active]="view() === 'quotations'"
+          (click)="setView('quotations')"
+        >
+          Quotations
+          @if (salesStore.quotations().length) {
+            <span class="nav-count">{{ salesStore.quotations().length }}</span>
+          }
+        </button>
+        <button
+          type="button"
+          class="nav-btn"
+          [class.active]="view() === 'invoices'"
+          (click)="setView('invoices')"
+        >
+          Invoices
+          @if (salesStore.invoices().length) {
+            <span class="nav-count">{{ salesStore.invoices().length }}</span>
+          }
+        </button>
         <button
           type="button"
           class="nav-btn"
@@ -125,14 +163,9 @@ interface CategoryTreeListRow {
           (click)="setView('orders')"
         >
           Orders
-        </button>
-        <button
-          type="button"
-          class="nav-btn"
-          [class.active]="view() === 'enquiries'"
-          (click)="setView('enquiries')"
-        >
-          Enquiries
+          @if (salesStore.openOrders()) {
+            <span class="nav-count">{{ salesStore.openOrders() }}</span>
+          }
         </button>
         <button
           type="button"
@@ -199,12 +232,32 @@ interface CategoryTreeListRow {
 
           <div class="stats">
             <div class="stat">
-              <span>Orders</span>
-              <b>0</b>
+              <span>Open orders</span>
+              <b>{{ salesStore.openOrders() }}</b>
             </div>
             <div class="stat">
-              <span>Enquiries</span>
-              <b>0</b>
+              <span>Inquiries</span>
+              <b>{{ enquiries().length }}</b>
+            </div>
+            <div class="stat">
+              <span>New inquiries</span>
+              <b>{{ newEnquiryCount() }}</b>
+            </div>
+            <div class="stat">
+              <span>Quotations</span>
+              <b>{{ salesStore.quotations().length }}</b>
+            </div>
+            <div class="stat">
+              <span>Invoices</span>
+              <b>{{ salesStore.invoices().length }}</b>
+            </div>
+            <div class="stat">
+              <span>Paid revenue</span>
+              <b>{{ salesStore.revenuePaid().toFixed(2) }}</b>
+            </div>
+            <div class="stat">
+              <span>Outstanding</span>
+              <b>{{ salesStore.outstanding().toFixed(2) }}</b>
             </div>
             <div class="stat">
               <span>Featured</span>
@@ -861,110 +914,17 @@ interface CategoryTreeListRow {
           </div>
         }
 
-        @if (view() === 'orders') {
-          <div class="topbar">
-            <div>
-              <h1>Orders</h1>
-              <p>Checkout orders are not enabled yet. Use Enquiries for quote requests.</p>
-            </div>
-          </div>
-          <div class="panel">
-            <div class="empty">
-              Orders will appear here when checkout is launched. For now, manage quote requests under
-              Enquiries.
-            </div>
-          </div>
-        }
-
         @if (view() === 'enquiries') {
-          <div class="topbar">
-            <div>
-              <h1>Enquiries</h1>
-              <p>Quote requests from Start Your Range.</p>
-            </div>
-            <button type="button" class="btn btn-ghost" (click)="loadEnquiries()">Refresh</button>
-          </div>
-          <div class="panel">
-            <div class="panel-h">
-              <h2>Inbox</h2>
-              <div class="toolbar ops-filters">
-                <button
-                  type="button"
-                  class="btn btn-ghost"
-                  [class.active]="enquiryStatus() === ''"
-                  (click)="setEnquiryStatus('')"
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-ghost"
-                  [class.active]="enquiryStatus() === 'new'"
-                  (click)="setEnquiryStatus('new')"
-                >
-                  New
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-ghost"
-                  [class.active]="enquiryStatus() === 'quoted'"
-                  (click)="setEnquiryStatus('quoted')"
-                >
-                  Quoted
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-ghost"
-                  [class.active]="enquiryStatus() === 'closed'"
-                  (click)="setEnquiryStatus('closed')"
-                >
-                  Closed
-                </button>
-              </div>
-            </div>
-            @if (!enquiries().length) {
-              <div class="empty">No enquiries yet.</div>
-            } @else {
-              <table class="data">
-                <thead>
-                  <tr>
-                    <th>Ref</th>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Segment</th>
-                    <th>Status</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (e of enquiries(); track e.id) {
-                    <tr>
-                      <td>{{ e.ref }}</td>
-                      <td>{{ e.name }}{{ e.company ? ' · ' + e.company : '' }}</td>
-                      <td>{{ e.email }}</td>
-                      <td>{{ e.segment || '—' }}</td>
-                      <td>{{ e.status }}</td>
-                      <td>
-                        <select
-                          [ngModel]="e.status"
-                          (ngModelChange)="updateEnquiryStatus(e.id, $event)"
-                        >
-                          <option value="new">new</option>
-                          <option value="quoted">quoted</option>
-                          <option value="closed">closed</option>
-                        </select>
-                      </td>
-                    </tr>
-                    @if (e.message) {
-                      <tr class="enquiry-msg">
-                        <td colspan="6"><pre>{{ e.message }}</pre></td>
-                      </tr>
-                    }
-                  }
-                </tbody>
-              </table>
-            }
-          </div>
+          <tg-admin-sales-desk section="enquiries" />
+        }
+        @if (view() === 'quotations') {
+          <tg-admin-sales-desk section="quotations" />
+        }
+        @if (view() === 'invoices') {
+          <tg-admin-sales-desk section="invoices" />
+        }
+        @if (view() === 'orders') {
+          <tg-admin-sales-desk section="orders" />
         }
 
         @if (view() === 'settings') {
@@ -1332,6 +1292,20 @@ interface CategoryTreeListRow {
       border-left: 1px solid rgba(255,255,255,0.12);
       margin-left: 10px;
     }
+      .nav-section-label {
+        font-size: 0.62rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        opacity: 0.55;
+        padding: 14px 12px 4px;
+      }
+      .nav-count {
+        float: right;
+        background: rgba(255, 255, 255, 0.18);
+        border-radius: 999px;
+        padding: 1px 8px;
+        font-size: 0.68rem;
+      }
     .nav-sub-btn {
       text-align: left; background: transparent; color: #bdb8ac;
       border: 0; padding: 8px 10px; cursor: pointer; font-size: 0.74rem;
@@ -1999,7 +1973,11 @@ export class AdminPageComponent implements OnInit {
   readonly collections = signal<Category[]>([]);
   readonly brands = signal<ProductTag[]>([]);
   readonly attributes = signal<AttributeDefinition[]>([]);
+  readonly salesStore = inject(SalesDeskStore);
   readonly enquiries = signal<Enquiry[]>([]);
+  newEnquiryCount(): number {
+    return this.enquiries().filter((e) => e.status === 'new').length;
+  }
   readonly enquiryStatus = signal('');
   /** Category ids that are collapsed in the tree list */
   readonly collapsedCategoryIds = signal<Set<string>>(new Set());
@@ -3196,6 +3174,8 @@ export class AdminPageComponent implements OnInit {
       'attributes',
       'orders',
       'enquiries',
+      'quotations',
+      'invoices',
       'settings',
     ];
     const viewParam = params.get('view') as AdminView | null;
