@@ -522,7 +522,7 @@ const DEFAULT_BRAND_NAMES = [
               </div>
               <div class="preview-img-wrap" [class.is-empty]="!previewUrl()">
                 @if (previewUrl()) {
-                  <img [src]="previewUrl()" [alt]="form.name || 'Preview'" />
+                  <img [src]="catalog.normalizeMediaUrl(previewUrl())" [alt]="form.name || 'Preview'" />
                 } @else {
                   <span class="preview-empty">Add a variant or set default media to generate preview</span>
                 }
@@ -703,7 +703,7 @@ const DEFAULT_BRAND_NAMES = [
               </div>
               <div class="lp-stage" [class.is-empty]="!livePreviewSrc()">
                 @if (livePreviewSrc()) {
-                  <img [src]="livePreviewSrc()" alt="Variant preview" />
+                  <img [src]="catalog.normalizeMediaUrl(livePreviewSrc())" alt="Variant preview" />
                 } @else {
                   <span class="preview-empty">Preview appears when a variant image or default media is set</span>
                 }
@@ -728,7 +728,7 @@ const DEFAULT_BRAND_NAMES = [
                       (click)="liveAngleIndex.set(i)"
                     >
                       @if (v.src) {
-                        <img [src]="v.src" [alt]="v.label" />
+                        <img [src]="catalog.normalizeMediaUrl(v.src)" [alt]="v.label" />
                       } @else {
                         <span class="thumb-empty">No image</span>
                       }
@@ -965,7 +965,7 @@ const DEFAULT_BRAND_NAMES = [
                     <label>Swatch / card image for this variant</label>
                     <div class="thumb-row">
                       @if (c.cardImage) {
-                        <img [src]="c.cardImage" alt="" />
+                        <img [src]="catalog.normalizeMediaUrl(c.cardImage)" alt="" />
                       } @else {
                         <div class="thumb-placeholder">No image</div>
                       }
@@ -999,7 +999,7 @@ const DEFAULT_BRAND_NAMES = [
                             placeholder="Angle name"
                           />
                           @if (v.src) {
-                            <img [src]="v.src" alt="" />
+                            <img [src]="catalog.normalizeMediaUrl(v.src)" alt="" />
                           } @else {
                             <div class="thumb-placeholder tall">Upload an angle image</div>
                           }

@@ -429,7 +429,7 @@ interface CategoryTreeListRow {
                               @if (row.category.imageUrl) {
                                 <img
                                   class="prod-thumb"
-                                  [src]="row.category.imageUrl"
+                                  [src]="catalog.normalizeMediaUrl(row.category.imageUrl)"
                                   [alt]="row.category.name"
                                 />
                               } @else {
@@ -1041,7 +1041,7 @@ interface CategoryTreeListRow {
             <div class="cover-row">
               <div class="cover-preview">
                 @if (colForm.imageUrl) {
-                  <img [src]="colForm.imageUrl" alt="Collection cover" />
+                  <img [src]="catalog.normalizeMediaUrl(colForm.imageUrl)" alt="Collection cover" />
                 } @else {
                   <span>No cover</span>
                 }
@@ -1078,7 +1078,7 @@ interface CategoryTreeListRow {
                     (click)="useCollectionCover(opt.url)"
                     [title]="opt.label"
                   >
-                    <img [src]="opt.url" [alt]="opt.label" />
+                    <img [src]="catalog.normalizeMediaUrl(opt.url)" [alt]="opt.label" />
                     <span>{{ opt.label }}</span>
                   </button>
                 }
