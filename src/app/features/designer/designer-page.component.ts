@@ -125,12 +125,12 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
             </section>
 
             <section class="steps-col" aria-label="Configuration steps">
-              <article class="step" [class.open]="openStep() === 1">
+              <article class="step" [class.open]="openSteps().has(1)">
                 <button type="button" class="step-h" (click)="setStep(1)">
                   <span class="step-n">1</span>
                   <span><strong>Garment</strong><small>Sleeve, neckline, fabric and colour</small></span>
                 </button>
-                @if (openStep() === 1) {
+                @if (openSteps().has(1)) {
                   <div class="step-body">
                     <div class="field">
                       <div class="lbl">Sleeve Length</div>
@@ -139,7 +139,7 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                       } @else {
                         <div class="chips">
                           @for (opt of sleeveOptions(); track opt.value) {
-                            <button type="button" class="chip" [class.on]="sleeveValue() === opt.value" (click)="setSleeveOption(opt)">{{ opt.label }}</button>
+                            <button type="button" class="chip" [class.on]="isSleeveSelected(opt.value)" (click)="toggleSleeveOption(opt)">{{ opt.label }}</button>
                           }
                         </div>
                       }
@@ -158,14 +158,14 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                     </div>
                     <div class="field" [class.two]="fabricOptions().length && gsmOptions().length">
                       @if (fabricOptions().length) {
-                        <label>
+                        <div>
                           <span class="lbl">Fabric</span>
-                          <select [ngModel]="fabricValue()" (ngModelChange)="setFabric($event)">
+                          <div class="chips">
                             @for (f of fabricOptions(); track f.value) {
-                              <option [value]="f.value">{{ f.label }}</option>
+                              <button type="button" class="chip" [class.on]="isFabricSelected(f.value)" (click)="toggleFabricOption(f)">{{ f.label }}</button>
                             }
-                          </select>
-                        </label>
+                          </div>
+                        </div>
                       } @else {
                         <div>
                           <span class="lbl">Fabric</span>
@@ -173,14 +173,14 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                         </div>
                       }
                       @if (gsmOptions().length) {
-                        <label>
+                        <div>
                           <span class="lbl">GSM</span>
-                          <select [ngModel]="gsmValue()" (ngModelChange)="setGsm($event)">
+                          <div class="chips">
                             @for (g of gsmOptions(); track g.value) {
-                              <option [value]="g.value">{{ g.label }}</option>
+                              <button type="button" class="chip" [class.on]="isGsmSelected(g.value)" (click)="toggleGsmOption(g)">{{ g.label }}</button>
                             }
-                          </select>
-                        </label>
+                          </div>
+                        </div>
                       } @else {
                         <div>
                           <span class="lbl">GSM</span>
@@ -204,12 +204,12 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                 }
               </article>
 
-              <article class="step" [class.open]="openStep() === 2">
+              <article class="step" [class.open]="openSteps().has(2)">
                 <button type="button" class="step-h" (click)="setStep(2)">
                   <span class="step-n">2</span>
                   <span><strong>Branding</strong><small>Add your logo, decoration method and placement.</small></span>
                 </button>
-                @if (openStep() === 2) {
+                @if (openSteps().has(2)) {
                   <div class="step-body">
                     <label class="upload">
                       <strong>{{ logoName() || 'Upload Logo' }}</strong>
@@ -251,12 +251,12 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                 }
               </article>
 
-              <article class="step" [class.open]="openStep() === 3">
+              <article class="step" [class.open]="openSteps().has(3)">
                 <button type="button" class="step-h" (click)="setStep(3)">
                   <span class="step-n">3</span>
                   <span><strong>Private Label</strong><small>Customize labels, hangtags and packaging.</small></span>
                 </button>
-                @if (openStep() === 3) {
+                @if (openSteps().has(3)) {
                   <div class="step-body">
                     @if (privateLabelOptions().length) {
                       @for (opt of privateLabelOptions(); track opt.value) {
@@ -277,12 +277,12 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                 }
               </article>
 
-              <article class="step" [class.open]="openStep() === 4">
+              <article class="step" [class.open]="openSteps().has(4)">
                 <button type="button" class="step-h" (click)="setStep(4)">
                   <span class="step-n">4</span>
                   <span><strong>Quantity</strong><small>Set your size breakdown and review pricing.</small></span>
                 </button>
-                @if (openStep() === 4) {
+                @if (openSteps().has(4)) {
                   <div class="step-body">
                     <div class="qty-grid">
                       @for (s of sizeCodes(); track s) {
@@ -297,12 +297,12 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                 }
               </article>
 
-              <article class="step" [class.open]="openStep() === 5">
+              <article class="step" [class.open]="openSteps().has(5)">
                 <button type="button" class="step-h" (click)="setStep(5)">
                   <span class="step-n">5</span>
                   <span><strong>Review</strong><small>Confirm your design and request a quote.</small></span>
                 </button>
-                @if (openStep() === 5) {
+                @if (openSteps().has(5)) {
                   <div class="step-body">
                     <p class="review-line">{{ product()!.name }} · {{ sleeveLabel() }} · {{ styleLabel() }} · {{ selectedColor()?.name || 'No colour' }}</p>
                     <p class="review-line">
@@ -656,7 +656,7 @@ export class DesignerPageComponent implements OnInit {
   readonly pickList = signal<Product[]>([]);
   readonly error = signal('');
   readonly garment = signal<Garment>('tee');
-  readonly sleeveValue = signal('short');
+  readonly sleeveValues = signal<string[]>([]);
   readonly styleValues = signal<string[]>([]);
   readonly selectedColorId = signal('');
   readonly outlookIndex = signal(0);
@@ -667,10 +667,10 @@ export class DesignerPageComponent implements OnInit {
   readonly attrDefs = signal<AttributeDefinition[]>([]);
   readonly productStyleOpts = signal<AttrOpt[]>([]);
   readonly decorationMethods = signal<string[]>([]);
-  readonly openStep = signal(1);
+  readonly openSteps = signal<Set<number>>(new Set([1]));
   readonly zoom = signal(100);
-  readonly fabricValue = signal('');
-  readonly gsmValue = signal('');
+  readonly fabricValues = signal<string[]>([]);
+  readonly gsmValues = signal<string[]>([]);
   readonly decorationValue = signal('');
   readonly placementValue = signal('');
   readonly buyerNotes = signal('');
@@ -714,19 +714,19 @@ export class DesignerPageComponent implements OnInit {
   readonly privateLabelOptions = computed(() => this.productPrivateLabelOpts());
 
   readonly fabricLabel = computed(() => {
-    const v = this.fabricValue();
-    return (
-      this.fabricOptions().find((o) => o.value === v || o.label === v)?.label ||
-      v ||
-      '—'
-    );
+    const vals = this.fabricValues();
+    if (!vals.length) return '—';
+    return vals.map((v) =>
+      this.fabricOptions().find((o) => o.value === v || o.label === v)?.label || v
+    ).join(', ');
   });
 
   readonly gsmLabel = computed(() => {
-    const v = this.gsmValue();
-    return (
-      this.gsmOptions().find((o) => o.value === v || o.label === v)?.label || v || ''
-    );
+    const vals = this.gsmValues();
+    if (!vals.length) return '';
+    return vals.map((v) =>
+      this.gsmOptions().find((o) => o.value === v || o.label === v)?.label || v
+    ).join(', ');
   });
 
   readonly placementLabel = computed(() => {
@@ -901,7 +901,12 @@ export class DesignerPageComponent implements OnInit {
   }
 
   setStep(n: number) {
-    this.openStep.set(n);
+    this.openSteps.update((s) => {
+      const next = new Set(s);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
   }
 
   zoomBy(delta: number) {
@@ -910,14 +915,6 @@ export class DesignerPageComponent implements OnInit {
 
   resetZoom() {
     this.zoom.set(100);
-  }
-
-  setFabric(value: string) {
-    this.fabricValue.set(value);
-  }
-
-  setGsm(value: string) {
-    this.gsmValue.set(value);
   }
 
   setDecoration(value: string) {
@@ -1024,8 +1021,37 @@ export class DesignerPageComponent implements OnInit {
     });
   }
 
-  setSleeveOption(opt: AttrOpt) {
-    this.sleeveValue.set(opt.value);
+  isSleeveSelected(val: string): boolean {
+    return this.sleeveValues().includes(val);
+  }
+
+  toggleSleeveOption(opt: AttrOpt) {
+    this.sleeveValues.update((list) => {
+      if (list.includes(opt.value)) return list.filter((v) => v !== opt.value);
+      return [...list, opt.value];
+    });
+  }
+
+  isFabricSelected(val: string): boolean {
+    return this.fabricValues().includes(val);
+  }
+
+  toggleFabricOption(opt: AttrOpt) {
+    this.fabricValues.update((list) => {
+      if (list.includes(opt.value)) return list.filter((v) => v !== opt.value);
+      return [...list, opt.value];
+    });
+  }
+
+  isGsmSelected(val: string): boolean {
+    return this.gsmValues().includes(val);
+  }
+
+  toggleGsmOption(opt: AttrOpt) {
+    this.gsmValues.update((list) => {
+      if (list.includes(opt.value)) return list.filter((v) => v !== opt.value);
+      return [...list, opt.value];
+    });
   }
 
   isStyleSelected(value: string): boolean {
@@ -1122,9 +1148,14 @@ export class DesignerPageComponent implements OnInit {
   }
 
   sleeveLabel(): string {
-    const v = this.sleeveValue();
-    if (!v) return '';
-    return this.sleeveOptions().find((o) => o.value === v)?.label || v;
+    const selected = this.sleeveValues();
+    if (!selected.length) return '';
+    return selected
+      .map(
+        (v) =>
+          this.sleeveOptions().find((o) => o.value === v)?.label || v,
+      )
+      .join(', ');
   }
 
   styleLabel(): string {
