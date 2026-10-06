@@ -19,28 +19,33 @@ import { RouterLink } from '@angular/router';
 
     <section class="vision">
       <div class="wrap">
-        <div class="narrow">
-          <h2>1. Our Vision</h2>
-          <p>
-            Threadgaff exists to give businesses and organisations a white-label route into quality
-            clothing, without having to build their own supply chain, design capability or
-            manufacturing relationships from scratch. A client picks from our product range, works
-            with us on the design, and we handle sourcing, production and delivery under their name
-            — not ours.
-          </p>
+        <div class="about-block">
+          <div class="about-text">
+            <h2>1. Our Vision</h2>
+            <p>
+              Threadgaff exists to give businesses and organisations a white-label route into quality
+              clothing, without having to build their own supply chain, design capability or
+              manufacturing relationships from scratch. A client picks from our product range, works
+              with us on the design, and we handle sourcing, production and delivery under their name
+              — not ours.
+            </p>
 
-          <div class="quote-card">
-            <blockquote>
-              “To be the white-label partner that lets any brand, retailer or organiser launch
-              quality clothing under their own name, without building a supply chain of their own.”
-            </blockquote>
+            <div class="quote-card">
+              <blockquote>
+                “To be the white-label partner that lets any brand, retailer or organiser launch
+                quality clothing under their own name, without building a supply chain of their own.”
+              </blockquote>
+            </div>
+
+            <p class="focus-copy">
+              Our current focus is entirely B2B. B2C is on hold for later — everything in this brief,
+              and everything the site needs to support at this stage, is built around business
+              customers placing orders, not individual shoppers.
+            </p>
           </div>
-
-          <p class="focus-copy">
-            Our current focus is entirely B2B. B2C is on hold for later — everything in this brief,
-            and everything the site needs to support at this stage, is built around business
-            customers placing orders, not individual shoppers.
-          </p>
+          <div class="about-img">
+            <img src="/assets/images/about-vision.jpg" alt="Our Vision" />
+          </div>
         </div>
 
         <div class="stats">
@@ -55,99 +60,106 @@ import { RouterLink } from '@angular/router';
     </section>
 
     <section class="serve">
-      <div class="serve-wrap">
-        <h2>2. Who We Serve</h2>
-        <p class="intro">
-          We're approaching three types of B2B customer. The site should speak to all three, even
-          where the entry point ends up looking slightly different for each.
-        </p>
+      <div class="wrap">
+        <div class="about-block reverse">
+          <div class="about-text">
+            <h2>2. Who We Serve</h2>
+            <p class="intro">
+              We're approaching three types of B2B customer. The site should speak to all three, even
+              where the entry point ends up looking slightly different for each.
+            </p>
 
-        <ul class="audience-list">
-          <li>
-            <svg
-              class="icon"
-              width="40"
-              height="40"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="2" y1="12" x2="22" y2="12"></line>
-              <path
-                d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
-              ></path>
-            </svg>
-            <div>
-              <h3>Importers &amp; Wholesale Buyers</h3>
-              <p>
-                Businesses importing or distributing clothing who want a direct manufacturing
-                relationship, consolidating their sourcing with one partner for consistent quality,
-                pricing and lead times.
-              </p>
-            </div>
-          </li>
-          <li>
-            <svg
-              class="icon"
-              width="40"
-              height="40"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path
-                d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"
-              ></path>
-              <line x1="7" y1="7" x2="7.01" y2="7"></line>
-            </svg>
-            <div>
-              <h3>Brands &amp; Retailers</h3>
-              <p>
-                Established or growing clothing brands, online-first labels and independent
-                boutique/retail stores who want their own-label range produced to a high standard,
-                without owning a factory relationship.
-              </p>
-            </div>
-          </li>
-          <li>
-            <svg
-              class="icon"
-              width="40"
-              height="40"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-              <circle cx="9" cy="7" r="4"></circle>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-            </svg>
-            <div>
-              <h3>Event &amp; Charity Organisers</h3>
-              <p>
-                Standalone buyers needing branded clothing for a specific purpose, such as charity
-                events, festivals or corporate away-days.
-              </p>
-            </div>
-          </li>
-        </ul>
+            <ul class="audience-list">
+              <li>
+                <svg
+                  class="icon"
+                  width="40"
+                  height="40"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="2" y1="12" x2="22" y2="12"></line>
+                  <path
+                    d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                  ></path>
+                </svg>
+                <div>
+                  <h3>Importers &amp; Wholesale Buyers</h3>
+                  <p>
+                    Businesses importing or distributing clothing who want a direct manufacturing
+                    relationship, consolidating their sourcing with one partner for consistent quality,
+                    pricing and lead times.
+                  </p>
+                </div>
+              </li>
+              <li>
+                <svg
+                  class="icon"
+                  width="40"
+                  height="40"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"
+                  ></path>
+                  <line x1="7" y1="7" x2="7.01" y2="7"></line>
+                </svg>
+                <div>
+                  <h3>Brands &amp; Retailers</h3>
+                  <p>
+                    Established or growing clothing brands, online-first labels and independent
+                    boutique/retail stores who want their own-label range produced to a high standard,
+                    without owning a factory relationship.
+                  </p>
+                </div>
+              </li>
+              <li>
+                <svg
+                  class="icon"
+                  width="40"
+                  height="40"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="9" cy="7" r="4"></circle>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                </svg>
+                <div>
+                  <h3>Event &amp; Charity Organisers</h3>
+                  <p>
+                    Standalone buyers needing branded clothing for a specific purpose, such as charity
+                    events, festivals or corporate away-days.
+                  </p>
+                </div>
+              </li>
+            </ul>
 
-        <div class="cta-row">
-          <a routerLink="/how-we-work" class="btn btn-primary">LEARN MORE ABOUT OUR PROCESS →</a>
+            <div class="cta-row">
+              <a routerLink="/how-we-work" class="btn btn-primary">LEARN MORE ABOUT OUR PROCESS →</a>
+            </div>
+          </div>
+          <div class="about-img">
+            <img src="/assets/images/about-serve.jpg" alt="Who We Serve" />
+          </div>
         </div>
       </div>
     </section>
@@ -200,8 +212,13 @@ import { RouterLink } from '@angular/router';
     }
 
     .vision {
-      padding: 80px 0 40px;
+      padding: 80px 0 60px;
       background: var(--panel);
+    }
+
+    .serve {
+      padding: 80px 0;
+      background: var(--paper);
     }
 
     .wrap {
@@ -210,33 +227,45 @@ import { RouterLink } from '@angular/router';
       padding: 0 32px;
     }
 
-    .narrow {
-      max-width: 800px;
-      margin: 0 auto;
+    .about-block {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+      margin-bottom: 60px;
+    }
+
+    .about-block.reverse {
+      direction: rtl;
+    }
+    .about-block.reverse > * {
+      direction: ltr;
+    }
+
+    .about-img img {
+      width: 100%;
+      height: 100%;
+      min-height: 400px;
+      object-fit: cover;
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.06);
     }
 
     .vision h2,
     .serve h2 {
-      font-size: 2rem;
-      margin: 0 0 32px;
+      font-size: 2.2rem;
+      margin: 0 0 24px;
+      font-family: 'Cormorant Garamond', Georgia, serif;
     }
 
-    .serve h2 {
-      margin-bottom: 24px;
-    }
-
-    .narrow > p,
+    .about-text > p,
     .intro,
     .focus-copy {
       font-size: 1.05rem;
-      margin: 0 0 32px;
+      margin: 0 0 24px;
       max-width: none;
       line-height: 1.65;
       color: var(--ink);
-    }
-
-    .focus-copy {
-      margin-bottom: 60px;
     }
 
     .quote-card {
@@ -285,15 +314,11 @@ import { RouterLink } from '@angular/router';
       color: var(--muted);
     }
 
-    .serve {
-      padding: 80px 0;
-      background: var(--paper);
-    }
-
-    .serve-wrap {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 0 32px;
+    .stat span {
+      font-size: 0.8rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
 
     .intro {
@@ -363,14 +388,14 @@ import { RouterLink } from '@angular/router';
       background: var(--gold-deep);
     }
 
-    @media (max-width: 720px) {
+    @media (max-width: 960px) {
+      .about-block { grid-template-columns: 1fr; gap: 40px; }
+      .about-block.reverse { direction: ltr; }
       .hero-full {
         min-height: 52vh;
         padding: 40px 5%;
       }
-
-      .wrap,
-      .serve-wrap {
+      .wrap {
         padding: 0 18px;
       }
 
