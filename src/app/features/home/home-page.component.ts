@@ -1078,36 +1078,12 @@ export class HomePageComponent implements OnInit, OnDestroy {
     return this.heroCards().map((_, i) => i);
   }
 
-  private smoothScroll(el: HTMLElement, distance: number, duration: number) {
-    el.style.scrollSnapType = 'none';
-    const start = el.scrollLeft;
-    const startTime = performance.now();
-
-    const easeInOutQuart = (t: number) =>
-      t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
-
-    const animate = (currentTime: number) => {
-      const elapsed = currentTime - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      
-      const easeProgress = easeInOutQuart(progress);
-      el.scrollLeft = start + distance * easeProgress;
-
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      } else {
-        el.style.scrollSnapType = '';
-      }
-    };
-    requestAnimationFrame(animate);
-  }
-
   scrollHeroRail(dir: number) {
     const el = this.heroRailRef?.nativeElement;
     if (!el) return;
     const card = el.querySelector('.hero-card') as HTMLElement | null;
     const step = card ? card.offsetWidth + 16 : 200;
-    this.smoothScroll(el, dir * step, 1000);
+    el.scrollBy({ left: dir * step, behavior: 'smooth' });
   }
 
   goHeroSlide(index: number) {
@@ -1115,8 +1091,7 @@ export class HomePageComponent implements OnInit, OnDestroy {
     if (!el) return;
     const card = el.children.item(index) as HTMLElement | null;
     if (!card) return;
-    const distance = (card.offsetLeft - 28) - el.scrollLeft;
-    this.smoothScroll(el, distance, 1000);
+    el.scrollTo({ left: card.offsetLeft - 28, behavior: 'smooth' });
     this.heroSlide.set(index);
   }
 
