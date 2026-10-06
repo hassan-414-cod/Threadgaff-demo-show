@@ -407,7 +407,7 @@ interface ActiveFilterChip {
       grid-template-columns: minmax(320px, 1fr) minmax(0, 1.06fr);
       height: calc(100vh - 118px);
       min-height: 560px;
-      background: #f3efe6;
+      background: url('/assets/images/hero-split-v3.png') center / cover no-repeat;
       overflow: hidden;
     }
     .home-hero-copy {
@@ -416,7 +416,7 @@ interface ActiveFilterChip {
       justify-content: center;
       padding: 36px 36px 28px 48px;
       min-width: 0;
-      background: #f3efe6;
+      background: transparent;
     }
     .home-hero-kicker {
       margin: 0 0 18px;
@@ -544,10 +544,7 @@ interface ActiveFilterChip {
       height: 100%;
       padding: 28px 0 72px;
       overflow: hidden;
-      background:
-        linear-gradient(105deg, #f3efe6 0%, rgba(243, 239, 230, 0.35) 18%, transparent 42%),
-        linear-gradient(180deg, rgba(232, 224, 210, 0.55) 0%, rgba(210, 200, 182, 0.35) 100%),
-        url('/assets/images/hero-split-new.png') center / cover no-repeat;
+      background: transparent;
     }
     .hero-rail-controls {
       display: flex;
@@ -1004,10 +1001,7 @@ interface ActiveFilterChip {
         min-height: 0;
         height: auto;
         padding: 20px 0 64px;
-        background:
-          linear-gradient(180deg, #f3efe6 0%, rgba(243, 239, 230, 0.2) 18%, transparent 40%),
-          linear-gradient(180deg, rgba(232, 224, 210, 0.55) 0%, rgba(210, 200, 182, 0.35) 100%),
-          url('/assets/images/hero-split-new.png') center / cover no-repeat;
+        background: transparent;
       }
       .hero-card { min-height: 320px; height: 58vw; max-height: 420px; }
       .shop-hero-inner { grid-template-columns: 1fr; }
