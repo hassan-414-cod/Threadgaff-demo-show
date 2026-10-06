@@ -129,13 +129,11 @@ interface ActiveFilterChip {
     </section>
 
     <div class="marquee-strip">
-      <div class="marquee-track">
-        <div class="marquee-content">
-          <span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span>
-        </div>
-        <div class="marquee-content" aria-hidden="true">
-          <span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span>
-        </div>
+      <div class="marquee-content">
+        <span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span>
+      </div>
+      <div class="marquee-content" aria-hidden="true">
+        <span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span>
       </div>
     </div>
 
@@ -726,7 +724,7 @@ interface ActiveFilterChip {
       font-weight: 700;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      color: var(--forest, #4b533c);
+      color: #ffffff;
     }
     
     .marquee-strip {
@@ -736,14 +734,12 @@ interface ActiveFilterChip {
       overflow: hidden;
       display: flex;
     }
-    .marquee-track {
-      display: flex;
-      animation: marquee 30s linear infinite;
-    }
     .marquee-content {
       display: flex;
       gap: 48px;
       padding-right: 48px;
+      animation: marquee 50s linear infinite;
+      flex-shrink: 0;
     }
     .marquee-content span {
       font-family: 'Montserrat', sans-serif;
