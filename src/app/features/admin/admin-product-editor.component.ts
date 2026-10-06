@@ -1084,7 +1084,7 @@ const DEFAULT_BRAND_NAMES = [
               <label>Default card image</label>
               <div class="thumb-row">
                 @if (form.cardImageUrl.trim()) {
-                  <img [src]="form.cardImageUrl" alt="" />
+                  <img [src]="catalog.normalizeMediaUrl(form.cardImageUrl)" alt="" />
                 } @else {
                   <div class="thumb-placeholder">No default image</div>
                 }
@@ -1118,7 +1118,7 @@ const DEFAULT_BRAND_NAMES = [
                       [name]="'dang' + i"
                     />
                     @if (v.src) {
-                      <img [src]="v.src" alt="" />
+                      <img [src]="catalog.normalizeMediaUrl(v.src)" alt="" />
                     } @else {
                       <div class="thumb-placeholder tall">Upload an angle image</div>
                     }
