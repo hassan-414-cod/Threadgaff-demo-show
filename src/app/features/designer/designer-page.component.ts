@@ -821,7 +821,7 @@ export class DesignerPageComponent implements OnInit {
           im.role === 'card'
             ? 'Card'
             : this.prettyAngle(im.angle),
-        url: this.normalizeUrl(im.url),
+        url: this.catalog.normalizeMediaUrl(im.url),
         angle: im.angle || 'front',
       }))
       .filter((v) => !!v.url);
@@ -834,7 +834,7 @@ export class DesignerPageComponent implements OnInit {
           {
             key: 'card',
             label: 'Front',
-            url: this.normalizeUrl(card),
+            url: this.catalog.normalizeMediaUrl(card),
             angle: 'front',
           },
         ]
@@ -1093,19 +1093,7 @@ export class DesignerPageComponent implements OnInit {
     return this.catalog.cardImageUrl(p, this.selectedColorId());
   }
 
-  private normalizeUrl(raw: string): string {
-    if (!raw) return '';
-    if (
-      raw.startsWith('http') ||
-      raw.startsWith('data:') ||
-      raw.startsWith('/assets/') ||
-      raw.startsWith('assets/')
-    ) {
-      return raw.startsWith('assets/') ? `/${raw}` : raw;
-    }
-    if (raw.startsWith('/')) return raw;
-    return `/${raw}`;
-  }
+
 
   private prettyAngle(angle: string | null | undefined): string {
     const raw = (angle || 'front').trim();
