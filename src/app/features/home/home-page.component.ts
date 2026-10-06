@@ -596,6 +596,8 @@ interface ActiveFilterChip {
       flex: 1;
       align-items: stretch;
       -webkit-overflow-scrolling: touch;
+      -webkit-mask-image: linear-gradient(to right, transparent 0%, black 15%);
+      mask-image: linear-gradient(to right, transparent 0%, black 15%);
     }
     .hero-rail::-webkit-scrollbar { display: none; }
     @keyframes heroFadeUp {
@@ -1157,21 +1159,33 @@ export class HomePageComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    const nextScroll = () => {
+      const el = this.heroRailRef?.nativeElement;
+      if (!el || !this.heroCards().length) {
+        this.heroScrollInterval = setTimeout(nextScroll, 1500);
+        return;
+      }
+
+      const maxScroll = el.scrollWidth - el.clientWidth;
+
+      if (this.heroScrollDir === 1 && el.scrollLeft >= maxScroll - 5) {
+        this.heroScrollDir = -1;
+      } else if (this.heroScrollDir === -1 && el.scrollLeft <= 5) {
+        this.heroScrollDir = 1;
+      }
+
+      this.scrollHeroRail(this.heroScrollDir);
+      
+      const card = el.querySelector('.hero-card') as HTMLElement | null;
+      const step = card ? card.offsetWidth + 16 : 200;
+      const predictedScroll = el.scrollLeft + (this.heroScrollDir * step);
+      const nextIsEdge = predictedScroll <= 5 || predictedScroll >= maxScroll - 5;
+
+      this.heroScrollInterval = setTimeout(nextScroll, nextIsEdge ? 2000 : 1500);
+    };
+
     setTimeout(() => {
-      this.heroScrollInterval = setInterval(() => {
-        const el = this.heroRailRef?.nativeElement;
-        if (!el || !this.heroCards().length) return;
-
-        const maxScroll = el.scrollWidth - el.clientWidth;
-
-        if (this.heroScrollDir === 1 && el.scrollLeft >= maxScroll - 5) {
-          this.heroScrollDir = -1;
-        } else if (this.heroScrollDir === -1 && el.scrollLeft <= 5) {
-          this.heroScrollDir = 1;
-        }
-
-        this.scrollHeroRail(this.heroScrollDir);
-      }, 1500);
+      this.heroScrollInterval = setTimeout(nextScroll, 1500);
     }, 1000);
 
     this.catalog.getAttributes().subscribe({
@@ -1237,7 +1251,7 @@ export class HomePageComponent implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     if (this.heroScrollInterval) {
-      clearInterval(this.heroScrollInterval);
+      clearTimeout(this.heroScrollInterval);
     }
   }
 
