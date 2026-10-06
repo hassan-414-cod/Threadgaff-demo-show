@@ -1235,8 +1235,14 @@ export class HomePageComponent implements OnInit {
       const slug = p.category?.slug;
       if (!slug) continue;
       counts.set(slug, (counts.get(slug) || 0) + 1);
+      
+      const pImage = this.catalog.cardImageUrl(p);
+      const isCustom = !pImage.includes('/assets/');
+      
       if (!images.has(slug)) {
-        images.set(slug, this.catalog.cardImageUrl(p));
+        images.set(slug, pImage);
+      } else if (isCustom && images.get(slug)?.includes('/assets/')) {
+        images.set(slug, pImage);
       }
     }
 
@@ -1253,26 +1259,40 @@ export class HomePageComponent implements OnInit {
       return;
     }
 
+    const cards = unique.map((slug) => {
+      const cat = bySlug.get(slug);
+      const count = counts.get(slug) || 0;
+      const rawImage =
+        cat?.imageUrl ||
+        images.get(slug) ||
+        this.heroFallbackImages[slug] ||
+        '/assets/images/prod_tshirt.jpg';
+      const image = this.catalog.normalizeMediaUrl(rawImage);
+      return {
+        slug,
+        name:
+          slug === 'sets'
+            ? 'Sets/Co-ords'
+            : cat?.name || this.labelForSlug(slug),
+        styles: count > 0 ? `${count}+ Styles` : 'Styles',
+        image,
+        _isCustom: !image.includes('/assets/'),
+      };
+    });
+
+    cards.sort((a, b) => {
+      if (a._isCustom && !b._isCustom) return -1;
+      if (!a._isCustom && b._isCustom) return 1;
+      return 0;
+    });
+
     this.heroCards.set(
-      unique.map((slug) => {
-        const cat = bySlug.get(slug);
-        const count = counts.get(slug) || 0;
-        const rawImage =
-          cat?.imageUrl ||
-          images.get(slug) ||
-          this.heroFallbackImages[slug] ||
-          '/assets/images/prod_tshirt.jpg';
-        const image = this.catalog.normalizeMediaUrl(rawImage);
-        return {
-          slug,
-          name:
-            slug === 'sets'
-              ? 'Sets/Co-ords'
-              : cat?.name || this.labelForSlug(slug),
-          styles: count > 0 ? `${count}+ Styles` : 'Styles',
-          image,
-        };
-      }),
+      cards.map((c) => ({
+        slug: c.slug,
+        name: c.name,
+        styles: c.styles,
+        image: c.image,
+      }))
     );
   }
 
