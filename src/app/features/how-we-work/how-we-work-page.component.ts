@@ -17,70 +17,90 @@ import { RouterLink } from '@angular/router';
     </section>
 
     <section class="process">
-      <div class="narrow">
+      <div class="wrap">
         <h2>The White-Label Model</h2>
-        <div class="steps">
-          @for (s of steps; track s.num) {
+
+        <div class="process-block">
+          <div class="process-img">
+            <img src="/assets/images/how-we-work-1.jpg" alt="Design Process" />
+          </div>
+          <div class="process-text">
+            @for (s of steps.slice(0, 2); track s.num) {
+              <article class="step-card">
+                <div class="step-num">{{ s.num }}</div>
+                <div>
+                  <h3>{{ s.title }}</h3>
+                  <p [innerHTML]="s.body"></p>
+                </div>
+              </article>
+            }
+          </div>
+        </div>
+
+        <div class="process-block reverse">
+          <div class="process-img">
+            <img src="/assets/images/how-we-work-2.jpg" alt="Sampling Process" />
+          </div>
+          <div class="process-text">
+            @for (s of steps.slice(2, 4); track s.num) {
+              <article class="step-card">
+                <div class="step-num">{{ s.num }}</div>
+                <div>
+                  <h3>{{ s.title }}</h3>
+                  <p [innerHTML]="s.body"></p>
+                </div>
+              </article>
+            }
+          </div>
+        </div>
+
+        <div class="process-block">
+          <div class="process-img">
+            <img src="/assets/images/how-we-work-3.jpg" alt="Production Process" />
+          </div>
+          <div class="process-text">
             <article class="step-card">
-              <div class="step-num">{{ s.num }}</div>
+              <div class="step-num">{{ steps[4].num }}</div>
               <div>
-                <h3>{{ s.title }}</h3>
-                <p [innerHTML]="s.body"></p>
+                <h3>{{ steps[4].title }}</h3>
+                <p [innerHTML]="steps[4].body"></p>
               </div>
             </article>
-          }
+            <div class="policy-card inline-policy">
+              <h3>Sampling & Shipping Terms</h3>
+              <p><strong>Sampling Cost & Timeline:</strong> [TBC] per sample. Typically [TBC] days from spec approval. Sample costs are [TBC] credited against the final bulk production invoice.</p>
+              <p><strong>Payment:</strong> [TBC] deposit required to commence production, balance on shipment.</p>
+              <p><strong>Shipping:</strong> We offer both FOB and DDP terms depending on order volume and destination. [TBC details]</p>
+            </div>
+          </div>
         </div>
       </div>
     </section>
 
     <section class="policies">
-      <div class="wrap two-col">
-        <div>
-          <h3 class="section-h">Minimums &amp; Lead Times</h3>
-          <p class="note muted">
-            Note: All values below are placeholders and will be confirmed prior to final order.
-          </p>
-          <table class="moq-table">
-            <thead>
+      <div class="wrap">
+        <h3 class="section-h">Minimums &amp; Lead Times</h3>
+        <p class="note muted">
+          Note: All values below are placeholders and will be confirmed prior to final order.
+        </p>
+        <table class="moq-table">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>MOQ</th>
+              <th>Lead Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of moqRows; track row.category) {
               <tr>
-                <th>Category</th>
-                <th>MOQ</th>
-                <th>Lead Time</th>
+                <td>{{ row.category }}</td>
+                <td>{{ row.moq }}</td>
+                <td>{{ row.lead }}</td>
               </tr>
-            </thead>
-            <tbody>
-              @for (row of moqRows; track row.category) {
-                <tr>
-                  <td>{{ row.category }}</td>
-                  <td>{{ row.moq }}</td>
-                  <td>{{ row.lead }}</td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-        <div>
-          <div class="policy-card">
-            <h3>Sampling Policy</h3>
-            <p><strong>Cost:</strong> [TBC] per sample.</p>
-            <p><strong>Timeline:</strong> Typically [TBC] days from spec approval.</p>
-            <p>
-              <strong>Credit:</strong> Sample costs are [TBC: fully/partially/not] credited against
-              the final bulk production invoice.
-            </p>
-          </div>
-          <div class="policy-card">
-            <h3>Payment &amp; Shipping Terms</h3>
-            <p>
-              <strong>Payment:</strong> [TBC] deposit required to commence production, balance on
-              shipment.
-            </p>
-            <p>
-              <strong>Shipping:</strong> We offer both FOB and DDP terms depending on order volume
-              and destination. [TBC details]
-            </p>
-          </div>
-        </div>
+            }
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -148,15 +168,45 @@ import { RouterLink } from '@angular/router';
     }
 
     .process h2 {
-      font-size: 2rem;
-      margin: 0 0 48px;
+      font-size: 2.5rem;
+      margin: 0 0 60px;
       text-align: center;
+      font-family: 'Cormorant Garamond', Georgia, serif;
     }
 
-    .steps {
+    .process-block {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+      margin-bottom: 80px;
+    }
+    
+    .process-block:last-child {
+      margin-bottom: 0;
+    }
+
+    .process-block.reverse {
+      direction: rtl;
+    }
+
+    .process-block.reverse > * {
+      direction: ltr;
+    }
+
+    .process-img img {
+      width: 100%;
+      height: 100%;
+      min-height: 450px;
+      object-fit: cover;
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+    }
+
+    .process-text {
       display: flex;
       flex-direction: column;
-      gap: 40px;
+      gap: 30px;
     }
 
     .step-card {
@@ -252,13 +302,13 @@ import { RouterLink } from '@angular/router';
 
     .policy-card {
       background: #fff;
-      padding: 40px;
+      padding: 32px;
       border-radius: 8px;
       box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
       margin-bottom: 30px;
     }
 
-    .policy-card:last-child {
+    .policy-card.inline-policy {
       margin-bottom: 0;
     }
 
@@ -327,7 +377,8 @@ import { RouterLink } from '@angular/router';
     .muted { color: var(--muted); }
 
     @media (max-width: 960px) {
-      .two-col { grid-template-columns: 1fr; gap: 40px; }
+      .process-block { grid-template-columns: 1fr; gap: 40px; }
+      .process-block.reverse { direction: ltr; }
       .step-card { flex-direction: column; align-items: flex-start; gap: 16px; }
       .step-num { font-size: 3rem; }
       .narrow, .wrap, .cta-inner { padding: 0 18px; }
