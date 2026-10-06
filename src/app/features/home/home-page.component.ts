@@ -133,7 +133,9 @@ interface ActiveFilterChip {
         <aside class="shop-filters" aria-label="Product filters">
           <div class="sf-head">
             <span class="sf-title">Filter by:</span>
-            <button type="button" class="sf-reset" (click)="resetFilters()">Reset all</button>
+            @if (activeFilterChips().length > 0) {
+              <button type="button" class="sf-reset" (click)="resetFilters()">Reset all</button>
+            }
           </div>
 
           <div class="sf-group" [class.open]="openGroups().has('category')">

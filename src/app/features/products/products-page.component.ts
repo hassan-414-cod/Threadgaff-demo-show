@@ -98,6 +98,9 @@ interface DisplayCard {
                 <option [value]="o">Style · {{ o }}</option>
               }
             </select>
+            @if (fitFilter() || materialFilter() || genderFilter() || sleeveFilter() || styleFilter()) {
+              <button type="button" class="filter-reset" (click)="resetFilters()">Reset</button>
+            }
           </div>
         </div>
       </section>
@@ -362,6 +365,17 @@ interface DisplayCard {
 
     .grid-section {
       padding: 0 var(--page-inline) 80px;
+    }
+
+    .filter-reset {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 0.68rem;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 0;
+      margin-left: 10px;
     }
 
     .pc-variant-name {
@@ -637,6 +651,15 @@ export class ProductsPageComponent implements OnInit {
 
   setStyle(v: string) {
     this.styleFilter.set(v);
+    this.reloadWithFilters();
+  }
+
+  resetFilters() {
+    this.fitFilter.set('');
+    this.materialFilter.set('');
+    this.genderFilter.set('');
+    this.sleeveFilter.set('');
+    this.styleFilter.set('');
     this.reloadWithFilters();
   }
 
