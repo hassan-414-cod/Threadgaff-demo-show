@@ -1199,7 +1199,7 @@ export class HomePageComponent implements OnInit {
       slug,
       name: this.labelForSlug(slug),
       styles: 'Styles',
-      image: this.heroFallbackImages[slug] || '/assets/images/prod_tshirt.jpg',
+      image: this.catalog.normalizeMediaUrl(this.heroFallbackImages[slug] || '/assets/images/prod_tshirt.jpg'),
     }));
   }
 
@@ -1257,11 +1257,12 @@ export class HomePageComponent implements OnInit {
       unique.map((slug) => {
         const cat = bySlug.get(slug);
         const count = counts.get(slug) || 0;
-        const image =
+        const rawImage =
           cat?.imageUrl ||
           images.get(slug) ||
           this.heroFallbackImages[slug] ||
           '/assets/images/prod_tshirt.jpg';
+        const image = this.catalog.normalizeMediaUrl(rawImage);
         return {
           slug,
           name:
