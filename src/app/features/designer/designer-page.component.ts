@@ -1319,7 +1319,7 @@ export class DesignerPageComponent implements OnInit {
     const sleeves = this.valuesFromProduct(p, 'sleeve');
     this.productSleeveOpts.set(sleeves);
     const sleeveOpts = sleeves.length ? sleeves : this.optionsFromAttr('sleeve');
-    this.sleeveValue.set(sleeveOpts[0]?.value || '');
+    this.sleeveValues.set([]);
 
     const productStyles = this.stylesFromProduct(p);
     this.productStyleOpts.set(productStyles);
@@ -1327,11 +1327,11 @@ export class DesignerPageComponent implements OnInit {
 
     const materials = this.valuesFromProduct(p, 'material');
     this.productFabricOpts.set(materials);
-    this.fabricValue.set(materials[0]?.value || '');
+    this.fabricValues.set([]);
 
     const gsms = this.valuesFromProduct(p, 'gsm');
     this.productGsmOpts.set(gsms);
-    this.gsmValue.set(gsms[0]?.value || '');
+    this.gsmValues.set([]);
 
     const placements = this.valuesFromProduct(p, 'placement').length
       ? this.valuesFromProduct(p, 'placement')

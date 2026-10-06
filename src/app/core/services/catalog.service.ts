@@ -499,22 +499,51 @@ export class CatalogService {
 
   normalizeMediaUrl(raw: string): string {
     if (!raw) return '/assets/images/prod_tshirt.jpg';
-    if (
-      raw.startsWith('http') ||
-      raw.startsWith('data:') ||
-      raw.startsWith('/assets/') ||
-      raw.startsWith('assets/')
-    ) {
+    raw = raw.trim();
+    if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+    if (raw.startsWith('/assets/') || raw.startsWith('assets/')) {
       return raw.startsWith('assets/') ? `/${raw}` : raw;
     }
-    
-    const cleanRaw = raw.startsWith('/') ? raw.slice(1) : raw;
-    
+
+    const uploadsBase = environment.uploadsBaseUrl.endsWith('/')
+      ? environment.uploadsBaseUrl
+      : `${environment.uploadsBaseUrl}/`;
+
+    if (/^https?:\/\//i.test(raw) || raw.startsWith('//')) {
+      // Absolute URL pointing at an upload (stored with http://, localhost, a
+      // stale host or a double slash). Rebuild it from the configured uploads
+      // base so it loads over HTTPS on Vercel (no mixed-content block).
+      const m = raw.match(/^(?:https?:)?\/\/([^/]+)\/+(uploads\/.*)$/i);
+      if (m) {
+        const host = m[1].toLowerCase();
+        let apiHost = '';
+        try {
+          apiHost = new URL(uploadsBase).host.toLowerCase();
+        } catch {
+          /* ignore */
+        }
+        const isOwnHost =
+          host === apiHost ||
+          host.startsWith('localhost') ||
+          host.startsWith('127.0.0.1') ||
+          host.endsWith('.vercel.app');
+        if (isOwnHost) return `${uploadsBase}${m[2]}`;
+      }
+      // Any other http:// image on an https page would be blocked – upgrade it.
+      if (
+        raw.startsWith('http://') &&
+        typeof location !== 'undefined' &&
+        location.protocol === 'https:'
+      ) {
+        return `https://${raw.slice('http://'.length)}`;
+      }
+      return raw.startsWith('//') ? `https:${raw}` : raw;
+    }
+
+    const cleanRaw = raw.replace(/^\/+/, '');
+
     if (cleanRaw.startsWith('uploads/')) {
-      const base = environment.uploadsBaseUrl.endsWith('/') 
-        ? environment.uploadsBaseUrl 
-        : `${environment.uploadsBaseUrl}/`;
-      return `${base}${cleanRaw}`;
+      return `${uploadsBase}${cleanRaw}`;
     }
     return `/${cleanRaw}`;
   }

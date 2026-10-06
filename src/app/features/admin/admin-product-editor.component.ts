@@ -727,8 +727,8 @@ const DEFAULT_BRAND_NAMES = [
                       [class.is-on]="liveAngleIndex() === i"
                       (click)="liveAngleIndex.set(i)"
                     >
-                      @if (v.src) {
-                        <img [src]="catalog.normalizeMediaUrl(v.src)" [alt]="v.label" />
+                      @if (slotSrc(focusedColor(), i, v)) {
+                        <img [src]="catalog.normalizeMediaUrl(slotSrc(focusedColor(), i, v))" [alt]="v.label" />
                       } @else {
                         <span class="thumb-empty">No image</span>
                       }
@@ -998,8 +998,8 @@ const DEFAULT_BRAND_NAMES = [
                             [name]="'ang' + c.id + vi"
                             placeholder="Angle name"
                           />
-                          @if (v.src) {
-                            <img [src]="catalog.normalizeMediaUrl(v.src)" alt="" />
+                          @if (slotSrc(c, vi, v)) {
+                            <img [src]="catalog.normalizeMediaUrl(slotSrc(c, vi, v))" alt="" />
                           } @else {
                             <div class="thumb-placeholder tall">Upload an angle image</div>
                           }
@@ -1680,7 +1680,7 @@ const DEFAULT_BRAND_NAMES = [
   `,
 })
 export class AdminProductEditorComponent implements OnChanges {
-  private readonly catalog = inject(CatalogService);
+  readonly catalog = inject(CatalogService);
   private readonly auth = inject(AuthService);
   private readonly host = inject(ElementRef<HTMLElement>);
 
@@ -1930,6 +1930,16 @@ export class AdminProductEditorComponent implements OnChanges {
 
   selectedCount(): number {
     return this.colors.filter((c) => c.selected).length;
+  }
+
+  /** Display-only: the variant's card image stands in for an empty Front slot. */
+  slotSrc(c: ColorFormRow | undefined | null, index: number, v: AngleSlot): string {
+    const own = v.src?.trim();
+    if (own) return own;
+    if (index === 0 && c && !c.views.some((x) => x.src?.trim())) {
+      return c.cardImage?.trim() || '';
+    }
+    return '';
   }
 
   previewUrl(): string {
