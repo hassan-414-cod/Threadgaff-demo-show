@@ -1117,20 +1117,22 @@ export class HomePageComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
-    this.heroScrollInterval = setInterval(() => {
-      const el = this.heroRailRef?.nativeElement;
-      if (!el || !this.heroCards().length) return;
-      
-      const maxScroll = el.scrollWidth - el.clientWidth;
-      
-      if (this.heroScrollDir === 1 && el.scrollLeft >= maxScroll - 5) {
-        this.heroScrollDir = -1;
-      } else if (this.heroScrollDir === -1 && el.scrollLeft <= 5) {
-        this.heroScrollDir = 1;
-      }
-      
-      this.scrollHeroRail(this.heroScrollDir);
-    }, 2500);
+    setTimeout(() => {
+      this.heroScrollInterval = setInterval(() => {
+        const el = this.heroRailRef?.nativeElement;
+        if (!el || !this.heroCards().length) return;
+        
+        const maxScroll = el.scrollWidth - el.clientWidth;
+        
+        if (this.heroScrollDir === 1 && el.scrollLeft >= maxScroll - 5) {
+          this.heroScrollDir = -1;
+        } else if (this.heroScrollDir === -1 && el.scrollLeft <= 5) {
+          this.heroScrollDir = 1;
+        }
+        
+        this.scrollHeroRail(this.heroScrollDir);
+      }, 1500);
+    }, 1000);
 
     this.catalog.getAttributes().subscribe({
       next: (defs) => {
