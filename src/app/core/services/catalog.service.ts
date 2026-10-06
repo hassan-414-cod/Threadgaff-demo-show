@@ -507,9 +507,15 @@ export class CatalogService {
     ) {
       return raw.startsWith('assets/') ? `/${raw}` : raw;
     }
-    if (raw.startsWith('/uploads')) {
-      return `${environment.uploadsBaseUrl}${raw}`;
+    
+    const cleanRaw = raw.startsWith('/') ? raw.slice(1) : raw;
+    
+    if (cleanRaw.startsWith('uploads/')) {
+      const base = environment.uploadsBaseUrl.endsWith('/') 
+        ? environment.uploadsBaseUrl 
+        : `${environment.uploadsBaseUrl}/`;
+      return `${base}${cleanRaw}`;
     }
-    return raw.startsWith('/') ? raw : `/${raw}`;
+    return `/${cleanRaw}`;
   }
 }
