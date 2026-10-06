@@ -1060,45 +1060,8 @@ export class HomePageComponent implements OnInit {
   ];
 
   readonly heroCards = signal<
-    { slug: string; name: string; styles: string; image: string }[]
-  >([
-    {
-      slug: 'hoodies',
-      name: 'Hoodies',
-      styles: 'Styles',
-      image: '/assets/images/prod_hoodie.jpg',
-    },
-    {
-      slug: 't-shirts',
-      name: 'T-Shirts',
-      styles: 'Styles',
-      image: '/assets/images/prod_tshirt.jpg',
-    },
-    {
-      slug: 'sweatshirts',
-      name: 'Sweatshirts',
-      styles: 'Styles',
-      image: '/assets/images/prod_sweatshirt.jpg',
-    },
-    {
-      slug: 'joggers',
-      name: 'Joggers',
-      styles: 'Styles',
-      image: '/assets/images/prod_joggers.jpg',
-    },
-    {
-      slug: 'polo-shirts',
-      name: 'Polo Shirts',
-      styles: 'Styles',
-      image: '/assets/images/prod_polo.jpg',
-    },
-    {
-      slug: 'sets',
-      name: 'Sets/Co-ords',
-      styles: 'Styles',
-      image: '/assets/images/prod_sets.jpg',
-    },
-  ]);
+    { slug: string; name: string; styles: string; image: string; _isCustom?: boolean }[]
+  >([]);
 
   heroDotIndexes() {
     return this.heroCards().map((_, i) => i);
