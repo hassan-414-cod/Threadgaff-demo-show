@@ -407,7 +407,7 @@ interface ActiveFilterChip {
       grid-template-columns: minmax(320px, 1fr) minmax(0, 1.06fr);
       height: calc(100vh - 118px);
       min-height: 560px;
-      background: url('/assets/images/hero-split-v3.png') center / cover no-repeat;
+      background: #f1ece2 url('/assets/images/hero-bg-studio.png') right center / cover no-repeat;
       overflow: hidden;
     }
     .home-hero-copy {
@@ -601,7 +601,7 @@ interface ActiveFilterChip {
       scroll-snap-align: start;
       text-decoration: none;
       color: #fff;
-      box-shadow: 0 18px 40px rgba(40, 36, 28, 0.22);
+      box-shadow: 0 6px 16px rgba(40, 36, 28, 0.12);
       background: #2a2a28;
       opacity: 0;
       animation: heroFadeUp 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
@@ -996,6 +996,7 @@ interface ActiveFilterChip {
         grid-template-columns: 1fr;
         height: auto;
         min-height: 0;
+        background-position: 70% center;
       }
       .home-hero-visual {
         min-height: 0;
