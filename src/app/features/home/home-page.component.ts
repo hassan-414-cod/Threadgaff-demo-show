@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { NgTemplateOutlet } from '@angular/common';
 import {
   AttributeDefinition,
   CatalogService,
@@ -30,7 +31,7 @@ interface ActiveFilterChip {
 @Component({
   selector: 'tg-home-page',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, NgTemplateOutlet],
   template: `
     <section class="home-hero" aria-label="Threadgaff">
       <div class="home-hero-copy">
@@ -135,8 +136,8 @@ interface ActiveFilterChip {
             <button type="button" class="sf-reset" (click)="resetFilters()">Reset all</button>
           </div>
 
-          <div class="sf-group" [class.open]="openGroup() === 'category'">
-            <button type="button" class="sf-group-head" (click)="toggleGroup('category')" [attr.aria-expanded]="openGroup() === 'category'">
+          <div class="sf-group" [class.open]="openGroups().has('category')">
+            <button type="button" class="sf-group-head" (click)="toggleGroup('category')" [attr.aria-expanded]="openGroups().has('category')">
               Product Category
               <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
             </button>
@@ -154,8 +155,8 @@ interface ActiveFilterChip {
             </div>
           </div>
 
-          <div class="sf-group" [class.open]="openGroup() === 'sustainability'">
-            <button type="button" class="sf-group-head" (click)="toggleGroup('sustainability')" [attr.aria-expanded]="openGroup() === 'sustainability'">
+          <div class="sf-group" [class.open]="openGroups().has('sustainability')">
+            <button type="button" class="sf-group-head" (click)="toggleGroup('sustainability')" [attr.aria-expanded]="openGroups().has('sustainability')">
               Sustainability &amp; Ethics
               <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
             </button>
@@ -173,8 +174,8 @@ interface ActiveFilterChip {
             </div>
           </div>
 
-          <div class="sf-group" [class.open]="openGroup() === 'material'">
-            <button type="button" class="sf-group-head" (click)="toggleGroup('material')" [attr.aria-expanded]="openGroup() === 'material'">
+          <div class="sf-group" [class.open]="openGroups().has('material')">
+            <button type="button" class="sf-group-head" (click)="toggleGroup('material')" [attr.aria-expanded]="openGroups().has('material')">
               Material
               <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
             </button>
@@ -192,8 +193,8 @@ interface ActiveFilterChip {
             </div>
           </div>
 
-          <div class="sf-group" [class.open]="openGroup() === 'gender'">
-            <button type="button" class="sf-group-head" (click)="toggleGroup('gender')" [attr.aria-expanded]="openGroup() === 'gender'">
+          <div class="sf-group" [class.open]="openGroups().has('gender')">
+            <button type="button" class="sf-group-head" (click)="toggleGroup('gender')" [attr.aria-expanded]="openGroups().has('gender')">
               Gender
               <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
             </button>
@@ -264,77 +265,89 @@ interface ActiveFilterChip {
             <div class="alert alert-error">{{ error() }}</div>
           }
 
-          <div class="shop-grid">
-            @for (p of filteredProducts(); track p.id) {
-              <article class="pc">
-                <a
-                  class="pc-media"
-                  [routerLink]="['/products']"
-                  [queryParams]="exploreParams(p)"
-                >
-                  @if (p.badge) {
-                    <span class="pc-badge">{{ p.badge }}</span>
-                  }
-                  <img [src]="cardSrc(p)" [alt]="p.name" />
-                </a>
-                <div class="pc-body">
-                  <h3 class="pc-name">
-                    <a [routerLink]="['/products']" [queryParams]="exploreParams(p)">
-                      {{ p.name }}
-                    </a>
-                  </h3>
-                  <div class="pc-price">{{ priceLabel(p, selectedColorId(p)) }}</div>
-                  @if (p.sku) {
-                    <div class="pc-sku">{{ p.sku }}</div>
-                  }
-                  @if (colorSwatches(p).length) {
-                    <div class="pc-swatches">
-                      @for (c of colorSwatches(p).slice(0, 6); track c.id) {
-                        <button
-                          type="button"
-                          class="pc-swatch"
-                          [style.background]="c.hex"
-                          [class.is-on]="selectedColorId(p) === c.id"
-                          [attr.title]="c.name"
-                          [attr.aria-label]="c.name"
-                          (click)="selectCardColor(p.id, c.id, $event)"
-                        ></button>
-                      }
-                    </div>
-                  }
-                  <div class="pc-foot">
-                    @if (descriptionFor(p)) {
-                      <p class="pc-desc">{{ descriptionFor(p) }}</p>
-                    } @else {
-                      <span class="pc-desc" aria-hidden="true"></span>
+          <ng-template #productCard let-p="p">
+            <article class="pc">
+              <a
+                class="pc-media"
+                [routerLink]="['/products']"
+                [queryParams]="exploreParams(p)"
+              >
+                @if (p.badge) {
+                  <span class="pc-badge">{{ p.badge }}</span>
+                }
+                <img [src]="cardSrc(p)" [alt]="p.name" />
+              </a>
+              <div class="pc-body">
+                <h3 class="pc-name">
+                  <a [routerLink]="['/products']" [queryParams]="exploreParams(p)">
+                    {{ p.name }}
+                  </a>
+                </h3>
+                <div class="pc-price">{{ priceLabel(p, selectedColorId(p)) }}</div>
+                @if (p.sku) {
+                  <div class="pc-sku">{{ p.sku }}</div>
+                }
+                @if (colorSwatches(p).length) {
+                  <div class="pc-swatches">
+                    @for (c of colorSwatches(p).slice(0, 6); track c.id) {
+                      <button
+                        type="button"
+                        class="pc-swatch"
+                        [style.background]="c.hex"
+                        [class.is-on]="selectedColorId(p) === c.id"
+                        [attr.title]="c.name"
+                        [attr.aria-label]="c.name"
+                        (click)="selectCardColor(p.id, c.id, $event)"
+                      ></button>
                     }
-                    <div class="pc-actions">
-                      <a
-                        class="pc-mini"
-                        [routerLink]="['/products']"
-                        [queryParams]="exploreParams(p)"
-                      >
-                        Explore
-                      </a>
-                      <a
-                        class="pc-mini pc-mini-fill"
-                        [routerLink]="['/designer']"
-                        [queryParams]="{
-                          product: p.id,
-                          name: p.name,
-                          color: selectedColorId(p),
-                        }"
-                      >
-                        Design
-                      </a>
-                    </div>
+                  </div>
+                }
+                <div class="pc-foot">
+                  @if (descriptionFor(p)) {
+                    <p class="pc-desc">{{ descriptionFor(p) }}</p>
+                  } @else {
+                    <span class="pc-desc" aria-hidden="true"></span>
+                  }
+                  <div class="pc-actions">
+                    <a
+                      class="pc-mini"
+                      [routerLink]="['/products']"
+                      [queryParams]="exploreParams(p)"
+                    >
+                      Explore
+                    </a>
+                    <a
+                      class="pc-mini pc-mini-fill"
+                      [routerLink]="['/designer']"
+                      [queryParams]="{
+                        product: p.id,
+                        name: p.name,
+                        color: selectedColorId(p),
+                      }"
+                    >
+                      Design
+                    </a>
                   </div>
                 </div>
-              </article>
+              </div>
+            </article>
+          </ng-template>
+
+          <div class="shop-grid">
+            @for (p of filteredProducts().slice(0, 4); track p.id) {
+              <ng-container *ngTemplateOutlet="productCard; context: { p: p }"></ng-container>
             }
           </div>
         </div>
       </div>
+
+      @if (filteredProducts().length > 4) {
+        <div class="shop-grid bottom-grid" style="margin-top: 26px;">
+          @for (p of filteredProducts().slice(4); track p.id) {
+            <ng-container *ngTemplateOutlet="productCard; context: { p: p }"></ng-container>
+          }
+        </div>
+      }
     </section>
 
     <section class="quality-band">
@@ -1023,7 +1036,7 @@ export class HomePageComponent implements OnInit, OnDestroy {
   readonly selectedGenders = signal<Set<string>>(new Set());
   readonly selectedMaterials = signal<Set<string>>(new Set());
   readonly selectedSustainability = signal<Set<string>>(new Set());
-  readonly openGroup = signal('category');
+  readonly openGroups = signal<Set<string>>(new Set(['category']));
   readonly sort = signal('featured');
   readonly error = signal('');
   readonly filteredProducts = signal<Product[]>([]);
@@ -1292,7 +1305,13 @@ export class HomePageComponent implements OnInit, OnDestroy {
   }
 
   toggleGroup(name: string) {
-    this.openGroup.update((g) => (g === name ? '' : name));
+    const current = new Set(this.openGroups());
+    if (current.has(name)) {
+      current.delete(name);
+    } else {
+      current.add(name);
+    }
+    this.openGroups.set(current);
   }
 
   private toggleInSet(
