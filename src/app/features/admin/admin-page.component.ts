@@ -3,7 +3,7 @@ import { SalesDeskStore } from '../../core/services/sales-desk.store';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
-import { forkJoin, of } from 'rxjs';
+import { firstValueFrom, forkJoin, of } from 'rxjs';
 import { catchError, switchMap } from 'rxjs/operators';
 import { Category, Product, ProductTag } from '../../core/models/catalog.models';
 import {
@@ -29,6 +29,9 @@ type AdminView =
   | 'settings';
 type CatalogMode = 'collections' | 'extras';
 type ProductNav = 'all' | 'add' | 'brands' | 'categories' | 'attributes';
+
+/** Slug of the hidden product that stores category cover images. */
+const COVER_STORE_SLUG = 'category-cover-images';
 
 interface ProductEditorState {
   productId: string | null;
@@ -447,7 +450,7 @@ interface CategoryTreeListRow {
                           [class.drag-over]="dragOverCategoryId() === row.category.id"
                           [class.dragging]="dragCategoryId() === row.category.id"
                           draggable="false"
-                          (click)="openCollection(row.category)"
+                          (click)="openCollectionModal(row.category)"
                           (dragover)="onCategoryDragOver($event, row)"
                           (dragleave)="onCategoryDragLeave(row.category.id)"
                           (drop)="onCategoryDrop($event, row)"
@@ -524,21 +527,7 @@ interface CategoryTreeListRow {
                                 class="btn btn-ghost"
                                 (click)="openCollectionModal(row.category)"
                               >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                class="btn btn-ghost"
-                                (click)="openCollection(row.category)"
-                              >
                                 Open
-                              </button>
-                              <button
-                                type="button"
-                                class="btn btn-ghost"
-                                (click)="deleteCategory(row.category)"
-                              >
-                                Delete
                               </button>
                             </div>
                           </td>
@@ -552,7 +541,7 @@ interface CategoryTreeListRow {
                   </table>
                 </div>
                 <div class="table-foot">
-                  <span>Open a collection to manage its products via the Nest API.</span>
+                  <span>Open a category to edit it, set its image, or view its products.</span>
                   <span>Showing {{ categoryTreeRows().length }} rows</span>
                 </div>
               </div>
@@ -956,7 +945,7 @@ interface CategoryTreeListRow {
 
     @if (colModalOpen()) {
       <div class="modal-bg open" (click)="colModalOpen.set(false)">
-        <div class="modal" (click)="$event.stopPropagation()">
+        <div class="modal modal-cat" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
           <header>
             <h2>
               {{
@@ -975,83 +964,100 @@ interface CategoryTreeListRow {
             @if (colModalError()) {
               <div class="alert">{{ colModalError() }}</div>
             }
-            <label>Name</label>
-            <input type="text" [(ngModel)]="colForm.name" />
-            <label>Slug</label>
-            <input type="text" [(ngModel)]="colForm.slug" placeholder="t-shirts" />
-            <label>Parent</label>
-            <select [(ngModel)]="colForm.parentId">
-              <option [ngValue]="apparelRootId()">Apparel (top level)</option>
-              @for (opt of categoryParentOptions(); track opt.id) {
-                <option [ngValue]="opt.id">{{ opt.label }}</option>
-              }
-            </select>
-            <label>Description</label>
-            <textarea [(ngModel)]="colForm.description"></textarea>
-            <label>Status</label>
-            <select [(ngModel)]="colForm.isActive">
-              <option [ngValue]="true">Live</option>
-              <option [ngValue]="false">Hidden</option>
-            </select>
-
-            <label>Main outlook image</label>
-            <p class="field-hint">
-              Used on the homepage slider and collection cards. Upload a separate cover, or pick an existing product / colour variant.
-            </p>
-            <div class="cover-row">
-              <div class="cover-preview">
-                @if (colForm.imageUrl) {
-                  <img [src]="catalog.normalizeMediaUrl(colForm.imageUrl)" alt="Collection cover" />
-                } @else {
-                  <span>No cover</span>
-                }
+            <div class="cat-cols">
+              <div class="cat-form">
+                <div class="cat-row">
+                  <div>
+                    <label>Name</label>
+                    <input type="text" [(ngModel)]="colForm.name" />
+                  </div>
+                  <div>
+                    <label>Slug</label>
+                    <input type="text" [(ngModel)]="colForm.slug" placeholder="t-shirts" />
+                  </div>
+                </div>
+                <div class="cat-row">
+                  <div>
+                    <label>Parent</label>
+                    <select [(ngModel)]="colForm.parentId">
+                      <option [ngValue]="apparelRootId()">Apparel (top level)</option>
+                      @for (opt of categoryParentOptions(); track opt.id) {
+                        <option [ngValue]="opt.id">{{ opt.label }}</option>
+                      }
+                    </select>
+                  </div>
+                  <div>
+                    <label>Status</label>
+                    <select [(ngModel)]="colForm.isActive">
+                      <option [ngValue]="true">Live</option>
+                      <option [ngValue]="false">Hidden</option>
+                    </select>
+                  </div>
+                </div>
+                <label>Description</label>
+                <textarea rows="5" [(ngModel)]="colForm.description"></textarea>
               </div>
-              <div class="cover-actions">
-                <label class="btn btn-ghost file-btn">
-                  Upload image
-                  <input
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    (change)="onCollectionCoverFile($event)"
-                  />
-                </label>
-                <button
-                  type="button"
-                  class="btn btn-ghost"
-                  [disabled]="!colForm.imageUrl"
-                  (click)="clearCollectionCover()"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
 
-            @if (collectionCoverOptions().length) {
-              <label>Use product / variant</label>
-              <div class="cover-pick-grid">
-                @for (opt of collectionCoverOptions(); track opt.key) {
+              <div class="cat-media">
+                <label>Main outlook image</label>
+                <div class="cover-preview-lg">
+                  @if (colForm.imageUrl) {
+                    <img [src]="catalog.normalizeMediaUrl(colForm.imageUrl)" alt="Category image" />
+                  } @else {
+                    <span>No image yet</span>
+                  }
+                  @if (coverBusy()) {
+                    <div class="cover-busy">Uploading…</div>
+                  }
+                </div>
+                <div class="cover-btns">
+                  <label class="btn btn-ghost file-btn" [class.is-disabled]="coverBusy()">
+                    Upload image
+                    <input
+                      type="file"
+                      accept="image/*"
+                      hidden
+                      [disabled]="coverBusy()"
+                      (change)="onCollectionCoverFile($event)"
+                    />
+                  </label>
                   <button
                     type="button"
-                    class="cover-pick"
-                    [class.is-on]="colForm.imageUrl === opt.url"
-                    (click)="useCollectionCover(opt.url)"
-                    [title]="opt.label"
+                    class="btn btn-ghost"
+                    [disabled]="!colForm.imageUrl || coverBusy()"
+                    (click)="clearCollectionCover()"
                   >
-                    <img [src]="catalog.normalizeMediaUrl(opt.url)" [alt]="opt.label" />
-                    <span>{{ opt.label }}</span>
+                    Clear
                   </button>
+                </div>
+                @if (collectionCoverOptions().length) {
+                  <label>Or use a product / variant image</label>
+                  <div class="cover-pick-grid">
+                    @for (opt of collectionCoverOptions(); track opt.key) {
+                      <button
+                        type="button"
+                        class="cover-pick"
+                        [class.is-on]="colForm.imageUrl === opt.url"
+                        (click)="useCollectionCover(opt.url)"
+                        [title]="opt.label"
+                      >
+                        <img [src]="catalog.normalizeMediaUrl(opt.url)" [alt]="opt.label" />
+                      </button>
+                    }
+                  </div>
                 }
               </div>
-            } @else if (editingCollectionId()) {
-              <p class="field-hint">
-                No product images in this collection yet. Add a product with images, or upload a cover above.
-              </p>
-            }
+            </div>
           </div>
-          <div class="modal-actions">
+          <div class="modal-actions cat-actions">
+            <div class="cat-actions-left">
+              @if (editingCollectionId()) {
+                <button type="button" class="btn btn-danger" (click)="deleteCategoryFromModal()">Delete</button>
+                <button type="button" class="btn btn-ghost" (click)="viewCollectionProducts()">View products</button>
+              }
+            </div>
             <button type="button" class="btn btn-ghost" (click)="colModalOpen.set(false)">Cancel</button>
-            <button type="button" class="btn btn-gold" (click)="saveCollection()">Save</button>
+            <button type="button" class="btn btn-gold" [disabled]="coverBusy()" (click)="saveCollection()">Save</button>
           </div>
         </div>
       </div>
@@ -1937,6 +1943,32 @@ interface CategoryTreeListRow {
     .modal-actions {
       display: flex; justify-content: flex-end; gap: 8px; padding: 0 18px 18px;
     }
+    .modal-cat { max-width: 920px; }
+    .modal-bg:has(.modal-cat) { align-items: center; padding: 16px; overflow: visible; }
+    .cat-cols { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+    .cat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+    .cover-preview-lg {
+      position: relative; aspect-ratio: 16 / 10; width: 100%; max-height: 200px; border-radius: 10px;
+      border: 1px solid var(--ui-line); background: #ece8de; overflow: hidden; margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: center; color: #8a867c; font-size: 0.78rem;
+    }
+    .cover-preview-lg img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cover-busy {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(255, 255, 255, 0.75); font-weight: 600; color: #3d4b37;
+    }
+    .cover-btns { display: flex; gap: 8px; margin-bottom: 12px; }
+    .cat-media .cover-pick-grid {
+      grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); max-height: 128px; margin-bottom: 0;
+    }
+    .cat-media .cover-pick img { aspect-ratio: 1; }
+    .file-btn.is-disabled { opacity: 0.55; pointer-events: none; }
+    .cat-actions { align-items: center; padding-top: 14px; border-top: 1px solid var(--ui-line); margin-top: 4px; }
+    .cat-actions-left { display: flex; gap: 8px; margin-right: auto; }
+    @media (max-width: 760px) {
+      .modal-bg:has(.modal-cat) { align-items: flex-start; overflow: auto; }
+      .cat-cols { grid-template-columns: 1fr; }
+    }
     .btn-danger {
       background: var(--ui-danger-soft, #f8e8e6); color: var(--danger);
       border: 1px solid #efd2cd;
@@ -2478,6 +2510,10 @@ export class AdminPageComponent implements OnInit {
     return opts;
   }
 
+  /** Backend limit for Category.imageUrl. */
+  readonly coverUrlMax = 500;
+  readonly coverBusy = signal(false);
+
   useCollectionCover(url: string) {
     this.colForm.imageUrl = url;
   }
@@ -2491,13 +2527,98 @@ export class AdminPageComponent implements OnInit {
     const file = input.files?.[0];
     input.value = '';
     if (!file) return;
+    this.colModalError.set('');
+    this.coverBusy.set(true);
     this.readCoverImage(file)
-      .then((src) => {
-        this.colForm.imageUrl = src;
+      .then((src) => this.uploadCategoryCover(src))
+      .then((url) => {
+        this.colForm.imageUrl = url;
       })
-      .catch(() => {
-        this.colModalError.set('Could not read that image file');
-      });
+      .catch((err: unknown) => {
+        this.colModalError.set(
+          err instanceof Error && err.message
+            ? err.message
+            : 'Could not upload that image. Try a smaller JPG or PNG.',
+        );
+      })
+      .finally(() => this.coverBusy.set(false));
+  }
+
+  /**
+   * Stores a category image in the database. The API only has a product image upload, so
+   * covers live on one hidden, inactive "Category cover images" product (never shown on the
+   * storefront or in the products list). The category keeps just the short /uploads/… URL.
+   */
+  private async uploadCategoryCover(dataUrl: string): Promise<string> {
+    const fail = (msg: string) => new Error(msg);
+    const holder = await this.ensureCoverStoreProduct();
+    const before = new Set((holder.images || []).map((i) => i.id));
+    const blob = await (await fetch(dataUrl)).blob();
+    const file = new File([blob], 'category-cover.jpg', { type: blob.type || 'image/jpeg' });
+    const res = (await firstValueFrom(
+      this.catalog.uploadProductImage(holder.id, file, {
+        role: 'gallery',
+        angle: 'category-cover',
+        altText: this.colForm.name.trim() || 'Category cover',
+      }),
+    ).catch((err) => {
+      throw fail(
+        err?.error?.message
+          ? 'Image upload failed: ' + (Array.isArray(err.error.message) ? err.error.message.join(', ') : err.error.message)
+          : 'Image upload failed. Check the API is running.',
+      );
+    })) as { url?: string; images?: Array<{ id: string; url: string }> } | null;
+
+    let url = typeof res?.url === 'string' ? res.url : '';
+    if (!url) {
+      const fresh = await firstValueFrom(this.catalog.getProduct(holder.id));
+      url = (fresh.images || []).filter((i) => !before.has(i.id)).pop()?.url || '';
+    }
+    if (!url) throw fail('The image was uploaded but the server did not return its URL.');
+    if (url.length > this.coverUrlMax) throw fail('The server returned an image URL that is too long.');
+    return url;
+  }
+
+  private async ensureCoverStoreProduct(): Promise<Product> {
+    try {
+      return await firstValueFrom(this.catalog.getProductBySlug(COVER_STORE_SLUG));
+    } catch {
+      /* not created yet */
+    }
+    try {
+      return await firstValueFrom(
+        this.catalog.createProduct({
+          name: 'Category cover images (system, do not delete)',
+          slug: COVER_STORE_SLUG,
+          isActive: false,
+          isStandalone: true,
+        }),
+      );
+    } catch (err) {
+      const msg = (err as { error?: { message?: string | string[] } })?.error?.message;
+      throw new Error(
+        'Could not prepare image storage: ' + (Array.isArray(msg) ? msg.join(', ') : msg || 'check the API'),
+      );
+    }
+  }
+
+  private currentCategory(): Category | undefined {
+    const id = this.editingCollectionId();
+    return this.categoryTreeRows().find((r) => r.category.id === id)?.category;
+  }
+
+  viewCollectionProducts() {
+    const c = this.currentCategory();
+    if (!c) return;
+    this.colModalOpen.set(false);
+    this.openCollection(c);
+  }
+
+  deleteCategoryFromModal() {
+    const c = this.currentCategory();
+    if (!c) return;
+    this.colModalOpen.set(false);
+    this.deleteCategory(c);
   }
 
   private readCoverImage(file: File): Promise<string> {
@@ -2881,6 +3002,14 @@ export class AdminPageComponent implements OnInit {
       this.colModalError.set('Name is required');
       return;
     }
+    if (this.colForm.imageUrl.trim().length > this.coverUrlMax) {
+      this.colModalError.set(
+        'The category image must be a URL of up to ' +
+          this.coverUrlMax +
+          ' characters. Clear it and pick a product image or paste an image URL.',
+      );
+      return;
+    }
     const parentId = this.colForm.parentId || this.apparelRootId();
     const payload = {
       name: this.colForm.name.trim(),
@@ -3061,8 +3190,9 @@ export class AdminPageComponent implements OnInit {
         const sorted = [...(res.items || [])].sort(
           (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
         );
-        this.products.set(sorted);
-        this.hydrateProductRows(sorted);
+        const visible = sorted.filter((p) => p.slug !== COVER_STORE_SLUG);
+        this.products.set(visible);
+        this.hydrateProductRows(visible);
         done();
       },
       error: () => {

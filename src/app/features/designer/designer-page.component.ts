@@ -92,6 +92,27 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
             </p>
           </header>
 
+          <nav class="stepper-card" aria-label="Design steps">
+            <ol class="stepper">
+              @for (st of steps; track st.n) {
+                <li [class.done]="st.n < currentStep()" [class.active]="st.n === currentStep()">
+                  <button
+                    type="button"
+                    class="st-btn"
+                    (click)="goStep(st.n)"
+                    [attr.aria-current]="st.n === currentStep() ? 'step' : null"
+                    [attr.aria-label]="'Step ' + st.n + ': ' + st.label"
+                  >
+                    <span class="st-dot">
+                      @if (st.n < currentStep()) { ✓ } @else { {{ st.n }} }
+                    </span>
+                    <span class="st-label">{{ st.label }}</span>
+                  </button>
+                </li>
+              }
+            </ol>
+          </nav>
+
           <div class="studio-grid">
             <section class="preview-col" aria-label="Live preview">
               <div class="preview-top">
@@ -131,216 +152,206 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
             </section>
 
             <section class="steps-col" aria-label="Configuration steps">
-              <article class="step open">
-                <div class="step-h" style="cursor: default;">
-                  <span class="step-n">1</span>
-                  <span><strong>Garment</strong><small>Sleeve, neckline, fabric and colour</small></span>
+              <div class="step-panel">
+                <div class="sp-head">
+                  <span class="step-n">{{ currentStep() }}</span>
+                  <span>
+                    <strong>{{ currentStepInfo().title }}</strong>
+                    <small>{{ currentStepInfo().sub }}</small>
+                  </span>
                 </div>
-                <div class="step-body">
-                    <div class="field">
-                      <div class="lbl">Sleeve Length</div>
-                      @if (!sleeveOptions().length) {
-                        <p class="hint">Set sleeve options on this product in admin.</p>
-                      } @else {
-                        <div class="chips">
-                          @for (opt of sleeveOptions(); track opt.value) {
-                            <button type="button" class="chip" [class.on]="isSleeveSelected(opt.value)" (click)="toggleSleeveOption(opt)">{{ opt.label }}</button>
-                          }
-                        </div>
-                      }
-                    </div>
-                    <div class="field">
-                      <div class="lbl">Neckline / Style</div>
-                      @if (!styleOptions().length) {
-                        <p class="hint">No styles selected for this product in admin.</p>
-                      } @else {
-                        <div class="chips">
-                          @for (opt of styleOptions(); track opt.value) {
-                            <button type="button" class="chip" [class.on]="isStyleSelected(opt.value)" (click)="toggleStyleOption(opt)">{{ opt.label }}</button>
-                          }
-                        </div>
-                      }
-                    </div>
-                    <div class="field" [class.two]="fabricOptions().length && gsmOptions().length">
-                      @if (fabricOptions().length) {
-                        <div>
-                          <span class="lbl">Fabric</span>
-                          <div class="chips">
-                            @for (f of fabricOptions(); track f.value) {
-                              <button type="button" class="chip" [class.on]="isFabricSelected(f.value)" (click)="toggleFabricOption(f)">{{ f.label }}</button>
-                            }
-                          </div>
-                        </div>
-                      } @else {
-                        <div>
-                          <span class="lbl">Fabric</span>
-                          <p class="hint">Set material on this product in admin.</p>
-                        </div>
-                      }
-                      @if (gsmOptions().length) {
-                        <div>
-                          <span class="lbl">GSM</span>
-                          <div class="chips">
-                            @for (g of gsmOptions(); track g.value) {
-                              <button type="button" class="chip" [class.on]="isGsmSelected(g.value)" (click)="toggleGsmOption(g)">{{ g.label }}</button>
-                            }
-                          </div>
-                        </div>
-                      } @else {
-                        <div>
-                          <span class="lbl">GSM</span>
-                          <p class="hint">Set GSM options in admin Attributes / product.</p>
-                        </div>
-                      }
-                    </div>
-                    @if (displayColors().length) {
-                      <div class="field">
-                        <div class="lbl">Garment Colour</div>
-                        <div class="swatches">
-                          @for (c of displayColors(); track c.id) {
-                            <button type="button" class="swatch" [class.on]="selectedColorId() === c.id" [style.background]="c.hex" [attr.title]="c.name" (click)="selectColor(c)"></button>
-                          }
-                        </div>
-                      </div>
-                    } @else {
-                      <p class="hint">No colour variants with a hex set for this product in admin.</p>
+
+                @switch (currentStep()) {
+                  @case (1) {
+                    <div class="step-body">
+              <div class="field">
+                <div class="lbl">Sleeve Length</div>
+                @if (!sleeveOptions().length) {
+                  <p class="hint">Set sleeve options on this product in admin.</p>
+                } @else {
+                  <div class="chips">
+                    @for (opt of sleeveOptions(); track opt.value) {
+                      <button type="button" class="chip" [class.on]="isSleeveSelected(opt.value)" (click)="toggleSleeveOption(opt)">{{ opt.label }}</button>
                     }
                   </div>
-              </article>
-
-              <article class="step" [class.open]="openSteps().has(2)">
-                <button type="button" class="step-h" (click)="setStep(2)">
-                  <span class="step-n">2</span>
-                  <span><strong>Branding</strong><small>Add your logo, decoration method and placement.</small></span>
-                </button>
-                @if (openSteps().has(2)) {
-                  <div class="step-body">
-                    <label class="upload">
-                      <strong>{{ logoName() || 'Upload Logo' }}</strong>
-                      <span>PNG, SVG or AI</span>
-                      <input type="file" accept="image/*" hidden (change)="onLogo($event)" />
-                    </label>
-                    @if (logoPreview()) {
-                      <button type="button" class="linkish" (click)="clearLogo()">Clear logo</button>
+                }
+              </div>
+              <div class="field">
+                <div class="lbl">Neckline / Style</div>
+                @if (!styleOptions().length) {
+                  <p class="hint">No styles selected for this product in admin.</p>
+                } @else {
+                  <div class="chips">
+                    @for (opt of styleOptions(); track opt.value) {
+                      <button type="button" class="chip" [class.on]="isStyleSelected(opt.value)" (click)="toggleStyleOption(opt)">{{ opt.label }}</button>
                     }
-                    <div class="field">
-                      <span class="lbl">Decoration Method</span>
-                      @if (decorationMethods().length) {
-                        <div class="chips">
-                          @for (m of decorationMethods(); track m) {
-                            <button type="button" class="chip" [class.on]="decorationValue() === m" (click)="setDecoration(m)">{{ m }}</button>
-                          }
-                        </div>
-                      } @else {
-                        <p class="hint">Set decoration methods on this product in admin.</p>
-                      }
-                    </div>
-                    <div class="field">
-                      <span class="lbl">Logo Placement</span>
-                      @if (placementOptions().length) {
-                        <select [ngModel]="placementValue()" (ngModelChange)="setPlacement($event)">
-                          @for (p of placementOptions(); track p.value) {
-                            <option [value]="p.value">{{ p.label }}</option>
-                          }
-                        </select>
-                      } @else {
-                        <p class="hint">Set logo placement options in admin Attributes / product.</p>
-                      }
-                    </div>
-                    <div class="field">
-                      <span class="lbl">Brand text (optional)</span>
-                      <input type="text" maxlength="24" placeholder="e.g. NORTHSTAR" [ngModel]="brandText()" (ngModelChange)="brandText.set($event)" />
-                    </div>
                   </div>
                 }
-              </article>
+              </div>
+              <div class="field" [class.two]="fabricOptions().length && gsmOptions().length">
+                @if (fabricOptions().length) {
+                  <div>
+                    <span class="lbl">Fabric</span>
+                    <div class="chips">
+                      @for (f of fabricOptions(); track f.value) {
+                        <button type="button" class="chip" [class.on]="isFabricSelected(f.value)" (click)="toggleFabricOption(f)">{{ f.label }}</button>
+                      }
+                    </div>
+                  </div>
+                } @else {
+                  <div>
+                    <span class="lbl">Fabric</span>
+                    <p class="hint">Set material on this product in admin.</p>
+                  </div>
+                }
+                @if (gsmOptions().length) {
+                  <div>
+                    <span class="lbl">GSM</span>
+                    <div class="chips">
+                      @for (g of gsmOptions(); track g.value) {
+                        <button type="button" class="chip" [class.on]="isGsmSelected(g.value)" (click)="toggleGsmOption(g)">{{ g.label }}</button>
+                      }
+                    </div>
+                  </div>
+                } @else {
+                  <div>
+                    <span class="lbl">GSM</span>
+                    <p class="hint">Set GSM options in admin Attributes / product.</p>
+                  </div>
+                }
+              </div>
+              @if (displayColors().length) {
+                <div class="field">
+                  <div class="lbl">Garment Colour</div>
+                  <div class="swatches">
+                    @for (c of displayColors(); track c.id) {
+                      <button type="button" class="swatch" [class.on]="selectedColorId() === c.id" [style.background]="c.hex" [attr.title]="c.name" (click)="selectColor(c)"></button>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <p class="hint">No colour variants with a hex set for this product in admin.</p>
+              }
+                    </div>
+                  }
+                  @case (2) {
+                    <div class="step-body">
+              <label class="upload">
+                <strong>{{ logoName() || 'Upload Logo' }}</strong>
+                <span>PNG, SVG or AI</span>
+                <input type="file" accept="image/*" hidden (change)="onLogo($event)" />
+              </label>
+              @if (logoPreview()) {
+                <button type="button" class="linkish" (click)="clearLogo()">Clear logo</button>
+              }
+              <div class="field">
+                <span class="lbl">Decoration Method</span>
+                @if (decorationMethods().length) {
+                  <div class="chips">
+                    @for (m of decorationMethods(); track m) {
+                      <button type="button" class="chip" [class.on]="decorationValue() === m" (click)="setDecoration(m)">{{ m }}</button>
+                    }
+                  </div>
+                } @else {
+                  <p class="hint">Set decoration methods on this product in admin.</p>
+                }
+              </div>
+              <div class="field">
+                <span class="lbl">Logo Placement</span>
+                @if (placementOptions().length) {
+                  <select [ngModel]="placementValue()" (ngModelChange)="setPlacement($event)">
+                    @for (p of placementOptions(); track p.value) {
+                      <option [value]="p.value">{{ p.label }}</option>
+                    }
+                  </select>
+                } @else {
+                  <p class="hint">Set logo placement options in admin Attributes / product.</p>
+                }
+              </div>
+              <div class="field">
+                <span class="lbl">Brand text (optional)</span>
+                <input type="text" maxlength="24" placeholder="e.g. NORTHSTAR" [ngModel]="brandText()" (ngModelChange)="brandText.set($event)" />
+              </div>
+                    </div>
+                  }
+                  @case (3) {
+                    <div class="step-body">
+              <div class="field">
+                <span class="lbl">Design file</span>
+                <label class="upload">
+                  <strong>{{ plFile()?.name || 'Upload design file' }}</strong>
+                  <span>
+                    {{ plFile() ? fileSize(plFile()!.size) : 'Measurements and text. ' + plAcceptLabel + ', max ' + plMaxLabel }}
+                  </span>
+                  <input type="file" hidden [accept]="plAccept" (change)="onPrivateLabelFile($event)" />
+                </label>
+                @if (plFileError()) {
+                  <p class="hint hint-err" role="alert">{{ plFileError() }}</p>
+                }
+                @if (plFile()) {
+                  <button type="button" class="linkish" (click)="clearPrivateLabelFile()">Remove file</button>
+                }
+              </div>
+              <div class="field">
+                <span class="lbl">Material</span>
+                @if (fabricOptions().length) {
+                  <select [ngModel]="plMaterial()" (ngModelChange)="plMaterial.set($event)" aria-label="Private label material">
+                    <option value="">Select material</option>
+                    @for (f of fabricOptions(); track f.value) {
+                      <option [value]="f.label">{{ f.label }}</option>
+                    }
+                  </select>
+                } @else {
+                  <input type="text" maxlength="80" placeholder="e.g. 100% organic cotton, 280 GSM" [ngModel]="plMaterial()" (ngModelChange)="plMaterial.set($event)" aria-label="Private label material" />
+                }
+              </div>
+              <div class="field">
+                <span class="lbl">Notes</span>
+                <textarea rows="4" maxlength="1000" placeholder="Explain your design in detail: label placement, sizes, packaging, anything we should know." [ngModel]="plNotes()" (ngModelChange)="plNotes.set($event)"></textarea>
+              </div>
+              <p class="hint">Using an AI-generated design? Upload the image or PDF. Your file feeds the digital proof we prepare in step 1 of How We Work.</p>
+                    </div>
+                  }
+                  @case (4) {
+                    <div class="step-body">
+              <div class="qty-grid">
+                @for (s of sizeCodes(); track s) {
+                  <label class="qty-cell">
+                    <span>{{ s }}</span>
+                    <input type="number" min="0" [ngModel]="qtyMap()[s] || 0" (ngModelChange)="setQty(s, $event)" [attr.aria-label]="'Quantity ' + s" />
+                  </label>
+                }
+              </div>
+              <p class="hint">MOQ from 150 units. Current total: <strong>{{ totalQty() }}</strong></p>
+                    </div>
+                  }
+                  @case (5) {
+                    <div class="step-body">
+              <p class="review-line">{{ product()!.name }} · {{ sleeveLabel() }} · {{ styleLabel() }} · {{ selectedColor().name || 'No colour' }}</p>
+              <p class="review-line">
+                {{ fabricLabel() !== '—' ? fabricLabel() : 'Fabric TBC' }}
+                @if (gsmLabel()) { · {{ gsmLabel() }} }
+                · {{ decorationValue() || 'Decoration TBC' }}
+                @if (placementLabel()) { · {{ placementLabel() }} }
+              </p>
+              <label class="field">
+                <span class="lbl">Buyer notes (optional)</span>
+                <textarea rows="3" placeholder="Colour match, logo size, delivery timeline…" [ngModel]="buyerNotes()" (ngModelChange)="buyerNotes.set($event)"></textarea>
+              </label>
+                    </div>
+                  }
+                }
 
-              <article class="step" [class.open]="openSteps().has(3)">
-                <button type="button" class="step-h" (click)="setStep(3)">
-                  <span class="step-n">3</span>
-                  <span><strong>Private Label</strong><small>Upload your design file, choose a material and add notes.</small></span>
-                </button>
-                @if (openSteps().has(3)) {
-                  <div class="step-body">
-                    <div class="field">
-                      <span class="lbl">Design file</span>
-                      <label class="upload">
-                        <strong>{{ plFile()?.name || 'Upload design file' }}</strong>
-                        <span>
-                          {{ plFile() ? fileSize(plFile()!.size) : 'Measurements and text. ' + plAcceptLabel + ', max ' + plMaxLabel }}
-                        </span>
-                        <input type="file" hidden [accept]="plAccept" (change)="onPrivateLabelFile($event)" />
-                      </label>
-                      @if (plFileError()) {
-                        <p class="hint hint-err" role="alert">{{ plFileError() }}</p>
-                      }
-                      @if (plFile()) {
-                        <button type="button" class="linkish" (click)="clearPrivateLabelFile()">Remove file</button>
-                      }
-                    </div>
-                    <div class="field">
-                      <span class="lbl">Material</span>
-                      @if (fabricOptions().length) {
-                        <select [ngModel]="plMaterial()" (ngModelChange)="plMaterial.set($event)" aria-label="Private label material">
-                          <option value="">Select material</option>
-                          @for (f of fabricOptions(); track f.value) {
-                            <option [value]="f.label">{{ f.label }}</option>
-                          }
-                        </select>
-                      } @else {
-                        <input type="text" maxlength="80" placeholder="e.g. 100% organic cotton, 280 GSM" [ngModel]="plMaterial()" (ngModelChange)="plMaterial.set($event)" aria-label="Private label material" />
-                      }
-                    </div>
-                    <div class="field">
-                      <span class="lbl">Notes</span>
-                      <textarea rows="4" maxlength="1000" placeholder="Explain your design in detail: label placement, sizes, packaging, anything we should know." [ngModel]="plNotes()" (ngModelChange)="plNotes.set($event)"></textarea>
-                    </div>
-                    <p class="hint">Using an AI-generated design? Upload the image or PDF. Your file feeds the digital proof we prepare in step 1 of How We Work.</p>
-                  </div>
-                }
-              </article>
-
-              <article class="step" [class.open]="openSteps().has(4)">
-                <button type="button" class="step-h" (click)="setStep(4)">
-                  <span class="step-n">4</span>
-                  <span><strong>Quantity</strong><small>Set your size breakdown and review pricing.</small></span>
-                </button>
-                @if (openSteps().has(4)) {
-                  <div class="step-body">
-                    <div class="qty-grid">
-                      @for (s of sizeCodes(); track s) {
-                        <label class="qty-cell">
-                          <span>{{ s }}</span>
-                          <input type="number" min="0" [ngModel]="qtyMap()[s] || 0" (ngModelChange)="setQty(s, $event)" [attr.aria-label]="'Quantity ' + s" />
-                        </label>
-                      }
-                    </div>
-                    <p class="hint">MOQ from 150 units. Current total: <strong>{{ totalQty() }}</strong></p>
-                  </div>
-                }
-              </article>
-
-              <article class="step" [class.open]="openSteps().has(5)">
-                <button type="button" class="step-h" (click)="setStep(5)">
-                  <span class="step-n">5</span>
-                  <span><strong>Review</strong><small>Confirm your design and request a quote.</small></span>
-                </button>
-                @if (openSteps().has(5)) {
-                  <div class="step-body">
-                    <p class="review-line">{{ product()!.name }} · {{ sleeveLabel() }} · {{ styleLabel() }} · {{ selectedColor().name || 'No colour' }}</p>
-                    <p class="review-line">
-                      {{ fabricLabel() !== '—' ? fabricLabel() : 'Fabric TBC' }}
-                      @if (gsmLabel()) { · {{ gsmLabel() }} }
-                      · {{ decorationValue() || 'Decoration TBC' }}
-                      @if (placementLabel()) { · {{ placementLabel() }} }
-                    </p>
-                    <label class="field">
-                      <span class="lbl">Buyer notes (optional)</span>
-                      <textarea rows="3" placeholder="Colour match, logo size, delivery timeline…" [ngModel]="buyerNotes()" (ngModelChange)="buyerNotes.set($event)"></textarea>
-                    </label>
-                  </div>
-                }
-              </article>
+                <div class="step-nav">
+                  <button type="button" class="nav-btn nav-back" (click)="prevStep()" [disabled]="currentStep() === 1">← Back</button>
+                  <span class="nav-count">Step {{ currentStep() }} of {{ steps.length }}</span>
+                  @if (isLastStep()) {
+                    <button type="button" class="nav-btn nav-next" (click)="checkout()">Get Production Quote →</button>
+                  } @else {
+                    <button type="button" class="nav-btn nav-next" (click)="nextStep()">Next: {{ nextStepInfo().label }} →</button>
+                  }
+                </div>
+              </div>
             </section>
 
             <aside class="summary-col">
@@ -463,7 +474,7 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
       gap: 16px; align-items: start;
     }
 
-    .preview-col, .summary-card, .tier-card, .step {
+    .preview-col, .summary-card, .tier-card {
       background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
     }
     .preview-col { padding: 12px; }
@@ -510,20 +521,57 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
     }
     .zoom-bar .reset { width: auto; padding: 0 10px; }
 
+    .stepper-card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+      padding: 18px 20px 14px; margin-bottom: 16px;
+    }
+    .stepper { list-style: none; margin: 0; padding: 0; display: flex; }
+    .stepper li { flex: 1; position: relative; min-width: 0; }
+    .stepper li::before {
+      content: ''; position: absolute; top: 14px; right: 50%; width: 100%; height: 3px;
+      background: var(--line); border-radius: 2px;
+    }
+    .stepper li:first-child::before { display: none; }
+    .stepper li.done::before, .stepper li.active::before { background: var(--forest); }
+    .st-btn {
+      position: relative; z-index: 1; width: 100%; display: flex; flex-direction: column; align-items: center;
+      gap: 8px; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: var(--muted);
+    }
+    .st-dot {
+      width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+      background: #fff; border: 2px solid var(--line); font-size: 0.78rem; font-weight: 700; color: var(--muted);
+      transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .st-label { font-size: 0.76rem; font-weight: 600; text-align: center; line-height: 1.2; }
+    .stepper li.done .st-dot, .stepper li.active .st-dot { background: var(--forest); border-color: var(--forest); color: #fff; }
+    .stepper li.active .st-dot { box-shadow: 0 0 0 4px var(--forest-tint); }
+    .stepper li.active .st-label { color: var(--forest); font-weight: 700; }
+    .stepper li.done .st-label { color: var(--ink); }
+    .st-btn:hover .st-dot { border-color: var(--forest); }
+    .st-btn:focus-visible { outline: 2px solid var(--forest); outline-offset: 4px; border-radius: 6px; }
+
     .steps-col { display: flex; flex-direction: column; gap: 8px; }
-    .step { overflow: hidden; }
-    .step-h {
-      width: 100%; display: flex; gap: 12px; align-items: flex-start; text-align: left;
-      background: transparent; border: 0; padding: 14px 14px 12px; cursor: pointer; font: inherit;
-    }
+    .step-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+    .sp-head { display: flex; gap: 12px; align-items: flex-start; padding: 16px 18px 12px; }
     .step-n {
-      width: 28px; height: 28px; border-radius: 50%; background: var(--forest); color: #fff;
-      display: inline-flex; align-items: center; justify-content: center; font-size: 0.78rem; font-weight: 700; flex-shrink: 0;
+      width: 30px; height: 30px; border-radius: 8px; background: var(--forest-tint); color: var(--forest);
+      display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 700; flex-shrink: 0;
     }
-    .step:not(.open) .step-n { background: #c9c4b6; }
-    .step-h strong { display: block; font-size: 0.95rem; }
-    .step-h small { display: block; color: var(--muted); font-size: 0.72rem; margin-top: 2px; }
-    .step-body { padding: 0 14px 16px 54px; display: flex; flex-direction: column; gap: 12px; }
+    .sp-head strong { display: block; font-size: 1rem; }
+    .sp-head small { display: block; color: var(--muted); font-size: 0.74rem; margin-top: 2px; }
+    .step-body { padding: 0 18px 18px; display: flex; flex-direction: column; gap: 12px; }
+    .step-nav {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 12px 18px; border-top: 1px solid var(--line);
+    }
+    .nav-count { font-size: 0.72rem; color: var(--muted); }
+    .nav-btn {
+      border-radius: 4px; padding: 9px 14px; font: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+      border: 1px solid var(--line); background: #fff; color: var(--ink);
+    }
+    .nav-btn:disabled { opacity: 0.45; cursor: default; }
+    .nav-next { background: var(--forest); border-color: var(--forest); color: #fff; }
+    .nav-next:hover { background: var(--gold-deep); border-color: var(--gold-deep); }
     .field { display: flex; flex-direction: column; gap: 6px; }
     .field.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .lbl { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
@@ -673,8 +721,7 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
       .thumb-rail { flex-direction: row; overflow-x: auto; }
       .thumb { min-width: 72px; }
       .value-bar, .info-grid, .field.two, .cta-row { grid-template-columns: 1fr; }
-      .step-body { padding-left: 14px; }
-    }
+      }
   `,
 })
 
@@ -698,7 +745,17 @@ export class DesignerPageComponent implements OnInit {
   readonly attrDefs = signal<AttributeDefinition[]>([]);
   readonly productStyleOpts = signal<AttrOpt[]>([]);
   readonly decorationMethods = signal<string[]>([]);
-  readonly openSteps = signal<Set<number>>(new Set([1]));
+  readonly steps = [
+    { n: 1, label: 'Garment', title: 'Garment', sub: 'Sleeve, neckline, fabric and colour' },
+    { n: 2, label: 'Branding', title: 'Branding', sub: 'Add your logo, decoration method and placement.' },
+    { n: 3, label: 'Private Label', title: 'Private Label', sub: 'Upload your design file, choose a material and add notes.' },
+    { n: 4, label: 'Quantity', title: 'Quantity', sub: 'Set your size breakdown and review pricing.' },
+    { n: 5, label: 'Review', title: 'Review', sub: 'Confirm your design and request a quote.' },
+  ];
+  readonly currentStep = signal(1);
+  readonly currentStepInfo = computed(() => this.steps[this.currentStep() - 1]);
+  readonly nextStepInfo = computed(() => this.steps[Math.min(this.currentStep(), this.steps.length - 1)]);
+  readonly isLastStep = computed(() => this.currentStep() === this.steps.length);
   readonly zoom = signal(100);
   readonly fabricValues = signal<string[]>([]);
   readonly gsmValues = signal<string[]>([]);
@@ -940,15 +997,16 @@ export class DesignerPageComponent implements OnInit {
       .filter((o) => o.value && o.label);
   }
 
-  setStep(n: number) {
-    if (n === 1) return; // Garment step is always open
-    this.openSteps.update((s) => {
-      const next = new Set(s);
-      if (next.has(n)) next.delete(n);
-      else next.add(n);
-      next.add(1); // Ensure 1 is always in the set
-      return next;
-    });
+  goStep(n: number) {
+    this.currentStep.set(Math.min(this.steps.length, Math.max(1, n)));
+  }
+
+  nextStep() {
+    this.goStep(this.currentStep() + 1);
+  }
+
+  prevStep() {
+    this.goStep(this.currentStep() - 1);
   }
 
   zoomBy(delta: number) {
@@ -1402,7 +1460,7 @@ export class DesignerPageComponent implements OnInit {
     this.decorationMethods.set(decor);
     this.decorationValue.set(decor[0] || '');
     this.serviceAddOns.set(this.serviceAddOnsFromProduct(p));
-    this.openSteps.set(new Set([1]));
+    this.currentStep.set(1);
     this.zoom.set(100);
   }
 

@@ -161,14 +161,38 @@ const DEFAULT_BRAND_NAMES = [
         <div class="alert">{{ formError() }}</div>
       }
 
+      <nav class="stepper-card" aria-label="Product steps">
+        <ol class="stepper">
+          @for (st of steps; track st.n) {
+            <li [class.done]="st.n < step()" [class.active]="st.n === step()">
+              <button
+                type="button"
+                class="st-btn"
+                (click)="goStep(st.n)"
+                [attr.aria-current]="st.n === step() ? 'step' : null"
+                [attr.aria-label]="'Step ' + st.n + ': ' + st.label"
+              >
+                <span class="st-dot">
+                  @if (st.n < step()) { ✓ } @else { {{ st.n }} }
+                </span>
+                <span class="st-label">{{ st.label }}</span>
+              </button>
+            </li>
+          }
+        </ol>
+      </nav>
+
       <div class="product-layout">
-        <div class="product-top">
+        <div class="product-top" [class.step-off]="step() === 4">
           <div class="product-main-top">
-            <section class="ui-card" id="cardBasic">
+            <section class="ui-card" id="cardBasic" [class.step-off]="step() !== 1">
               <div class="ui-card-h">
-                <div>
-                  <h2>Basic Information</h2>
-                  <p>Core identity for this product on the storefront.</p>
+                <div class="ch-title">
+                  <span class="card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg></span>
+                  <div>
+                    <h2>Basic Information</h2>
+                    <p>Core identity for this product on the storefront.</p>
+                  </div>
                 </div>
                 <div class="from-existing">
                   <label>Start from Existing</label>
@@ -209,11 +233,14 @@ const DEFAULT_BRAND_NAMES = [
               </div>
             </section>
 
-            <section class="ui-card" id="cardDetails">
+            <section class="ui-card" id="cardDetails" [class.step-off]="step() !== 2">
               <div class="ui-card-h">
-                <div>
-                  <h2>Product Details</h2>
-                  <p>Template, category and merchandising attributes.</p>
+                <div class="ch-title">
+                  <span class="card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.2"/></svg></span>
+                  <div>
+                    <h2>Product Details</h2>
+                    <p>Template, category and merchandising attributes.</p>
+                  </div>
                 </div>
               </div>
               <div class="grid-3">
@@ -352,11 +379,14 @@ const DEFAULT_BRAND_NAMES = [
               </div>
             </section>
 
-            <section class="ui-card" id="cardDecoration">
+            <section class="ui-card" id="cardDecoration" [class.step-off]="step() !== 3">
               <div class="ui-card-h">
-                <div>
-                  <h2>Decoration Methods</h2>
-                  <p>How this garment can be branded.</p>
+                <div class="ch-title">
+                  <span class="card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/></svg></span>
+                  <div>
+                    <h2>Decoration Methods</h2>
+                    <p>How this garment can be branded.</p>
+                  </div>
                 </div>
               </div>
               <label>Decoration</label>
@@ -513,12 +543,39 @@ const DEFAULT_BRAND_NAMES = [
                 </button>
               </div>
             </section>
+
+            <section class="ui-card" id="cardReview" [class.step-off]="step() !== 5">
+              <div class="ui-card-h">
+                <div class="ch-title">
+                  <span class="card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg></span>
+                  <div>
+                    <h2>Review</h2>
+                    <p>Check everything below, then save to publish it to the storefront catalog.</p>
+                  </div>
+                </div>
+              </div>
+              @if (!form.name.trim()) {
+                <p class="review-warn">A product name is required before you can save.</p>
+              }
+              <dl class="review-list">
+                @for (r of reviewRows(); track r.label) {
+                  <div class="review-row">
+                    <dt>{{ r.label }}</dt>
+                    <dd [class.is-empty]="!r.value">{{ r.value || 'Not set' }}</dd>
+                    <button type="button" class="ck-edit" (click)="goStep(r.step)">Edit</button>
+                  </div>
+                }
+              </dl>
+            </section>
           </div>
 
           <aside class="product-side">
             <section class="ui-card preview-card">
               <div class="ui-card-h tight">
-                <h2 class="side-h">Product Preview</h2>
+                <div class="ch-title">
+                  <span class="card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 9"/></svg></span>
+                  <h2 class="side-h">Product Preview</h2>
+                </div>
               </div>
               <div class="preview-img-wrap" [class.is-empty]="!previewUrl()">
                 @if (previewUrl()) {
@@ -671,7 +728,7 @@ const DEFAULT_BRAND_NAMES = [
                   <span class="ck-body"
                     >Basic Information<small>Name, slug and SKU</small></span
                   >
-                  <button type="button" class="ck-edit" (click)="scrollTo('cardBasic')">Edit</button>
+                  <button type="button" class="ck-edit" (click)="goStep(1)">Edit</button>
                 </li>
                 <li>
                   <span class="ck">✓</span>
@@ -684,14 +741,14 @@ const DEFAULT_BRAND_NAMES = [
                   <span class="ck-body"
                     >Specifications<small>Material, gender, fit</small></span
                   >
-                  <button type="button" class="ck-edit" (click)="scrollTo('cardDetails')">Edit</button>
+                  <button type="button" class="ck-edit" (click)="goStep(2)">Edit</button>
                 </li>
                 <li>
                   <span class="ck">✓</span>
                   <span class="ck-body"
                     >Decoration Methods<small>Branding options selected</small></span
                   >
-                  <button type="button" class="ck-edit" (click)="scrollTo('cardDecoration')">Edit</button>
+                  <button type="button" class="ck-edit" (click)="goStep(3)">Edit</button>
                 </li>
               </ul>
             </section>
@@ -742,13 +799,15 @@ const DEFAULT_BRAND_NAMES = [
           </aside>
         </div>
 
-        <div class="product-main">
+        <div class="product-main" [class.step-off]="step() !== 4">
           <section class="ui-card" id="cardVariants">
             <div class="ui-card-h">
-              <div>
-                <p class="page-kicker sm">04 / Variants</p>
-                <h2>Manage Variants</h2>
-                <p>Add and manage product variants such as colours, with images and pricing.</p>
+              <div class="ch-title">
+                <span class="card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></span>
+                <div>
+                  <h2>Manage Variants</h2>
+                  <p>Add and manage product variants such as colours, with images and pricing.</p>
+                </div>
               </div>
               <button type="button" class="btn btn-gold variants-add-btn" (click)="addVariant()">
                 + Add Variant
@@ -962,29 +1021,6 @@ const DEFAULT_BRAND_NAMES = [
                       }
                     </div>
 
-                    <label>Swatch / card image for this variant</label>
-                    <div class="thumb-row">
-                      @if (c.cardImage) {
-                        <img [src]="catalog.normalizeMediaUrl(c.cardImage)" alt="" />
-                      } @else {
-                        <div class="thumb-placeholder">No image</div>
-                      }
-                      <div>
-                        <label class="btn btn-ghost file-btn">
-                          Upload
-                          <input
-                            type="file"
-                            accept="image/*"
-                            hidden
-                            (change)="onColorCardImage($event, focusedIndex())"
-                          />
-                        </label>
-                        <button type="button" class="btn btn-ghost" (click)="c.cardImage = ''">
-                          Clear
-                        </button>
-                      </div>
-                    </div>
-
                     <div class="ui-card-h tight angles-head">
                       <h2 class="side-h">Angles ({{ c.views.length }})</h2>
                     </div>
@@ -1069,6 +1105,52 @@ const DEFAULT_BRAND_NAMES = [
                     }
                   </div>
                 </div>
+
+                @if (focusedColor(); as fc) {
+                  <div class="ui-card nested swatch-card">
+                    <div class="ui-card-h tight">
+                      <h2 class="side-h">Swatch / card image</h2>
+                      <span class="meta-soft">{{ fc.name || 'Untitled' }}</span>
+                    </div>
+                    <div class="swatch-full" [class.is-empty]="!fc.cardImage">
+                      @if (fc.cardImage) {
+                        <img [src]="catalog.normalizeMediaUrl(fc.cardImage)" [alt]="(fc.name || 'Variant') + ' card image'" />
+                      } @else {
+                        <span>No card image yet</span>
+                      }
+                    </div>
+                    <div class="swatch-actions">
+                      <label class="btn btn-ghost file-btn">
+                        Upload image
+                        <input
+                          type="file"
+                          accept="image/*"
+                          hidden
+                          (change)="onColorCardImage($event, focusedIndex())"
+                        />
+                      </label>
+                      <button type="button" class="btn btn-ghost" [disabled]="!fc.cardImage" (click)="fc.cardImage = ''">
+                        Clear
+                      </button>
+                    </div>
+                    @if (variantImageOptions().length) {
+                      <label>Or use an image from any variant</label>
+                      <div class="pick-grid">
+                        @for (o of variantImageOptions(); track o.key) {
+                          <button
+                            type="button"
+                            [class.is-on]="fc.cardImage === o.url"
+                            [title]="o.label"
+                            [attr.aria-label]="'Use ' + o.label"
+                            (click)="pickVariantImage(o.url)"
+                          >
+                            <img [src]="catalog.normalizeMediaUrl(o.url)" [alt]="o.label" />
+                          </button>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
               </div>
             </div>
           </section>
@@ -1143,6 +1225,18 @@ const DEFAULT_BRAND_NAMES = [
             </section>
           }
         </div>
+      </div>
+
+      <div class="step-nav">
+        <button type="button" class="btn btn-ghost" (click)="prevStep()" [disabled]="step() === 1">← Back</button>
+        <span class="step-count">Step {{ step() }} of {{ steps.length }}</span>
+        @if (step() === steps.length) {
+          <button type="button" class="btn btn-gold" (click)="save()" [disabled]="busy() || !form.name.trim()">
+            {{ busy() ? 'Saving…' : 'Save changes' }}
+          </button>
+        } @else {
+          <button type="button" class="btn btn-gold" (click)="nextStep()">Next: {{ nextStepLabel() }} →</button>
+        }
       </div>
     </div>
 
@@ -1240,6 +1334,61 @@ const DEFAULT_BRAND_NAMES = [
       background: #f8e8e6; color: #8b3a2f; padding: 12px 14px;
       border-radius: 8px; margin-bottom: 16px; font-size: 0.85rem;
     }
+
+    .step-off { display: none !important; }
+    .stepper-card {
+      background: #fff; border: 1px solid #e4e0d6; border-radius: 12px;
+      padding: 18px 20px 14px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(28, 31, 27, 0.04);
+    }
+    .stepper { list-style: none; margin: 0; padding: 0; display: flex; }
+    .stepper li { flex: 1; position: relative; min-width: 0; }
+    .stepper li::before {
+      content: ''; position: absolute; top: 14px; right: 50%; width: 100%; height: 3px;
+      background: #e4e0d6; border-radius: 2px;
+    }
+    .stepper li:first-child::before { display: none; }
+    .stepper li.done::before, .stepper li.active::before { background: #3d4b37; }
+    .st-btn {
+      position: relative; z-index: 1; width: 100%; display: flex; flex-direction: column; align-items: center;
+      gap: 8px; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: #6b6f63;
+    }
+    .st-dot {
+      width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+      background: #fff; border: 2px solid #e4e0d6; font-size: 0.78rem; font-weight: 700; color: #6b6f63;
+      transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .st-label { font-size: 0.76rem; font-weight: 600; text-align: center; line-height: 1.2; }
+    .stepper li.done .st-dot, .stepper li.active .st-dot { background: #3d4b37; border-color: #3d4b37; color: #fff; }
+    .stepper li.active .st-dot { box-shadow: 0 0 0 4px #eef2ea; }
+    .stepper li.active .st-label { color: #3d4b37; font-weight: 700; }
+    .stepper li.done .st-label { color: #1c1f1b; }
+    .st-btn:hover .st-dot { border-color: #3d4b37; }
+    .st-btn:focus-visible { outline: 2px solid #3d4b37; outline-offset: 4px; border-radius: 6px; }
+
+    .ch-title { display: flex; gap: 12px; align-items: center; min-width: 0; }
+    .ch-title > div { min-width: 0; }
+    .card-ico {
+      width: 38px; height: 38px; border-radius: 10px; background: #eef2ea; color: #3d4b37;
+      display: inline-flex; align-items: center; justify-content: center; flex: none;
+    }
+    .step-nav {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin-top: 20px; padding: 14px 18px; background: #fff; border: 1px solid #e4e0d6; border-radius: 12px;
+    }
+    .step-count { font-size: 0.78rem; color: #6b6f63; }
+    .review-warn {
+      background: #f8e8e6; color: #8b3a2f; padding: 10px 12px; border-radius: 8px;
+      font-size: 0.82rem; margin: 0 0 12px; max-width: none;
+    }
+    .review-list { margin: 0; }
+    .review-row {
+      display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; gap: 12px; align-items: baseline;
+      padding: 10px 0; border-bottom: 1px solid #e4e0d6; font-size: 0.85rem;
+    }
+    .review-row:last-child { border-bottom: 0; }
+    .review-row dt { color: #6b6f63; font-weight: 600; }
+    .review-row dd { margin: 0; font-weight: 600; word-break: break-word; }
+    .review-row dd.is-empty { color: #a8aba3; font-weight: 500; }
 
     .product-layout { display: flex; flex-direction: column; gap: 20px; }
     .product-top {
@@ -1530,6 +1679,23 @@ const DEFAULT_BRAND_NAMES = [
     }
     .variants-center, .variants-right { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
     .variants-list-card { background: #fff; }
+    .swatch-card { background: #fff; }
+    .swatch-full {
+      width: 100%; border-radius: 10px; background: #eceae4; overflow: hidden; margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .swatch-full img { width: 100%; height: auto; display: block; }
+    .swatch-full.is-empty { aspect-ratio: 4 / 5; color: #8a867c; font-size: 0.78rem; }
+    .swatch-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+    .pick-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px;
+      max-height: 150px; overflow: auto; padding: 2px;
+    }
+    .pick-grid button {
+      border: 1px solid #e4e0d6; border-radius: 8px; padding: 0; overflow: hidden; background: #fff; cursor: pointer;
+    }
+    .pick-grid button.is-on { border-color: #3d4b37; box-shadow: 0 0 0 2px rgba(61, 75, 55, 0.25); }
+    .pick-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: #eceae4; }
     .variants-empty { min-height: 120px; display: flex; align-items: center; }
 
     .hex-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -1711,6 +1877,15 @@ export class AdminProductEditorComponent implements OnChanges {
   readonly priceRanges = PRICE_RANGES;
   readonly colorPresets = COLOR_PRESETS;
 
+  readonly steps = [
+    { n: 1, label: 'Basic Information' },
+    { n: 2, label: 'Details & Pricing' },
+    { n: 3, label: 'Decoration' },
+    { n: 4, label: 'Variants & Media' },
+    { n: 5, label: 'Review' },
+  ];
+  readonly step = signal(1);
+
   readonly busy = signal(false);
   readonly formError = signal('');
   readonly deleteConfirmOpen = signal(false);
@@ -1777,11 +1952,13 @@ export class AdminProductEditorComponent implements OnChanges {
     const incomingCategory = this.categoryId || '';
     if (this.productId) {
       if (this.loadedProductId !== this.productId) {
+        this.step.set(1);
         this.loadedProductId = this.productId;
         this.persistedId = this.productId;
         this.loadProduct(this.productId);
       }
     } else if (this.loadedProductId !== null || !this.form.name) {
+      this.step.set(1);
       this.loadedProductId = null;
       this.persistedId = null;
       this.resetNew();
@@ -2194,6 +2371,58 @@ export class AdminProductEditorComponent implements OnChanges {
     this.serviceAddOns[key] = Math.round(n * 100) / 100;
   }
 
+  goStep(n: number) {
+    this.step.set(Math.min(this.steps.length, Math.max(1, n)));
+  }
+
+  nextStep() {
+    this.goStep(this.step() + 1);
+  }
+
+  prevStep() {
+    this.goStep(this.step() - 1);
+  }
+
+  nextStepLabel(): string {
+    return this.steps[Math.min(this.step(), this.steps.length - 1)].label;
+  }
+
+  /** Read-only summary for the Review step; `step` is where its Edit button jumps to. */
+  reviewRows(): { label: string; value: string; step: number }[] {
+    const f = this.form;
+    const list = (v: string[]) => v.filter(Boolean).join(', ');
+    const cats = this.selectedCategoryIds
+      .map((id) => this.categoryRows().find((c) => c.id === id)?.name)
+      .filter((x): x is string => !!x);
+    const brands = this.selectedBrandIds
+      .map((id) => this.brandList().find((b) => b.id === id)?.name)
+      .filter((x): x is string => !!x);
+    const sizes = this.selectedSizeIds
+      .map((id) => this.sizeOptions().find((z) => z.id === id)?.label)
+      .filter((x): x is string => !!x);
+    const price = f.basePrice !== '' && f.basePrice !== null ? `£${f.basePrice}` : '';
+    return [
+      { label: 'Name', value: f.name.trim(), step: 1 },
+      { label: 'Slug', value: f.slug, step: 1 },
+      { label: 'SKU', value: f.sku, step: 1 },
+      { label: 'Template', value: this.templates.find((t) => t.id === f.template)?.label || '', step: 2 },
+      { label: 'Material / Gender / Fit', value: [f.material, f.gender, f.fit].filter(Boolean).join(' · '), step: 2 },
+      { label: 'Price', value: [price, f.priceRange].filter(Boolean).join(' · '), step: 2 },
+      { label: 'Status', value: `${f.isActive ? 'Live' : 'Hidden'}${f.isFeatured ? ' · Featured on home' : ''}`, step: 2 },
+      { label: 'Sizes', value: list(sizes), step: 2 },
+      { label: 'Decoration methods', value: list(f.decoration), step: 3 },
+      { label: 'Categories', value: list(cats), step: 2 },
+      { label: 'Brands', value: list(brands), step: 2 },
+      {
+        label: 'Variants',
+        value: this.colors.length
+          ? `${this.colors.length} · ${list(this.colors.map((c) => c.name))}`
+          : '',
+        step: 4,
+      },
+    ];
+  }
+
   scrollTo(id: string) {
     this.host.nativeElement.querySelector('#' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -2513,6 +2742,28 @@ export class AdminProductEditorComponent implements OnChanges {
     const label = this.newDefaultAngleLabel.trim() || `Angle ${this.defaultAngles.length + 1}`;
     this.defaultAngles.push({ label, angle: this.slugify(label), src: '' });
     this.newDefaultAngleLabel = '';
+  }
+
+  /** Every image already on any variant (card images and angles), for reuse as the swatch/card image. */
+  variantImageOptions(): { key: string; label: string; url: string }[] {
+    const out: { key: string; label: string; url: string }[] = [];
+    const seen = new Set<string>();
+    this.colors.forEach((c, ci) => {
+      const add = (url: string | undefined, what: string) => {
+        const u = (url || '').trim();
+        if (!u || seen.has(u)) return;
+        seen.add(u);
+        out.push({ key: `${ci}-${what}-${out.length}`, label: `${c.name || 'Variant'} · ${what}`, url: u });
+      };
+      add(c.cardImage, 'Card');
+      c.views.forEach((v) => add(v.src, v.label || 'Angle'));
+    });
+    return out;
+  }
+
+  pickVariantImage(url: string) {
+    const c = this.colors[this.focusedIndex()];
+    if (c) c.cardImage = url;
   }
 
   onColorCardImage(event: Event, i: number) {
