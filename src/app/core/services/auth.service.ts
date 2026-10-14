@@ -172,6 +172,16 @@ export class AuthService {
     return !!this.userSignal()?.roles?.includes(role);
   }
 
+  /** Staff / admin accounts (same rule the admin route guard applies). */
+  isStaff(): boolean {
+    return (
+      this.hasPermission('catalog:manage') ||
+      this.hasPermission('catalog:read') ||
+      this.hasRole('ADMIN') ||
+      this.hasRole('STAFF')
+    );
+  }
+
   private persistSession(res: LoginResponse | (AccessTokenResponse & { user: AuthUser })) {
     this.persistTokens(res);
     sessionStorage.setItem(USER_KEY, JSON.stringify(res.user));

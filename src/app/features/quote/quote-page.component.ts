@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { CatalogService } from '../../core/services/catalog.service';
+import { DesignUploadStore } from '../../core/services/design-upload.store';
 import { formatGbp } from '../../core/utils/price';
 
 type SpecRow = { key: string; label: string; value: string };
@@ -90,7 +91,11 @@ type SpecRow = { key: string; label: string; value: string };
                 </p>
                 @if (samplePreview()) {
                   <div class="sample-preview">
-                    <img [src]="samplePreview()!" alt="Sample preview" />
+                    @if (isImageSample()) {
+                      <img [src]="samplePreview()!" alt="Sample preview" />
+                    } @else {
+                      <span class="sample-file">📎 {{ sampleFileName() }}</span>
+                    }
                     <button type="button" (click)="clearSample()">Remove</button>
                   </div>
                 }
@@ -263,6 +268,11 @@ type SpecRow = { key: string; label: string; value: string };
       border: 1px solid var(--line);
     }
 
+    .sample-file {
+      font-size: 0.85rem;
+      font-weight: 600;
+      word-break: break-all;
+    }
     .sample-preview button {
       border: 1px solid var(--line);
       background: #fff;
@@ -307,9 +317,11 @@ type SpecRow = { key: string; label: string; value: string };
 export class QuotePageComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly catalog = inject(CatalogService);
+  private readonly designUpload = inject(DesignUploadStore);
 
   readonly specRows = signal<SpecRow[]>([]);
   readonly samplePreview = signal<string | null>(null);
+  readonly sampleFileName = signal('');
   readonly submitting = signal(false);
   readonly confirm = signal('');
 
@@ -335,6 +347,9 @@ export class QuotePageComponent {
       ['decoration', 'Decoration'],
       ['placement', 'Placement'],
       ['privateLabel', 'Private label'],
+      ['plFile', 'Design file'],
+      ['plMaterial', 'Private label material'],
+      ['plNotes', 'Private label notes'],
       ['qty', 'Quantity'],
       ['unitPrice', 'Unit price'],
       ['estTotal', 'Estimated total'],
@@ -388,6 +403,24 @@ export class QuotePageComponent {
     } catch {
       // ignore
     }
+    this.loadDesignFile();
+  }
+
+  isImageSample(): boolean {
+    return !!this.samplePreview()?.startsWith('data:image/');
+  }
+
+  /** The design file from the designer's Private Label step becomes the enquiry attachment. */
+  private loadDesignFile() {
+    const file = this.designUpload.take();
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.samplePreview.set(String(reader.result || ''));
+      this.sampleName = file.name;
+      this.sampleFileName.set(file.name);
+    };
+    reader.readAsDataURL(file);
   }
 
   onSample(event: Event) {
@@ -401,6 +434,7 @@ export class QuotePageComponent {
       .then((res) => {
         this.samplePreview.set(res.src);
         this.sampleName = res.name;
+        this.sampleFileName.set(res.name);
       })
       .catch(() => {
         this.clearSample();

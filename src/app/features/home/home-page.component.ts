@@ -4,6 +4,7 @@ import {
   OnInit,
   OnDestroy,
   ViewChild,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -101,7 +102,6 @@ interface ActiveFilterChip {
               <div class="hero-card-meta">
                 <div>
                   <strong>{{ card.name }}</strong>
-                  <span>{{ card.styles }}</span>
                 </div>
                 <span class="hero-card-go" aria-hidden="true">→</span>
               </div>
@@ -128,15 +128,6 @@ interface ActiveFilterChip {
       </div>
     </section>
 
-    <div class="marquee-strip">
-      <div class="marquee-content">
-        <span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span>
-      </div>
-      <div class="marquee-content" aria-hidden="true">
-        <span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span><span>THREADGAFF</span>
-      </div>
-    </div>
-
     <section class="shop-hero" id="featuredCollection" aria-labelledby="featuredCollectionHeading">
       <div class="shop-hero-inner">
         <aside class="shop-filters" aria-label="Product filters">
@@ -153,7 +144,7 @@ interface ActiveFilterChip {
               <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
             </button>
             <div class="sf-group-body">
-              @for (c of collections(); track c.id) {
+              @for (c of mainCategories(); track c.slug) {
                 <label class="sf-check">
                   <input
                     type="checkbox"
@@ -727,32 +718,6 @@ interface ActiveFilterChip {
       color: #ffffff;
     }
     
-    .marquee-strip {
-      background: var(--ink, #1c1c1c);
-      color: #f3efe6;
-      padding: 9px 0;
-      overflow: hidden;
-      display: flex;
-    }
-    .marquee-content {
-      display: flex;
-      gap: 48px;
-      padding-right: 48px;
-      animation: marquee 50s linear infinite;
-      flex-shrink: 0;
-    }
-    .marquee-content span {
-      font-family: 'Montserrat', sans-serif;
-      font-size: 0.74rem;
-      font-weight: 600;
-      letter-spacing: 0.13em;
-      text-transform: uppercase;
-    }
-    @keyframes marquee {
-      0% { transform: translateX(0); }
-      100% { transform: translateX(-100%); }
-    }
-
     #featuredCollection { scroll-margin-top: 118px; }
 
     .shop-hero {
@@ -1083,6 +1048,18 @@ export class HomePageComponent implements OnInit, OnDestroy {
   readonly error = signal('');
   readonly filteredProducts = signal<Product[]>([]);
   readonly heroSlide = signal(0);
+  /**
+   * Main product categories (Hoodies, T-Shirts, Sweatshirts, Joggers, Polo Shirts, Sets) in
+   * slider order. The Featured Collection filter and product pool follow this list. If the
+   * catalogue uses none of these slugs, it falls back to the slider's categories.
+   */
+  readonly mainCategories = computed(() => {
+    const cards = this.heroCards();
+    const main = this.heroPreferredOrder
+      .map((slug) => cards.find((c) => c.slug === slug))
+      .filter((c): c is NonNullable<typeof c> => !!c);
+    return (main.length ? main : cards).map((c) => ({ slug: c.slug, name: c.name }));
+  });
   readonly allProducts = signal<Product[]>([]);
   /** productId → selected colour id for card preview */
   readonly cardColorIds = signal<Record<string, string>>({});
@@ -1126,14 +1103,14 @@ export class HomePageComponent implements OnInit, OnDestroy {
   ];
 
   readonly heroCards = signal<
-    { slug: string; name: string; styles: string; image: string; _isCustom?: boolean }[]
+    { slug: string; name: string; image: string; _isCustom?: boolean }[]
   >([
-    { slug: 'hoodies', name: 'Hoodies', styles: 'Styles', image: '/assets/images/prod_hoodie.jpg' },
-    { slug: 't-shirts', name: 'T-Shirts', styles: 'Styles', image: '/assets/images/prod_tshirt.jpg' },
-    { slug: 'sweatshirts', name: 'Sweatshirts', styles: 'Styles', image: '/assets/images/prod_sweatshirt.jpg' },
-    { slug: 'joggers', name: 'Joggers', styles: 'Styles', image: '/assets/images/prod_joggers.jpg' },
-    { slug: 'polo-shirts', name: 'Polo Shirts', styles: 'Styles', image: '/assets/images/prod_polo.jpg' },
-    { slug: 'sets', name: 'Sets/Co-ords', styles: 'Styles', image: '/assets/images/prod_sets.jpg' },
+    { slug: 'hoodies', name: 'Hoodies', image: '/assets/images/prod_hoodie.jpg' },
+    { slug: 't-shirts', name: 'T-Shirts', image: '/assets/images/prod_tshirt.jpg' },
+    { slug: 'sweatshirts', name: 'Sweatshirts', image: '/assets/images/prod_sweatshirt.jpg' },
+    { slug: 'joggers', name: 'Joggers', image: '/assets/images/prod_joggers.jpg' },
+    { slug: 'polo-shirts', name: 'Polo Shirts', image: '/assets/images/prod_polo.jpg' },
+    { slug: 'sets', name: 'Sets/Co-ords', image: '/assets/images/prod_sets.jpg' },
   ]);
 
   heroDotIndexes() {
@@ -1269,7 +1246,6 @@ export class HomePageComponent implements OnInit, OnDestroy {
     return this.heroPreferredOrder.map((slug) => ({
       slug,
       name: this.labelForSlug(slug),
-      styles: 'Styles',
       image: this.catalog.normalizeMediaUrl(this.heroFallbackImages[slug] || '/assets/images/prod_tshirt.jpg'),
     }));
   }
@@ -1293,7 +1269,6 @@ export class HomePageComponent implements OnInit, OnDestroy {
 
   private refreshHeroCards(cats: Category[], products: Product[]) {
     const bySlug = new Map(cats.map((c) => [c.slug, c]));
-    const counts = new Map<string, number>();
     const images = new Map<string, string>();
 
     const ranked = [...products].sort((a, b) => {
@@ -1305,7 +1280,6 @@ export class HomePageComponent implements OnInit, OnDestroy {
     for (const p of ranked) {
       const slug = p.category?.slug;
       if (!slug) continue;
-      counts.set(slug, (counts.get(slug) || 0) + 1);
 
       const pImage = this.catalog.cardImageUrl(p);
       const isCustom = !pImage.includes('/assets/');
@@ -1327,12 +1301,12 @@ export class HomePageComponent implements OnInit, OnDestroy {
     const unique = [...new Set(orderedSlugs)].slice(0, 8);
     if (!unique.length) {
       this.heroCards.set(this.defaultHeroCards());
+      this.applyFilters();
       return;
     }
 
     const cards = unique.map((slug) => {
       const cat = bySlug.get(slug);
-      const count = counts.get(slug) || 0;
       const rawImage =
         cat?.imageUrl ||
         images.get(slug) ||
@@ -1345,7 +1319,6 @@ export class HomePageComponent implements OnInit, OnDestroy {
           slug === 'sets'
             ? 'Sets/Co-ords'
             : cat?.name || this.labelForSlug(slug),
-        styles: count > 0 ? `${count}+ Styles` : 'Styles',
         image,
         _isCustom: !image.includes('/assets/'),
       };
@@ -1361,10 +1334,11 @@ export class HomePageComponent implements OnInit, OnDestroy {
       cards.map((c) => ({
         slug: c.slug,
         name: c.name,
-        styles: c.styles,
         image: c.image,
       }))
     );
+    // The featured collection follows these categories.
+    this.applyFilters();
   }
 
   toggleGroup(name: string) {
@@ -1431,10 +1405,20 @@ export class HomePageComponent implements OnInit, OnDestroy {
     );
   }
 
+  /** Products in the main categories (all products if none of them match yet). */
+  private inMainCategories(list: Product[]): Product[] {
+    const slugs = new Set(this.mainCategories().map((c) => c.slug));
+    const inMain = list.filter((p) => p.category?.slug && slugs.has(p.category.slug));
+    return inMain.length ? inMain : list;
+  }
+
   filterPoolSize(): number {
-    return this.hasActiveFilters()
-      ? this.allProducts().length || this.featured().length
-      : this.featured().length;
+    const pool = this.hasActiveFilters()
+      ? this.allProducts().length
+        ? this.allProducts()
+        : this.featured()
+      : this.featured();
+    return this.inMainCategories(pool).length;
   }
 
   activeFilterChips(): ActiveFilterChip[] {
@@ -1604,9 +1588,11 @@ export class HomePageComponent implements OnInit, OnDestroy {
 
   private applyFilters() {
     const filtering = this.hasActiveFilters();
-    let list = filtering
-      ? [...(this.allProducts().length ? this.allProducts() : this.featured())]
-      : [...this.featured()];
+    let list = this.inMainCategories(
+      filtering
+        ? [...(this.allProducts().length ? this.allProducts() : this.featured())]
+        : [...this.featured()],
+    );
 
     const cats = this.selectedCats();
     if (cats.size) {

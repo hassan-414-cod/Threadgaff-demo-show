@@ -14,36 +14,61 @@ import { AuthService } from '../../core/services/auth.service';
           <img src="/assets/images/logo.jpg" alt="" />
           Threadgaff
         </a>
-        <div class="kicker">Wholesale client access</div>
-        <h1>Designer access</h1>
-        <p class="sub">
-          Sign in or register to open the Custom Designer. Catalogue browsing stays open.
-        </p>
-
-        <div class="tabs">
+        <div class="role-toggle" role="group" aria-label="Sign in as">
           <button
             type="button"
-            [class.active]="mode() === 'login'"
-            (click)="switchMode('login')"
+            [class.active]="role() === 'customer'"
+            [attr.aria-pressed]="role() === 'customer'"
+            (click)="switchRole('customer')"
           >
-            Login
+            Customer
           </button>
           <button
             type="button"
-            [class.active]="mode() === 'register'"
-            (click)="switchMode('register')"
+            [class.active]="role() === 'admin'"
+            [attr.aria-pressed]="role() === 'admin'"
+            (click)="switchRole('admin')"
           >
-            Register
+            Admin
           </button>
         </div>
+
+        @if (role() === 'customer') {
+          <div class="kicker">Wholesale client access</div>
+          <h1>Designer access</h1>
+          <p class="sub">
+            Sign in or register to open the Custom Designer. Catalogue browsing stays open.
+          </p>
+
+          <div class="tabs">
+            <button
+              type="button"
+              [class.active]="mode() === 'login'"
+              (click)="switchMode('login')"
+            >
+              Login
+            </button>
+            <button
+              type="button"
+              [class.active]="mode() === 'register'"
+              (click)="switchMode('register')"
+            >
+              Register
+            </button>
+          </div>
+        } @else {
+          <div class="kicker">Staff access</div>
+          <h1>Admin sign-in</h1>
+          <p class="sub">Sign in with your staff account to manage the catalogue and sales desk.</p>
+        }
 
         @if (message()) {
           <div class="msg" [class.err]="isError()">{{ message() }}</div>
         }
 
-        @if (mode() === 'login') {
+        @if (mode() === 'login' || role() === 'admin') {
           <form (ngSubmit)="submit()">
-            <label for="loginEmail">Work email</label>
+            <label for="loginEmail">{{ role() === 'admin' ? 'Staff email' : 'Work email' }}</label>
             <input
               id="loginEmail"
               type="email"
@@ -64,7 +89,7 @@ import { AuthService } from '../../core/services/auth.service';
               [(ngModel)]="password"
             />
             <button class="auth-btn" type="submit" [disabled]="busy()">
-              Sign in &amp; continue
+              {{ role() === 'admin' ? 'Sign in to admin' : 'Sign in &amp; continue' }}
             </button>
           </form>
         } @else {
@@ -96,10 +121,11 @@ import { AuthService } from '../../core/services/auth.service';
           </form>
         }
 
-        <p class="note">
-          Client accounts are verified by email. Catalogue browsing stays open without signing in.
-        </p>
-        <a class="auth-btn admin-link" routerLink="/admin">Enter admin</a>
+        @if (role() === 'customer') {
+          <p class="note">
+            Client accounts are verified by email. Catalogue browsing stays open without signing in.
+          </p>
+        }
       </div>
     </div>
   `,
@@ -238,11 +264,29 @@ import { AuthService } from '../../core/services/auth.service';
       cursor: wait;
     }
 
-    .admin-link {
-      margin-top: 14px;
-      background: transparent;
-      color: var(--ink);
+    .role-toggle {
+      display: flex;
+      margin-bottom: 22px;
       border: 1px solid var(--line);
+    }
+
+    .role-toggle button {
+      flex: 1;
+      border: 0;
+      background: transparent;
+      padding: 10px;
+      font-weight: 700;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      color: var(--ink);
+      font-family: inherit;
+    }
+
+    .role-toggle button.active {
+      background: var(--ink);
+      color: #fff;
     }
 
     .note {
@@ -270,12 +314,22 @@ export class LoginPageComponent {
   private readonly route = inject(ActivatedRoute);
 
   readonly mode = signal<'login' | 'register'>('login');
+  readonly role = signal<'customer' | 'admin'>(
+    this.route.snapshot.queryParamMap.get('next')?.startsWith('/admin') ? 'admin' : 'customer',
+  );
   readonly message = signal('');
   readonly isError = signal(false);
   readonly busy = signal(false);
 
   email = '';
   password = '';
+
+  switchRole(role: 'customer' | 'admin') {
+    this.role.set(role);
+    this.mode.set('login');
+    this.message.set('');
+    this.isError.set(false);
+  }
 
   switchMode(mode: 'login' | 'register') {
     this.mode.set(mode);
@@ -289,7 +343,20 @@ export class LoginPageComponent {
     if (this.mode() === 'login') {
       this.auth.login(this.email, this.password).subscribe({
         next: () => {
-          const next = this.route.snapshot.queryParamMap.get('next') || '/designer';
+          const asAdmin = this.role() === 'admin';
+          if (asAdmin && !this.auth.isStaff()) {
+            this.busy.set(false);
+            this.isError.set(true);
+            this.message.set('This account does not have admin access.');
+            this.auth.logout().subscribe();
+            return;
+          }
+          const requested = this.route.snapshot.queryParamMap.get('next');
+          const next = asAdmin
+            ? requested?.startsWith('/admin')
+              ? requested
+              : '/admin'
+            : requested || '/designer';
           this.router.navigateByUrl(next);
         },
         error: (err) => {

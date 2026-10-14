@@ -391,7 +391,7 @@ export class HowWeWorkPageComponent {
       num: '01',
       title: 'Design & Enquiry',
       body:
-        'Pick a starting point from our products, or bring your own artwork. Submit your spec through the configurator or an enquiry form.<br><strong>Who:</strong> Client provides spec. Threadgaff provides digital proof. (1-2 days)',
+        'Pick a starting point from our products, or bring your own artwork. Submit your spec through the configurator or an enquiry form. In the Private Label step of the configurator, upload one file with your measurements and text (PDF, PNG, JPG, AI or ZIP), pick a material and add notes.<br><strong>Who:</strong> Client provides spec and design file. Threadgaff provides digital proof from that file. (1-2 days)',
     },
     {
       num: '02',

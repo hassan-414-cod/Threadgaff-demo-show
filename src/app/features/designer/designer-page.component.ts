@@ -14,6 +14,12 @@ import {
 } from '../../core/utils/price';
 import { hasDisplayHex } from '../../core/utils/hex';
 import { cardDescription } from '../../core/utils/description';
+import {
+  DESIGN_UPLOAD_ACCEPT,
+  DESIGN_UPLOAD_MAX_BYTES,
+  DesignUploadStore,
+  formatFileSize,
+} from '../../core/services/design-upload.store';
 
 type Garment = 'tee' | 'hoodie' | 'polo';
 
@@ -109,7 +115,7 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                 <div class="stage-wrap">
                   <div class="stage" [style.transform]="'scale(' + zoom() / 100 + ')'">
                     <img class="stage-img" [src]="previewSrc()" [alt]="product()!.name" />
-                    <div class="stage-tint" [style.background]="selectedColor()?.hex || '#55613f'"></div>
+                    <div class="stage-tint" [style.background]="selectedColor().hex || '#55613f'"></div>
                     @if (logoPreview()) {
                       <div class="stage-logo"><img [src]="logoPreview()!" alt="Logo" /></div>
                     }
@@ -252,25 +258,44 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
               <article class="step" [class.open]="openSteps().has(3)">
                 <button type="button" class="step-h" (click)="setStep(3)">
                   <span class="step-n">3</span>
-                  <span><strong>Private Label</strong><small>Customize labels, hangtags and packaging.</small></span>
+                  <span><strong>Private Label</strong><small>Upload your design file, choose a material and add notes.</small></span>
                 </button>
                 @if (openSteps().has(3)) {
                   <div class="step-body">
-                    @if (privateLabelOptions().length) {
-                      @for (opt of privateLabelOptions(); track opt.value) {
-                        <label class="check">
-                          <input
-                            type="checkbox"
-                            [checked]="isPrivateLabelSelected(opt.value)"
-                            (change)="togglePrivateLabel(opt, $event)"
-                          />
-                          {{ opt.label }}
-                        </label>
+                    <div class="field">
+                      <span class="lbl">Design file</span>
+                      <label class="upload">
+                        <strong>{{ plFile()?.name || 'Upload design file' }}</strong>
+                        <span>
+                          {{ plFile() ? fileSize(plFile()!.size) : 'Measurements and text. ' + plAcceptLabel + ', max ' + plMaxLabel }}
+                        </span>
+                        <input type="file" hidden [accept]="plAccept" (change)="onPrivateLabelFile($event)" />
+                      </label>
+                      @if (plFileError()) {
+                        <p class="hint hint-err" role="alert">{{ plFileError() }}</p>
                       }
-                      <p class="hint">Private label options are included in your quote request for the team to confirm.</p>
-                    } @else {
-                      <p class="hint">No private label options selected for this product in admin.</p>
-                    }
+                      @if (plFile()) {
+                        <button type="button" class="linkish" (click)="clearPrivateLabelFile()">Remove file</button>
+                      }
+                    </div>
+                    <div class="field">
+                      <span class="lbl">Material</span>
+                      @if (fabricOptions().length) {
+                        <select [ngModel]="plMaterial()" (ngModelChange)="plMaterial.set($event)" aria-label="Private label material">
+                          <option value="">Select material</option>
+                          @for (f of fabricOptions(); track f.value) {
+                            <option [value]="f.label">{{ f.label }}</option>
+                          }
+                        </select>
+                      } @else {
+                        <input type="text" maxlength="80" placeholder="e.g. 100% organic cotton, 280 GSM" [ngModel]="plMaterial()" (ngModelChange)="plMaterial.set($event)" aria-label="Private label material" />
+                      }
+                    </div>
+                    <div class="field">
+                      <span class="lbl">Notes</span>
+                      <textarea rows="4" maxlength="1000" placeholder="Explain your design in detail: label placement, sizes, packaging, anything we should know." [ngModel]="plNotes()" (ngModelChange)="plNotes.set($event)"></textarea>
+                    </div>
+                    <p class="hint">Using an AI-generated design? Upload the image or PDF. Your file feeds the digital proof we prepare in step 1 of How We Work.</p>
                   </div>
                 }
               </article>
@@ -302,7 +327,7 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                 </button>
                 @if (openSteps().has(5)) {
                   <div class="step-body">
-                    <p class="review-line">{{ product()!.name }} · {{ sleeveLabel() }} · {{ styleLabel() }} · {{ selectedColor()?.name || 'No colour' }}</p>
+                    <p class="review-line">{{ product()!.name }} · {{ sleeveLabel() }} · {{ styleLabel() }} · {{ selectedColor().name || 'No colour' }}</p>
                     <p class="review-line">
                       {{ fabricLabel() !== '—' ? fabricLabel() : 'Fabric TBC' }}
                       @if (gsmLabel()) { · {{ gsmLabel() }} }
@@ -337,10 +362,10 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                   <div>
                     <dt>Colour</dt>
                     <dd class="color-dd">
-                      @if (selectedColor()?.hex) {
-                        <i [style.background]="selectedColor()!.hex"></i>
+                      @if (selectedColor().hex) {
+                        <i [style.background]="selectedColor().hex"></i>
                       }
-                      {{ selectedColor()?.name || '—' }}
+                      {{ selectedColor().name || '—' }}
                     </dd>
                   </div>
                   @if (sleeveLabel()) {
@@ -355,6 +380,12 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                   }
                   @if (privateLabelSummary()) {
                     <div><dt>Private Label</dt><dd>{{ privateLabelSummary() }}</dd></div>
+                  }
+                  @if (plFile()) {
+                    <div><dt>Design file</dt><dd>{{ plFile()!.name }}</dd></div>
+                  }
+                  @if (plMaterial()) {
+                    <div><dt>Label material</dt><dd>{{ plMaterial() }}</dd></div>
                   }
                   <div><dt>Quantity</dt><dd>{{ totalQty() }} units</dd></div>
                   <div><dt>MOQ</dt><dd>150 units</dd></div>
@@ -546,6 +577,7 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
     .upload span { color: var(--muted); font-size: 0.72rem; }
     .check { display: flex; gap: 8px; align-items: center; font-size: 0.85rem; }
     .hint { margin: 0; font-size: 0.72rem; color: var(--muted); }
+    .hint-err { color: #8b3a2f; }
     .linkish { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font: inherit; padding: 0; width: fit-content; }
     .qty-grid { display: flex; flex-wrap: wrap; gap: 8px; }
     .qty-cell {
@@ -609,25 +641,26 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
     .info-card strong { display: block; margin-bottom: 4px; font-size: 0.85rem; }
     .info-card span { color: var(--muted); font-size: 0.72rem; }
 
-    .des-pick { max-width: 1100px; margin: 0 auto; padding: 24px 0; }
-    .des-pick-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 28px; }
-    .des-pick-kicker { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
-    .des-pick-panel h2 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 600; text-transform: none; margin: 0 0 10px; }
-    .des-pick-lede { color: var(--muted); font-size: 0.92rem; margin: 0 0 22px; max-width: 60ch; }
-    .des-pick-empty { color: var(--muted); margin: 0 0 16px; }
-    .des-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; margin-bottom: 22px; }
-    .des-pick-card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px; text-align: left; cursor: pointer; font: inherit; color: inherit; display: flex; flex-direction: column; gap: 8px; }
-    .des-pick-card:hover { border-color: var(--ink); }
-    .des-pick-card img { width: 100%; aspect-ratio: 4/5; object-fit: contain; background: var(--paper); border-radius: 4px; }
-    .des-pick-name { font-weight: 650; font-size: 0.88rem; }
-    .des-pick-meta { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .des-pick { max-width: 1200px; margin: 0 auto; padding: 40px 0; }
+    .des-pick-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 40px; }
+    .des-pick-kicker { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+    .des-pick-panel h2 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: clamp(2rem, 4vw, 3rem); font-weight: 600; text-transform: none; margin: 0 0 14px; }
+    .des-pick-lede { color: var(--muted); font-size: 1.1rem; margin: 0 0 30px; max-width: 65ch; line-height: 1.5; }
+    .des-pick-empty { color: var(--muted); margin: 0 0 20px; font-size: 1.1rem; }
+    .des-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
+    .des-pick-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px; text-align: left; cursor: pointer; font: inherit; color: inherit; display: flex; flex-direction: column; gap: 10px; transition: transform 0.2s, box-shadow 0.2s; }
+    .des-pick-card:hover { border-color: var(--ink); transform: translateY(-3px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    .des-pick-card img { width: 100%; aspect-ratio: 4/5; object-fit: contain; background: var(--paper); border-radius: 6px; }
+    .des-pick-name { font-weight: 650; font-size: 1.1rem; }
+    .des-pick-meta { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
     .des-pick-desc {
-      font-size: 0.72rem; line-height: 1.35; color: var(--muted);
+      font-size: 0.85rem; line-height: 1.4; color: var(--muted);
       display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
     }
-    .des-pick-price { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; font-weight: 600; }
-    .des-pick-foot { display: flex; gap: 10px; flex-wrap: wrap; }
-    .btn-outline { display: inline-flex; padding: 11px 18px; border: 1px solid var(--forest); color: var(--forest); border-radius: 2px; font-weight: 600; font-size: 0.85rem; text-decoration: none; }
+    .des-pick-price { font-family: 'IBM Plex Mono', monospace; font-size: 0.9rem; font-weight: 600; }
+    .des-pick-foot { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+    .btn-outline { display: inline-flex; padding: 11px 18px; border: 1px solid var(--forest); color: var(--forest); border-radius: 2px; font-weight: 600; font-size: 0.85rem; text-decoration: none; transition: background 0.2s, color 0.2s; }
+    .btn-outline:hover { background: var(--forest); color: #fff; }
     .alert { background: #f8e8e6; color: #8b3a2f; padding: 10px 12px; margin-bottom: 14px; font-size: 0.85rem; }
 
     @media (max-width: 1100px) {
@@ -674,6 +707,15 @@ export class DesignerPageComponent implements OnInit {
   readonly buyerNotes = signal('');
   readonly saveMsg = signal('');
   readonly privateLabelValues = signal<string[]>([]);
+  private readonly designUpload = inject(DesignUploadStore);
+  readonly plFile = signal<File | null>(null);
+  readonly plFileError = signal('');
+  readonly plMaterial = signal('');
+  readonly plNotes = signal('');
+  readonly plAccept = DESIGN_UPLOAD_ACCEPT;
+  readonly plAcceptLabel = 'PDF, PNG, JPG, AI or ZIP';
+  readonly plMaxLabel = formatFileSize(DESIGN_UPLOAD_MAX_BYTES);
+  readonly fileSize = formatFileSize;
   readonly productSleeveOpts = signal<AttrOpt[]>([]);
   readonly productFabricOpts = signal<AttrOpt[]>([]);
   readonly productGsmOpts = signal<AttrOpt[]>([]);
@@ -925,18 +967,25 @@ export class DesignerPageComponent implements OnInit {
     this.placementValue.set(value);
   }
 
-  isPrivateLabelSelected(value: string): boolean {
-    return this.privateLabelValues().includes(value);
+  onPrivateLabelFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const err = this.designUpload.validate(file);
+    input.value = '';
+    if (err) {
+      this.plFileError.set(err);
+      return;
+    }
+    this.plFileError.set('');
+    this.plFile.set(file);
+    this.designUpload.set(file);
   }
 
-  togglePrivateLabel(opt: AttrOpt, event: Event) {
-    const checked = !!(event.target as HTMLInputElement)?.checked;
-    this.privateLabelValues.update((list) => {
-      if (checked) {
-        return list.includes(opt.value) ? list : [...list, opt.value];
-      }
-      return list.filter((v) => v !== opt.value);
-    });
+  clearPrivateLabelFile() {
+    this.plFile.set(null);
+    this.plFileError.set('');
+    this.designUpload.set(null);
   }
 
   privateLabelSummary(): string {
@@ -970,6 +1019,9 @@ export class DesignerPageComponent implements OnInit {
         qty: this.qtyMap(),
         notes: this.buyerNotes(),
         privateLabel: this.privateLabelSummary(),
+        privateLabelMaterial: this.plMaterial(),
+        privateLabelNotes: this.plNotes(),
+        privateLabelFile: this.plFile()?.name || '',
         savedAt: new Date().toISOString(),
       };
       localStorage.setItem('tg_saved_design', JSON.stringify(payload));
@@ -1018,6 +1070,9 @@ export class DesignerPageComponent implements OnInit {
         brand: this.brandText() || undefined,
         notes: this.buyerNotes() || undefined,
         privateLabel: this.privateLabelSummary() || undefined,
+        plFile: this.plFile()?.name || undefined,
+        plMaterial: this.plMaterial().trim() || undefined,
+        plNotes: this.plNotes().trim() || undefined,
         unitPrice: this.configuredUnitPrice() > 0
           ? this.configuredUnitPrice().toFixed(2)
           : unit > 0
