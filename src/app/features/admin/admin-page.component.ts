@@ -14,6 +14,8 @@ import {
 } from '../../core/services/catalog.service';
 import { AuthService } from '../../core/services/auth.service';
 import { AdminProductEditorComponent } from './admin-product-editor.component';
+import { AdminFiltersComponent } from './admin-filters.component';
+import { AdminSiteOutlookComponent } from './admin-site-outlook.component';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
 
 type AdminView =
@@ -23,13 +25,15 @@ type AdminView =
   | 'brands'
   | 'categories'
   | 'attributes'
+  | 'filters'
+  | 'outlook'
   | 'orders'
   | 'enquiries'
   | 'quotations'
   | 'invoices'
   | 'settings';
 type CatalogMode = 'collections' | 'extras';
-type ProductNav = 'all' | 'add' | 'brands' | 'categories' | 'attributes';
+type ProductNav = 'all' | 'add' | 'brands' | 'categories' | 'attributes' | 'filters';
 
 interface ProductEditorState {
   productId: string | null;
@@ -50,7 +54,14 @@ interface CategoryTreeListRow {
 @Component({
   selector: 'tg-admin-page',
   standalone: true,
-  imports: [FormsModule, RouterLink, AdminProductEditorComponent, AdminSalesDeskComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    AdminProductEditorComponent,
+    AdminSalesDeskComponent,
+    AdminFiltersComponent,
+    AdminSiteOutlookComponent,
+  ],
   template: `
     <div class="shell">
       <aside class="sidebar">
@@ -119,6 +130,14 @@ interface CategoryTreeListRow {
               >
                 Attributes
               </button>
+              <button
+                type="button"
+                class="nav-sub-btn"
+                [class.active]="view() === 'filters'"
+                (click)="goProducts('filters')"
+              >
+                Filters
+              </button>
             </div>
           }
         </div>
@@ -171,6 +190,14 @@ interface CategoryTreeListRow {
         <button
           type="button"
           class="nav-btn"
+          [class.active]="view() === 'outlook'"
+          (click)="setView('outlook')"
+        >
+          Site Outlook
+        </button>
+        <button
+          type="button"
+          class="nav-btn"
           [class.active]="view() === 'settings'"
           (click)="setView('settings')"
         >
@@ -200,8 +227,15 @@ interface CategoryTreeListRow {
             (saved)="onProductSaved($event)"
             (deleted)="onProductDeleted()"
             (categoriesChanged)="reloadCollections()"
+            (openFilters)="goFiltersFromEditor()"
           />
         } @else {
+          @if (view() === 'filters') {
+            <tg-admin-filters />
+          }
+          @if (view() === 'outlook') {
+            <tg-admin-site-outlook />
+          }
           @if (view() === 'overview') {
           <div class="topbar">
             <div>
@@ -2232,8 +2266,14 @@ export class AdminPageComponent implements OnInit {
       v === 'brands' ||
       v === 'categories' ||
       v === 'attributes' ||
+      v === 'filters' ||
       v === 'collections'
     );
+  }
+
+  /** From the product editor's "Edit filters" button. */
+  goFiltersFromEditor() {
+    this.goProducts('filters');
   }
 
   toggleProductsNav() {
@@ -2261,6 +2301,8 @@ export class AdminPageComponent implements OnInit {
     } else if (tab === 'attributes') {
       this.view.set('attributes');
       this.loadAttributes();
+    } else if (tab === 'filters') {
+      this.view.set('filters');
     }
     this.syncAdminUrl();
   }
@@ -3339,6 +3381,8 @@ export class AdminPageComponent implements OnInit {
       'brands',
       'categories',
       'attributes',
+      'filters',
+      'outlook',
       'orders',
       'enquiries',
       'quotations',

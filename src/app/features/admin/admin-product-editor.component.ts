@@ -5,6 +5,7 @@ import {
   Input,
   OnChanges,
   Output,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -21,6 +22,22 @@ import { Category, Product, ProductTag } from '../../core/models/catalog.models'
 import { forkJoin, of, timer, throwError } from 'rxjs';
 import { catchError, map, switchMap, retry } from 'rxjs/operators';
 import { AuthService } from '../../core/services/auth.service';
+import {
+  BUILTIN_FILTERS,
+  customFilterDefinitions,
+  filterOptionLabels,
+  isCustomFilterCode,
+} from '../../core/utils/filters';
+import { SiteSettingsService } from '../../core/services/site-settings.service';
+
+interface PickerGroup {
+  code: string;
+  title: string;
+  /** Material and Gender hold one value; the rest are checklists. */
+  kind: 'single' | 'multi';
+  options: string[];
+  hidden: boolean;
+}
 
 interface AngleSlot {
   label: string;
@@ -258,27 +275,6 @@ const DEFAULT_BRAND_NAMES = [
                   </select>
                 </div>
                 <div>
-                  <label>Material</label>
-                  <select [(ngModel)]="form.material" name="material">
-                    <option value="">—</option>
-                    @for (m of attrOptionLabels('material'); track m) {
-                      <option [value]="m">{{ m }}</option>
-                    }
-                  </select>
-                </div>
-                <div>
-                  <label>Gender</label>
-                  <select [(ngModel)]="form.gender" name="gender">
-                    <option value="">—</option>
-                    @for (g of attrOptionLabels('gender'); track g) {
-                      <option [value]="g">{{ g }}</option>
-                    }
-                  </select>
-                  <p class="field-hint">
-                    Unisex shows in both Men’s and Women’s. Men’s / Women’s also include Unisex.
-                  </p>
-                </div>
-                <div>
                   <label>Fit</label>
                   <select [(ngModel)]="form.fit" name="fit">
                     <option value="">—</option>
@@ -376,6 +372,28 @@ const DEFAULT_BRAND_NAMES = [
                     </label>
                   }
                 </div>
+              </div>
+
+              <div class="row-gap filters-block">
+                <div class="filters-head">
+                  <label>Filters</label>
+                  <button type="button" class="btn btn-ghost filters-btn" (click)="openFilterPicker()">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+                    Filters
+                    @if (selectedFilterCount()) {
+                      <span class="filters-count">{{ selectedFilterCount() }}</span>
+                    }
+                  </button>
+                </div>
+                @if (selectedFilterGroups().length) {
+                  <div class="filter-chips">
+                    @for (g of selectedFilterGroups(); track g.title) {
+                      <span class="fchip"><b>{{ g.title }}</b>{{ g.values.join(', ') }}</span>
+                    }
+                  </div>
+                } @else {
+                  <p class="field-hint">No filters selected yet.</p>
+                }
               </div>
             </section>
 
@@ -508,19 +526,6 @@ const DEFAULT_BRAND_NAMES = [
               <p class="field-hint">
                 Tick options to show them in Custom Designer. Optional +£ add-on is per unit and added to the designer summary total.
               </p>
-              <label>Sustainability</label>
-              <div class="checks checks-compact">
-                @for (s of attrOptionLabels('sustainability'); track s) {
-                  <label [class.ui-check-on]="isChecked(form.sustainability, s)">
-                    <input
-                      type="checkbox"
-                      [checked]="isChecked(form.sustainability, s)"
-                      (change)="toggleCheck(form.sustainability, s, $event)"
-                    />
-                    {{ s }}
-                  </label>
-                }
-              </div>
               <label>Custom attributes</label>
               @for (a of extraAttrs; track $index; let i = $index) {
                 <div class="attr-row">
@@ -1240,6 +1245,54 @@ const DEFAULT_BRAND_NAMES = [
       </div>
     </div>
 
+    @if (filterPickerOpen()) {
+      <div class="modal-bg open" (click)="closeFilterPicker()">
+        <div class="modal modal-filters" (click)="$event.stopPropagation()" role="dialog" aria-label="Select filters">
+          <header>
+            <h2>Select filters</h2>
+            <button type="button" class="btn btn-ghost" (click)="closeFilterPicker()" aria-label="Close">×</button>
+          </header>
+          <div class="body fp-body">
+            <p class="fp-note">
+              Only the filters set on the Filters page can be selected here. To add, remove or rename them, go to the Filters page.
+              <button type="button" class="mini-link" (click)="goFilters()">Edit filters →</button>
+            </p>
+            <div class="fp-grid">
+              @for (g of pickerGroups(); track g.code) {
+                <section class="fp-group">
+                  <div class="fg-title">
+                    {{ g.title }}
+                    @if (g.kind === 'single') { <span class="fp-tag">pick one</span> }
+                    @if (g.hidden) { <span class="fp-tag fp-tag-off">hidden on shop</span> }
+                  </div>
+                  @if (g.options.length) {
+                    <div class="fp-checks">
+                      @for (o of g.options; track o) {
+                        <label [class.on]="pickerChecked(g, o)">
+                          <input
+                            type="checkbox"
+                            [checked]="pickerChecked(g, o)"
+                            (change)="pickerToggle(g, o, $event)"
+                          />
+                          {{ o }}
+                        </label>
+                      }
+                    </div>
+                  } @else {
+                    <p class="field-hint">No items yet.</p>
+                  }
+                </section>
+              }
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" (click)="closeFilterPicker()">Cancel</button>
+            <button type="button" class="btn btn-gold" (click)="saveFilterPicker()">Save</button>
+          </div>
+        </div>
+      </div>
+    }
+
     @if (deleteConfirmOpen()) {
       <div class="modal-bg open" (click)="cancelDeleteConfirm()">
         <div class="modal modal-confirm" (click)="$event.stopPropagation()" role="dialog">
@@ -1431,6 +1484,45 @@ const DEFAULT_BRAND_NAMES = [
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
     .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 12px; }
     .row-gap { margin-top: 8px; }
+    .filters-block { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e4e0d6; }
+    .filters-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+    .filters-head label { margin: 0; }
+    .filters-btn { padding: 6px 12px; font-size: 0.78rem; }
+    .filters-count {
+      min-width: 18px; height: 18px; border-radius: 999px; background: #3d4b37; color: #fff;
+      font-size: 0.68rem; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px;
+    }
+    .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .fchip {
+      display: inline-flex; gap: 6px; align-items: baseline; background: #eef2ea; color: #2f3b2a;
+      border: 1px solid #d8e0d1; border-radius: 999px; padding: 4px 10px; font-size: 0.74rem;
+    }
+    .fchip b { font-weight: 700; }
+    .modal.modal-filters { max-width: 680px; }
+    .fp-body { max-height: min(56vh, 460px); overflow: auto; }
+    .fp-note { margin: 0 0 14px; font-size: 0.76rem; color: #6b6f63; line-height: 1.5; }
+    .fp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 22px; }
+    .fp-tag {
+      font-size: 0.62rem; font-weight: 600; color: #6b6f63; background: #f1eee6; border-radius: 999px;
+      padding: 1px 7px; margin-left: 6px;
+    }
+    .fp-tag-off { background: #f8ece9; color: #8b3a2f; }
+    .fp-checks { display: flex; flex-direction: column; gap: 4px; }
+    .fp-checks label {
+      display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 8px; border-radius: 8px;
+      font-size: 0.82rem; font-weight: 500; cursor: pointer; text-transform: none; letter-spacing: 0;
+    }
+    .fp-checks label:hover { background: #f5f3ef; }
+    .fp-checks label.on { background: #eef2ea; }
+    .fp-checks input { width: auto; margin: 0; accent-color: #3d4b37; }
+    @media (max-width: 620px) { .fp-grid { grid-template-columns: 1fr; } }
+    .mini-link {
+      border: 1px solid #d4cec0; background: #fff; color: #3d4b37; font: inherit; font-size: 0.72rem;
+      font-weight: 600; padding: 3px 9px; border-radius: 999px; cursor: pointer; margin-left: 4px;
+    }
+    .mini-link:hover { background: #eef2ea; border-color: #3d4b37; }
+    .filter-group { margin-bottom: 10px; }
+    .fg-title { font-size: 0.78rem; font-weight: 700; margin-bottom: 6px; }
     .field-hint { margin: -6px 0 12px; color: #6b6f63; font-size: 0.74rem; max-width: none; }
     .req { color: #b33a2e; }
     .fn { color: #6b6f63; font-size: 0.82rem; margin: 0; max-width: none; }
@@ -1863,6 +1955,8 @@ export class AdminProductEditorComponent implements OnChanges {
   @Output() saved = new EventEmitter<Product>();
   @Output() deleted = new EventEmitter<void>();
   @Output() categoriesChanged = new EventEmitter<void>();
+  /** Asks the admin shell to open the Filters page. */
+  @Output() openFilters = new EventEmitter<void>();
 
   /** Set after first successful create so retries update instead of duplicating. */
   private persistedId: string | null = null;
@@ -1901,6 +1995,41 @@ export class AdminProductEditorComponent implements OnChanges {
   readonly brandList = signal<ProductTag[]>([]);
   readonly apparelRootLabel = signal('Apparel');
   readonly attrDefs = signal<AttributeDefinition[]>([]);
+  /** Filters added on the Filters page (the built-in ones have their own fields above). */
+  readonly customFilters = computed(() => customFilterDefinitions(this.attrDefs()));
+  /** Ticked items per added filter, keyed by attribute code. */
+  customFilterValues: Record<string, string[]> = {};
+  private readonly site = inject(SiteSettingsService);
+
+  readonly filterPickerOpen = signal(false);
+  /** Working copy edited in the popup; copied into the form only when Save is pressed. */
+  filterDraft = {
+    material: '',
+    gender: '',
+    sustainability: [] as string[],
+    custom: {} as Record<string, string[]>,
+  };
+
+  /** Every filter that can be picked: the existing three, then the ones added on the Filters page. */
+  readonly pickerGroups = computed((): PickerGroup[] => {
+    const defs = this.attrDefs();
+    const hidden = this.site.settings().hiddenFilters;
+    const builtin = BUILTIN_FILTERS.map((b) => ({
+      code: b.code,
+      title: b.title,
+      kind: (b.code === 'sustainability' ? 'multi' : 'single') as 'single' | 'multi',
+      options: filterOptionLabels(defs.find((d) => d.code === b.code)),
+      hidden: hidden.includes(b.code),
+    }));
+    const custom = customFilterDefinitions(defs).map((d) => ({
+      code: d.code,
+      title: d.name,
+      kind: 'multi' as const,
+      options: filterOptionLabels(d),
+      hidden: hidden.includes(d.code),
+    }));
+    return [...builtin, ...custom];
+  });
   readonly sizeOptions = signal<CatalogSize[]>([]);
   readonly styleOptsBusy = signal(false);
   readonly styleOptsMsg = signal('');
@@ -2148,19 +2277,100 @@ export class AdminProductEditorComponent implements OnChanges {
         .map((o) => o.label)
         .filter(Boolean) || [];
     if (fromApi.length) return fromApi;
-    if (code === 'material') return [...this.materials];
-    if (code === 'gender') return [...this.genders];
+    // Material, Gender and Sustainability are filters: only what is set on the Filters page
+    // is offered, with no built-in fallback list.
+    if (code === 'material' || code === 'gender' || code === 'sustainability') return [];
     if (code === 'fit') return [...this.fits];
     if (code === 'sleeve') return ['Short', 'Long'];
     if (code === 'style') {
       return ['Pullover', 'Zip-Up', 'Crew', 'V-Neck', 'Classic Collar', 'Neck'];
     }
     if (code === 'decoration') return [...this.decorations];
-    if (code === 'sustainability') return [...this.sustainability];
     if (code === 'gsm') return [...GSM_OPTIONS];
     if (code === 'placement' || code === 'logo_placement') return [...PLACEMENT_OPTIONS];
     if (code === 'private_label') return [...PRIVATE_LABEL_OPTIONS];
     return [];
+  }
+
+  /** Checklist items of a filter added on the Filters page. */
+  customFilterOptions(def: AttributeDefinition): string[] {
+    return filterOptionLabels(def);
+  }
+
+  /** The ticked items for an added filter (created on first use). */
+  customList(code: string): string[] {
+    return (this.customFilterValues[code] ||= []);
+  }
+
+  /** Filters chosen for this product, grouped by heading (shown next to the Filters button). */
+  selectedFilterGroups(): Array<{ title: string; values: string[] }> {
+    const out: Array<{ title: string; values: string[] }> = [];
+    const add = (title: string, values: string[]) => {
+      if (values.length) out.push({ title, values });
+    };
+    add('Sustainability & Ethics', this.form.sustainability);
+    add('Material', this.form.material ? [this.form.material] : []);
+    add('Gender', this.form.gender ? [this.form.gender] : []);
+    for (const d of this.customFilters()) add(d.name, this.customFilterValues[d.code] || []);
+    return out;
+  }
+
+  selectedFilterCount(): number {
+    return this.selectedFilterGroups().reduce((n, g) => n + g.values.length, 0);
+  }
+
+  openFilterPicker() {
+    this.filterDraft = {
+      material: this.form.material,
+      gender: this.form.gender,
+      sustainability: [...this.form.sustainability],
+      custom: Object.fromEntries(
+        Object.entries(this.customFilterValues).map(([k, v]) => [k, [...v]]),
+      ),
+    };
+    this.filterPickerOpen.set(true);
+  }
+
+  closeFilterPicker() {
+    this.filterPickerOpen.set(false);
+  }
+
+  /** Save in the popup: copy the picks into the product and show them next to the button. */
+  saveFilterPicker() {
+    const d = this.filterDraft;
+    this.form.material = d.material;
+    this.form.gender = d.gender;
+    this.form.sustainability = [...d.sustainability];
+    this.customFilterValues = Object.fromEntries(
+      Object.entries(d.custom).map(([k, v]) => [k, [...v]]),
+    );
+    this.filterPickerOpen.set(false);
+  }
+
+  pickerChecked(g: PickerGroup, option: string): boolean {
+    const d = this.filterDraft;
+    if (g.code === 'material') return d.material === option;
+    if (g.code === 'gender') return d.gender === option;
+    if (g.code === 'sustainability') return d.sustainability.includes(option);
+    return (d.custom[g.code] || []).includes(option);
+  }
+
+  pickerToggle(g: PickerGroup, option: string, event: Event) {
+    const on = (event.target as HTMLInputElement).checked;
+    const d = this.filterDraft;
+    if (g.code === 'material') d.material = on ? option : '';
+    else if (g.code === 'gender') d.gender = on ? option : '';
+    else if (g.code === 'sustainability') this.toggleCheck(d.sustainability, option, event);
+    else this.toggleCheck((d.custom[g.code] ||= []), option, event);
+  }
+
+  /** Mini button in the filter popup: open the Filters page. */
+  goFilters() {
+    if (this.form.name.trim() && !confirm('Open the Filters page? Unsaved changes to this product will be lost.')) {
+      return;
+    }
+    this.filterPickerOpen.set(false);
+    this.openFilters.emit();
   }
 
   isHoodieProduct(): boolean {
@@ -2406,7 +2616,14 @@ export class AdminProductEditorComponent implements OnChanges {
       { label: 'Slug', value: f.slug, step: 1 },
       { label: 'SKU', value: f.sku, step: 1 },
       { label: 'Template', value: this.templates.find((t) => t.id === f.template)?.label || '', step: 2 },
-      { label: 'Material / Gender / Fit', value: [f.material, f.gender, f.fit].filter(Boolean).join(' · '), step: 2 },
+      { label: 'Fit', value: f.fit, step: 2 },
+      {
+        label: 'Filters',
+        value: this.selectedFilterGroups()
+          .map((g) => g.title + ': ' + g.values.join(', '))
+          .join(' · '),
+        step: 2,
+      },
       { label: 'Price', value: [price, f.priceRange].filter(Boolean).join(' · '), step: 2 },
       { label: 'Status', value: `${f.isActive ? 'Live' : 'Hidden'}${f.isFeatured ? ' · Featured on home' : ''}`, step: 2 },
       { label: 'Sizes', value: list(sizes), step: 2 },
@@ -2539,6 +2756,7 @@ export class AdminProductEditorComponent implements OnChanges {
   private loadAttrDefs(force = false) {
     if (this.attrsLoaded && !force) return;
     this.attrsLoaded = true;
+    this.site.load(); // which filters are hidden on the shop
     this.catalog.getAttributes().subscribe({
       next: (defs) => {
         this.attrDefs.set(defs.filter((d) => d.isActive !== false));
@@ -2552,6 +2770,7 @@ export class AdminProductEditorComponent implements OnChanges {
           if (fromAttrs.sustainability.length) {
             this.form.sustainability = fromAttrs.sustainability;
           }
+          this.customFilterValues = { ...this.customFilterValues, ...fromAttrs.customFilters };
           if (fromAttrs.sleeve) this.form.sleeve = fromAttrs.sleeve;
           if (fromAttrs.material) this.form.material = fromAttrs.material;
           if (fromAttrs.gender) this.form.gender = fromAttrs.gender;
@@ -3340,6 +3559,7 @@ export class AdminProductEditorComponent implements OnChanges {
 
   private resetNew() {
     this.serviceAddOns = {};
+    this.customFilterValues = {};
     this.form = { ...this.emptyForm(), categoryId: this.categoryId || '' };
     this.standalone = this.startStandalone && !this.categoryId;
     this.slugTouched = false;
@@ -3437,6 +3657,7 @@ export class AdminProductEditorComponent implements OnChanges {
         : merch.privateLabel,
     };
     this.serviceAddOns = { ...fromAttrs.serviceAddOns, ...merch.serviceAddOns };
+    this.customFilterValues = { ...fromAttrs.customFilters };
     this.extraAttrs = merch.extra;
     const primaryId = p.categoryId || p.category?.id || this.categoryId || '';
     const extras = [...(p.extraCategoryIds || []), ...merch.categoryIds].filter(Boolean);
@@ -3598,6 +3819,7 @@ export class AdminProductEditorComponent implements OnChanges {
       placements: [] as string[],
       privateLabel: [] as string[],
       serviceAddOns: {} as Record<string, number>,
+      customFilters: {} as Record<string, string[]>,
     };
     for (const av of p.attributeValues || []) {
       const code = av.attributeDefinition?.code || '';
@@ -3633,6 +3855,8 @@ export class AdminProductEditorComponent implements OnChanges {
         out.privateLabel = resolveMulti('private_label');
       } else if (code === 'service_addons' && av.valueText) {
         out.serviceAddOns = this.parseServiceAddOns(av.valueText);
+      } else if (isCustomFilterCode(code)) {
+        out.customFilters[code] = resolveMulti(code);
       }
     }
     return out;
@@ -3727,6 +3951,9 @@ export class AdminProductEditorComponent implements OnChanges {
     multi('sustainability', this.form.sustainability);
     multi('private_label', this.form.privateLabel);
     multi('placement', this.form.placements);
+    for (const def of customFilterDefinitions(defs)) {
+      multi(def.code, this.customFilterValues[def.code] || []);
+    }
 
     const addOnsJson = this.serializeServiceAddOns();
     const addOnDef = defs.find((d) => d.code === 'service_addons');

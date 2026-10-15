@@ -1,6 +1,7 @@
 import { Component, HostListener, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../core/services/auth.service';
+import { SiteSettingsService } from '../core/services/site-settings.service';
 
 @Component({
   selector: 'tg-site-header',
@@ -9,9 +10,7 @@ import { AuthService } from '../core/services/auth.service';
   template: `
     <header class="site-header">
       <div class="utility-strip">
-        <span class="utility-msg"
-          >Private Label Manufacturing • MOQ From 150 Units • Worldwide Shipping</span
-        >
+        <span class="utility-msg">{{ site.settings().bannerVisible ? site.settings().bannerText : '' }}</span>
         <div class="utility-strip-links">
           <a routerLink="/quote">Sample Requests</a>
           @if (auth.isLoggedIn()) {
@@ -528,8 +527,14 @@ import { AuthService } from '../core/services/auth.service';
 })
 export class SiteHeaderComponent {
   readonly auth = inject(AuthService);
+  readonly site = inject(SiteSettingsService);
   readonly mobileOpen = signal(false);
   readonly cartOpen = signal(false);
+
+  constructor() {
+    // Banner text and other site texts are set on the admin Site Outlook page.
+    this.site.load();
+  }
 
   @HostListener('document:keydown.escape')
   onEsc() {

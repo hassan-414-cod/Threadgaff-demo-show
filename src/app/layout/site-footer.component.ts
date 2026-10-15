@@ -1,5 +1,6 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { SiteSettingsService } from '../core/services/site-settings.service';
 
 @Component({
   selector: 'tg-site-footer',
@@ -41,7 +42,9 @@ import { RouterLink } from '@angular/router';
             <ul>
               <li><a routerLink="/quote">Start your range</a></li>
               <li><a routerLink="/about">Contact Us</a></li>
-              <li><a href="mailto:hello&#64;threadgaff.com">hello&#64;threadgaff.com</a></li>
+              @if (site.settings().contactEmail; as email) {
+                <li><a [href]="'mailto:' + email">{{ email }}</a></li>
+              }
             </ul>
           </div>
         </div>
@@ -152,4 +155,5 @@ import { RouterLink } from '@angular/router';
 })
 export class SiteFooterComponent {
   readonly year = new Date().getFullYear();
+  readonly site = inject(SiteSettingsService);
 }

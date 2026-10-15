@@ -3,6 +3,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { CatalogService } from '../../core/services/catalog.service';
+import { SiteSettingsService } from '../../core/services/site-settings.service';
 import { Category, Product } from '../../core/models/catalog.models';
 import { expandGenderFilter } from '../../core/utils/gender';
 import { hasDisplayHex } from '../../core/utils/hex';
@@ -58,6 +59,7 @@ interface DisplayCard {
                 <option [value]="o">Fit · {{ o }}</option>
               }
             </select>
+            @if (!site.isFilterHidden('material')) {
             <select
               aria-label="Fabric"
               [value]="materialFilter()"
@@ -68,6 +70,8 @@ interface DisplayCard {
                 <option [value]="o">Fabric · {{ o }}</option>
               }
             </select>
+            }
+            @if (!site.isFilterHidden('gender')) {
             <select
               aria-label="Gender"
               [value]="genderFilter()"
@@ -78,6 +82,7 @@ interface DisplayCard {
                 <option [value]="o">Gender · {{ o }}</option>
               }
             </select>
+            }
             <select
               aria-label="Sleeve"
               [value]="sleeveFilter()"
@@ -522,6 +527,7 @@ interface DisplayCard {
 })
 export class ProductsPageComponent implements OnInit {
   readonly catalog = inject(CatalogService);
+  readonly site = inject(SiteSettingsService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 

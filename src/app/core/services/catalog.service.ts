@@ -19,6 +19,10 @@ import {
 
 /** Slug of the hidden system product that stores category cover images. */
 export const COVER_STORE_SLUG = 'category-cover-images';
+/** Slug of the hidden system product that stores the editable site texts (Site Outlook). */
+export const SITE_SETTINGS_SLUG = 'site-settings';
+/** System products are never shown in any product list. */
+export const SYSTEM_PRODUCT_SLUGS: readonly string[] = [COVER_STORE_SLUG, SITE_SETTINGS_SLUG];
 
 export type TagKind = 'tag' | 'brand';
 
@@ -233,7 +237,7 @@ export class CatalogService {
         map((res) => {
           // The cover-image store is a system product: never show it in any list.
           const items = (res.items || []).filter(
-            (p) => includeSystem || p.slug !== COVER_STORE_SLUG,
+            (p) => includeSystem || !SYSTEM_PRODUCT_SLUGS.includes(p.slug),
           );
           const hidden = (res.items || []).length - items.length;
           if (!hidden) return res;

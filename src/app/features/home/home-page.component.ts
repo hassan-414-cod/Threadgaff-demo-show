@@ -19,8 +19,11 @@ import { genderMatchesFilter } from '../../core/utils/gender';
 import { hasDisplayHex } from '../../core/utils/hex';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
 import { cardDescription } from '../../core/utils/description';
+import { customFilterDefinitions, filterOptionLabels } from '../../core/utils/filters';
+import { SiteSettingsService } from '../../core/services/site-settings.service';
 
-type FilterGroup = 'category' | 'sustainability' | 'material' | 'gender';
+/** The built-in groups, or the attribute code of a filter added on the Filters page. */
+type FilterGroup = string;
 
 interface ActiveFilterChip {
   group: FilterGroup;
@@ -123,7 +126,7 @@ interface ActiveFilterChip {
 
         <div class="home-hero-brandline">
           <span></span>
-          <p>Custom colours. Custom labels. Your brand.</p>
+          <p>{{ site.settings().heroTagline }}</p>
         </div>
       </div>
     </section>
@@ -157,6 +160,7 @@ interface ActiveFilterChip {
             </div>
           </div>
 
+          @if (sustainabilityOpts().length && !isFilterHidden('sustainability')) {
           <div class="sf-group" [class.open]="openGroups().has('sustainability')">
             <button type="button" class="sf-group-head" (click)="toggleGroup('sustainability')" [attr.aria-expanded]="openGroups().has('sustainability')">
               Sustainability &amp; Ethics
@@ -175,7 +179,9 @@ interface ActiveFilterChip {
               }
             </div>
           </div>
+          }
 
+          @if (materialOpts().length && !isFilterHidden('material')) {
           <div class="sf-group" [class.open]="openGroups().has('material')">
             <button type="button" class="sf-group-head" (click)="toggleGroup('material')" [attr.aria-expanded]="openGroups().has('material')">
               Material
@@ -194,7 +200,9 @@ interface ActiveFilterChip {
               }
             </div>
           </div>
+          }
 
+          @if (genderOpts().length && !isFilterHidden('gender')) {
           <div class="sf-group" [class.open]="openGroups().has('gender')">
             <button type="button" class="sf-group-head" (click)="toggleGroup('gender')" [attr.aria-expanded]="openGroups().has('gender')">
               Gender
@@ -213,6 +221,28 @@ interface ActiveFilterChip {
               }
             </div>
           </div>
+          }
+
+          @for (g of customGroups(); track g.code) {
+            <div class="sf-group" [class.open]="openGroups().has(g.code)">
+              <button type="button" class="sf-group-head" (click)="toggleGroup(g.code)" [attr.aria-expanded]="openGroups().has(g.code)">
+                {{ g.title }}
+                <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              </button>
+              <div class="sf-group-body">
+                @for (opt of g.options; track opt) {
+                  <label class="sf-check">
+                    <input
+                      type="checkbox"
+                      [checked]="isCustomSelected(g.code, opt)"
+                      (change)="toggleCustom(g.code, opt, $event)"
+                    />
+                    <span>{{ opt }}</span>
+                  </label>
+                }
+              </div>
+            </div>
+          }
 
           <div class="sf-card">
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 20A7 7 0 014 13c0-5 4-9.5 10-10 .5 5.5-1 12-9 13.5"/><path d="M6.5 20c1-4.5 3.5-8 7-10" stroke-linecap="round"/></svg>
@@ -225,10 +255,8 @@ interface ActiveFilterChip {
         <div class="shop-main">
           <div class="shop-intro">
             <span class="shop-kicker">Apparel for a brighter tomorrow</span>
-            <h1 id="featuredCollectionHeading">Featured Collection</h1>
-            <p class="shop-lede">
-              Browse our collections, then open a style to customise it in the designer.
-            </p>
+            <h1 id="featuredCollectionHeading">{{ site.settings().shopHeading }}</h1>
+            <p class="shop-lede">{{ site.settings().shopIntro }}</p>
           </div>
 
           <div class="shop-toolbar">
@@ -1036,6 +1064,7 @@ export class HomePageComponent implements OnInit, OnDestroy {
   private heroScrollDir = 1;
 
   readonly catalog = inject(CatalogService);
+  readonly site = inject(SiteSettingsService);
   readonly featured = signal<Product[]>([]);
   readonly collections = signal<Category[]>([]);
   readonly attrDefs = signal<AttributeDefinition[]>([]);
@@ -1064,23 +1093,19 @@ export class HomePageComponent implements OnInit, OnDestroy {
   /** productId → selected colour id for card preview */
   readonly cardColorIds = signal<Record<string, string>>({});
 
-  private readonly fallbackSustainability = [
-    'Organic Cotton',
-    'Recycled Materials',
-    'Fairtrade Certified',
-    'Vegan',
-  ];
-  private readonly fallbackMaterials = [
-    '100% Cotton',
-    'Cotton Blend',
-    'French Terry',
-    'Fleece',
-  ];
-  private readonly fallbackGenders = ['Unisex', "Men's", "Women's"];
+  /** Filter checklists come only from the admin Filters page (no built-in fallback lists). */
+  readonly sustainabilityOpts = signal<string[]>([]);
+  readonly materialOpts = signal<string[]>([]);
+  readonly genderOpts = signal<string[]>([]);
 
-  readonly sustainabilityOpts = signal<string[]>([...this.fallbackSustainability]);
-  readonly materialOpts = signal<string[]>([...this.fallbackMaterials]);
-  readonly genderOpts = signal<string[]>([...this.fallbackGenders]);
+  /** Filters added on the Filters page, with their checklist items. */
+  readonly customGroups = computed(() =>
+    customFilterDefinitions(this.attrDefs())
+      .filter((d) => !this.isFilterHidden(d.code))
+      .map((d) => ({ code: d.code, title: d.name, options: filterOptionLabels(d) }))
+      .filter((g) => g.options.length),
+  );
+  readonly selectedCustom = signal<Record<string, Set<string>>>({});
 
   private readonly heroFallbackImages: Record<string, string> = {
     hoodies: '/assets/images/prod_hoodie.jpg',
@@ -1145,7 +1170,12 @@ export class HomePageComponent implements OnInit, OnDestroy {
     );
   }
 
+  isFilterHidden(code: string): boolean {
+    return this.site.isFilterHidden(code);
+  }
+
   ngOnInit() {
+    this.site.load();
     const nextScroll = () => {
       const el = this.heroRailRef?.nativeElement;
       if (!el || !this.heroCards().length) {
@@ -1178,21 +1208,11 @@ export class HomePageComponent implements OnInit, OnDestroy {
     this.catalog.getAttributes().subscribe({
       next: (defs) => {
         this.attrDefs.set(defs.filter((d) => d.isActive !== false));
-        const labels = (code: string, fallback: string[]) => {
-          const fromApi =
-            defs
-              .find((d) => d.code === code)
-              ?.options?.slice()
-              .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-              .map((o) => o.label)
-              .filter(Boolean) || [];
-          return fromApi.length ? fromApi : fallback;
-        };
-        this.sustainabilityOpts.set(
-          labels('sustainability', this.fallbackSustainability),
-        );
-        this.materialOpts.set(labels('material', this.fallbackMaterials));
-        this.genderOpts.set(labels('gender', this.fallbackGenders));
+        const labels = (code: string) =>
+          filterOptionLabels(defs.find((d) => d.code === code));
+        this.sustainabilityOpts.set(labels('sustainability'));
+        this.materialOpts.set(labels('material'));
+        this.genderOpts.set(labels('gender'));
         this.applyFilters();
       },
     });
@@ -1382,11 +1402,31 @@ export class HomePageComponent implements OnInit, OnDestroy {
     this.toggleInSet(this.selectedSustainability, opt, event);
   }
 
+  isCustomSelected(code: string, opt: string): boolean {
+    return !!this.selectedCustom()[code]?.has(opt);
+  }
+
+  toggleCustom(code: string, opt: string, event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.selectedCustom.update((all) => {
+      const next = new Set(all[code] || []);
+      if (checked) next.add(opt);
+      else next.delete(opt);
+      return { ...all, [code]: next };
+    });
+    this.applyFilters();
+  }
+
+  private customSelectedCount(): number {
+    return Object.values(this.selectedCustom()).reduce((n, s) => n + s.size, 0);
+  }
+
   resetFilters() {
     this.selectedCats.set(new Set());
     this.selectedGenders.set(new Set());
     this.selectedMaterials.set(new Set());
     this.selectedSustainability.set(new Set());
+    this.selectedCustom.set({});
     this.sort.set('featured');
     this.applyFilters();
   }
@@ -1401,7 +1441,8 @@ export class HomePageComponent implements OnInit, OnDestroy {
       this.selectedCats().size > 0 ||
       this.selectedGenders().size > 0 ||
       this.selectedMaterials().size > 0 ||
-      this.selectedSustainability().size > 0
+      this.selectedSustainability().size > 0 ||
+      this.customSelectedCount() > 0
     );
   }
 
@@ -1457,6 +1498,11 @@ export class HomePageComponent implements OnInit, OnDestroy {
         key: `gender:${opt}`,
       });
     }
+    for (const g of this.customGroups()) {
+      for (const opt of this.selectedCustom()[g.code] || []) {
+        chips.push({ group: g.code, type: g.title, value: opt, key: `${g.code}:${opt}` });
+      }
+    }
     return chips;
   }
 
@@ -1479,6 +1525,12 @@ export class HomePageComponent implements OnInit, OnDestroy {
       drop(this.selectedMaterials, chip.value);
     } else if (chip.group === 'gender') {
       drop(this.selectedGenders, chip.value);
+    } else {
+      this.selectedCustom.update((all) => {
+        const next = new Set(all[chip.group] || []);
+        next.delete(chip.value);
+        return { ...all, [chip.group]: next };
+      });
     }
     this.applyFilters();
   }
@@ -1623,6 +1675,14 @@ export class HomePageComponent implements OnInit, OnDestroy {
           this.productAttrLabels(p, 'sustainability'),
           sustain,
         ),
+      );
+    }
+
+    for (const [code, picked] of Object.entries(this.selectedCustom())) {
+      const wanted = [...picked];
+      if (!wanted.length) continue;
+      list = list.filter((p) =>
+        this.matchesSelectedLabels(this.productAttrLabels(p, code), wanted),
       );
     }
 
