@@ -2333,7 +2333,7 @@ export class AdminPageComponent implements OnInit {
     const c = this.drill();
     if (!c) return;
     this.catalog
-      .getProducts({ limit: 100, categoryId: c.id, includeDescendants: true })
+      .getAdminProducts({ limit: 100, categoryId: c.id, includeDescendants: true })
       .subscribe({
         next: (res) => {
           const sorted = [...(res.items || [])].sort(
@@ -3291,7 +3291,7 @@ export class AdminPageComponent implements OnInit {
     const done = () => {
       if (--pending <= 0) after?.();
     };
-    this.catalog.getProducts({ limit: 100 }).subscribe({
+    this.catalog.getAdminProducts({ limit: 100 }).subscribe({
       next: (res) => {
         const sorted = [...(res.items || [])].sort(
           (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),

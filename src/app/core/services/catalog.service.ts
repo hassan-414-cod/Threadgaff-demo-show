@@ -248,6 +248,37 @@ export class CatalogService {
   }
 
   /**
+   * Admin list: live AND hidden products. An unfiltered list is not reliable on every setup
+   * (the deployed site can return live products only), so ask for both states explicitly.
+   */
+  getAdminProducts(
+    opts: {
+      limit?: number;
+      categoryId?: string;
+      includeDescendants?: boolean;
+    } = {},
+  ): Observable<PaginatedProducts> {
+    const live$ = this.getProducts({ ...opts, isActive: true });
+    const hidden$ = this.getProducts({ ...opts, isActive: false }).pipe(
+      catchError(() => of(null)),
+    );
+    return forkJoin([live$, hidden$]).pipe(
+      map(([live, hidden]) => {
+        const seen = new Set<string>();
+        const items = [...(live.items || []), ...(hidden?.items || [])].filter((p) => {
+          if (seen.has(p.id)) return false;
+          seen.add(p.id);
+          return true;
+        });
+        const meta = live.meta
+          ? { ...live.meta, total: items.length }
+          : live.meta;
+        return { ...live, items, meta };
+      }),
+    );
+  }
+
+  /**
    * Finds the hidden cover-image store. Inactive products are not served by the public slug
    * route, so fall back to the admin list (which does return them).
    */
