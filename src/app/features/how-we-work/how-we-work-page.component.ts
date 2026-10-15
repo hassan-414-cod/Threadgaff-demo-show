@@ -117,9 +117,10 @@ interface ProcessStep {
     }
 
     .wl {
-      max-width: 1100px;
+      max-width: min(1360px, calc(100% - 48px));
       margin: 0 auto;
-      padding: 64px 32px 72px;
+      padding: 72px clamp(28px, 5vw, 72px) 80px;
+      border-radius: 0 0 32px 32px;
       background: var(--panel);
     }
 
@@ -167,13 +168,13 @@ interface ProcessStep {
 
     /* ── Overview strip ── */
     .wl-strip {
-      --c: clamp(104px, 15vw, 172px);
+      --c: clamp(110px, 15.5vw, 210px);
       list-style: none;
       margin: 0 0 40px;
       padding: 0 0 36px;
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 18px;
+      gap: clamp(18px, 2.4vw, 36px);
       border-bottom: 1px solid #ebe6db;
     }
     .wl-stop {
@@ -214,26 +215,26 @@ interface ProcessStep {
     /* ── Detail rows ── */
     .wl-row {
       display: grid;
-      grid-template-columns: minmax(240px, 340px) 1fr;
-      gap: 44px;
+      grid-template-columns: minmax(280px, 440px) 1fr;
+      gap: clamp(36px, 5vw, 72px);
       align-items: center;
       padding: 26px 0;
       border-bottom: 1px solid #ebe6db;
     }
     .wl-row:last-child { border-bottom: 0; padding-bottom: 0; }
-    .wl-photo { position: relative; height: 190px; }
+    .wl-photo { position: relative; height: 250px; }
     .wl-photo .frame { border-radius: 18px; }
     .wl-photo .wl-badge { top: 14px; left: -16px; }
     .wl-copy h3 {
       font-family: 'Inter', system-ui, sans-serif;
-      font-size: 1.55rem;
+      font-size: 1.75rem;
       font-weight: 700;
       letter-spacing: -0.01em;
       text-transform: none;
       margin: 0 0 12px;
       color: var(--ink);
     }
-    .wl-copy p { margin: 0; max-width: 62ch; font-size: 1.02rem; line-height: 1.65; color: var(--muted); }
+    .wl-copy p { margin: 0; max-width: 72ch; font-size: 1.08rem; line-height: 1.65; color: var(--muted); }
     .wl-copy .wl-note {
       margin-top: 12px;
       padding: 10px 14px;
@@ -246,7 +247,7 @@ interface ProcessStep {
 
     /* ── Terms + MOQ ── */
     .policies { padding: 72px 0; background: var(--paper); }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 0 32px; }
+    .wrap { max-width: min(1360px, calc(100% - 48px)); margin: 0 auto; padding: 0 clamp(28px, 5vw, 72px); }
     .two-col { display: grid; grid-template-columns: 1fr 1.2fr; gap: 48px; align-items: start; }
     .section-h { font-size: 1.5rem; margin: 0 0 12px; }
     .note { margin: 0 0 20px; max-width: none; }
@@ -294,7 +295,8 @@ interface ProcessStep {
     .cta-btn:hover { background: var(--paper); }
 
     @media (max-width: 860px) {
-      .wl { padding: 44px 18px 56px; }
+      .wl { max-width: 100%; padding: 44px 18px 56px; }
+      .wrap { max-width: 100%; }
       .wl-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 28px; --c: clamp(96px, 26vw, 150px); }
       .wl-arrow { display: none; }
       .wl-row { grid-template-columns: 1fr; gap: 20px; padding: 22px 0; }
