@@ -17,6 +17,9 @@ import {
   ProductTag,
 } from '../models/catalog.models';
 
+/** Slug of the hidden system product that stores category cover images. */
+export const COVER_STORE_SLUG = 'category-cover-images';
+
 export type TagKind = 'tag' | 'brand';
 
 export interface ProductColorInput {
@@ -216,6 +219,7 @@ export class CatalogService {
       attributeValue?: string;
       attributeOptionId?: string;
     } = {},
+    includeSystem = false,
   ): Observable<PaginatedProducts> {
     let params = new HttpParams();
     Object.entries(opts).forEach(([k, v]) => {
@@ -223,9 +227,37 @@ export class CatalogService {
         params = params.set(k, String(v));
       }
     });
-    return this.http.get<PaginatedProducts>(`${this.base}/products`, {
-      params,
-    });
+    return this.http
+      .get<PaginatedProducts>(`${this.base}/products`, { params })
+      .pipe(
+        map((res) => {
+          // The cover-image store is a system product: never show it in any list.
+          const items = (res.items || []).filter(
+            (p) => includeSystem || p.slug !== COVER_STORE_SLUG,
+          );
+          const hidden = (res.items || []).length - items.length;
+          if (!hidden) return res;
+          const meta = res.meta ? { ...res.meta, total: Math.max(0, res.meta.total - hidden) } : res.meta;
+          return { ...res, items, meta };
+        }),
+      );
+  }
+
+  /**
+   * Finds the hidden cover-image store. Inactive products are not served by the public slug
+   * route, so fall back to the admin list (which does return them).
+   */
+  findCoverStore(): Observable<Product | null> {
+    const fromList = (opts: { isActive?: boolean; search?: string }) =>
+      this.getProducts({ limit: 100, ...opts }, true).pipe(
+        map((r) => (r.items || []).find((p) => p.slug === COVER_STORE_SLUG) ?? null),
+        catchError(() => of(null)),
+      );
+    return this.getProductBySlug(COVER_STORE_SLUG).pipe(
+      catchError(() => of(null)),
+      switchMap((p) => (p?.id ? of(p) : fromList({ isActive: false }))),
+      switchMap((p) => (p ? of(p) : fromList({ search: 'cover images' }))),
+    );
   }
 
   getProduct(id: string): Observable<Product> {

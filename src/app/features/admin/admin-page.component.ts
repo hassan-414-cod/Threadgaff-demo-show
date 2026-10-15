@@ -9,6 +9,7 @@ import { Category, Product, ProductTag } from '../../core/models/catalog.models'
 import {
   AttributeDefinition,
   CatalogService,
+  COVER_STORE_SLUG,
   Enquiry,
 } from '../../core/services/catalog.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -29,9 +30,6 @@ type AdminView =
   | 'settings';
 type CatalogMode = 'collections' | 'extras';
 type ProductNav = 'all' | 'add' | 'brands' | 'categories' | 'attributes';
-
-/** Slug of the hidden product that stores category cover images. */
-const COVER_STORE_SLUG = 'category-cover-images';
 
 interface ProductEditorState {
   productId: string | null;
@@ -2552,54 +2550,94 @@ export class AdminPageComponent implements OnInit {
   private async uploadCategoryCover(dataUrl: string): Promise<string> {
     const fail = (msg: string) => new Error(msg);
     const holder = await this.ensureCoverStoreProduct();
-    const before = new Set((holder.images || []).map((i) => i.id));
+    const before = new Set((await this.coverStoreImages(holder.id)).map((i) => i.id));
     const blob = await (await fetch(dataUrl)).blob();
     const file = new File([blob], 'category-cover.jpg', { type: blob.type || 'image/jpeg' });
     const res = (await firstValueFrom(
       this.catalog.uploadProductImage(holder.id, file, {
         role: 'gallery',
-        angle: 'category-cover',
+        // The API only accepts a fixed list of angles; "other" is the neutral one.
+        angle: 'other',
         altText: this.colForm.name.trim() || 'Category cover',
       }),
     ).catch((err) => {
-      throw fail(
-        err?.error?.message
-          ? 'Image upload failed: ' + (Array.isArray(err.error.message) ? err.error.message.join(', ') : err.error.message)
-          : 'Image upload failed. Check the API is running.',
-      );
-    })) as { url?: string; images?: Array<{ id: string; url: string }> } | null;
+      throw fail('Image upload failed: ' + this.apiErrorText(err));
+    })) as { url?: string; image?: { url?: string }; images?: Array<{ id: string; url: string }> } | null;
 
-    let url = typeof res?.url === 'string' ? res.url : '';
+    let url = res?.url || res?.image?.url || '';
+    if (!url && res?.images) url = res.images.filter((i) => !before.has(i.id)).pop()?.url || '';
     if (!url) {
-      const fresh = await firstValueFrom(this.catalog.getProduct(holder.id));
-      url = (fresh.images || []).filter((i) => !before.has(i.id)).pop()?.url || '';
+      const after = await this.coverStoreImages(holder.id);
+      url = after.filter((i) => !before.has(i.id)).pop()?.url || '';
     }
     if (!url) throw fail('The image was uploaded but the server did not return its URL.');
     if (url.length > this.coverUrlMax) throw fail('The server returned an image URL that is too long.');
     return url;
   }
 
+  /** Images already on the cover store, read from the product or (for inactive ones) the admin list. */
+  private async coverStoreImages(id: string): Promise<Array<{ id: string; url: string }>> {
+    const fresh = await firstValueFrom(this.catalog.getProduct(id)).catch(() => null);
+    if (fresh?.images) return fresh.images;
+    const listed = await firstValueFrom(this.catalog.findCoverStore()).catch(() => null);
+    return listed?.images || [];
+  }
+
+  private apiErrorText(err: unknown): string {
+    const e = err as { status?: number; error?: { message?: string | string[] } };
+    const m = e?.error?.message;
+    const text = Array.isArray(m) ? m.join(', ') : m || '';
+    return [text || 'check the API is running', e?.status ? `(HTTP ${e.status})` : ''].filter(Boolean).join(' ');
+  }
+
   private async ensureCoverStoreProduct(): Promise<Product> {
-    try {
-      return await firstValueFrom(this.catalog.getProductBySlug(COVER_STORE_SLUG));
-    } catch {
-      /* not created yet */
-    }
+    // The API looks products up as "active only" (inactive ones answer "Product not found",
+    // including on image upload), so the store has to be active. It is hidden from every
+    // product list in the app by its slug.
+    const existing = await firstValueFrom(this.catalog.findCoverStore());
+    if (existing) return existing.isActive === false ? this.activateCoverStore(existing) : existing;
+
+    // Same shape the product editor sends for a product with no category.
+    let lastError = '';
     try {
       return await firstValueFrom(
         this.catalog.createProduct({
           name: 'Category cover images (system, do not delete)',
           slug: COVER_STORE_SLUG,
-          isActive: false,
+          isActive: true,
           isStandalone: true,
+          categoryId: null,
+          extraCategoryIds: [],
+          tagIds: [],
+          sizes: [],
+          attributes: [],
         }),
       );
     } catch (err) {
-      const msg = (err as { error?: { message?: string | string[] } })?.error?.message;
-      throw new Error(
-        'Could not prepare image storage: ' + (Array.isArray(msg) ? msg.join(', ') : msg || 'check the API'),
-      );
+      lastError = this.apiErrorText(err);
     }
+    // Some APIs save the row and then fail to read it back: pick it up if it exists now.
+    const created = await firstValueFrom(this.catalog.findCoverStore()).catch(() => null);
+    if (created) return created.isActive === false ? this.activateCoverStore(created) : created;
+    throw new Error('Could not prepare image storage: ' + lastError);
+  }
+
+  /** Turns on a cover store that an earlier attempt left inactive, then confirms it took. */
+  private async activateCoverStore(store: Product): Promise<Product> {
+    let lastError = '';
+    try {
+      await firstValueFrom(this.catalog.updateProduct(store.id, { isActive: true }));
+    } catch (err) {
+      // The change may be saved even if the API cannot return the updated row; verify below.
+      lastError = this.apiErrorText(err);
+    }
+    const fresh = await firstValueFrom(this.catalog.findCoverStore()).catch(() => null);
+    if (fresh && fresh.isActive !== false) return fresh;
+    throw new Error(
+      'Could not prepare image storage: the hidden "Category cover images" product is inactive and could not be activated' +
+        (lastError ? ' (' + lastError + ')' : '') +
+        '.',
+    );
   }
 
   private currentCategory(): Category | undefined {
@@ -3190,9 +3228,8 @@ export class AdminPageComponent implements OnInit {
         const sorted = [...(res.items || [])].sort(
           (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
         );
-        const visible = sorted.filter((p) => p.slug !== COVER_STORE_SLUG);
-        this.products.set(visible);
-        this.hydrateProductRows(visible);
+        this.products.set(sorted);
+        this.hydrateProductRows(sorted);
         done();
       },
       error: () => {
