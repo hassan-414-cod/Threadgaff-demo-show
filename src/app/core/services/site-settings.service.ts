@@ -39,6 +39,12 @@ export class SiteSettingsService {
   private readonly catalog = inject(CatalogService);
   readonly settings = signal<SiteSettings>(this.fromCache());
   private loaded = false;
+  /** Id of the hidden settings product once known (saves skip the lookup). */
+  private productId: string | null = null;
+  /** Last values known to be saved on the server. */
+  private saved: SiteSettings | null = null;
+  /** Saves run one after another so quick successive clicks cannot overwrite each other. */
+  private queue: Promise<unknown> = Promise.resolve();
 
   /** True when the filter was hidden on the Filters page. */
   isFilterHidden(code: string): boolean {
@@ -50,7 +56,12 @@ export class SiteSettingsService {
     if (this.loaded && !force) return;
     this.loaded = true;
     this.catalog.getProductBySlug(SITE_SETTINGS_SLUG).subscribe({
-      next: (p) => this.apply(this.parse(p)),
+      next: (p) => {
+        const parsed = this.parse(p);
+        this.productId = p?.id || this.productId;
+        this.saved = parsed;
+        this.apply(parsed);
+      },
       error: () => {
         /* nothing saved yet: keep the defaults */
       },
@@ -59,12 +70,19 @@ export class SiteSettingsService {
 
   /** Saves new texts (admin). Creates the hidden settings product on first use. */
   async save(next: SiteSettings): Promise<void> {
+    await this.persist(next);
+    this.apply(next);
+  }
+
+  /** Writes the settings to the server without touching what the page currently shows. */
+  private async persist(next: SiteSettings): Promise<void> {
     const description = JSON.stringify(next);
-    const existing = await this.find();
-    if (existing) {
-      await firstValueFrom(this.catalog.updateProduct(existing.id, { description }));
+    const id = this.productId || (await this.find())?.id || null;
+    if (id) {
+      this.productId = id;
+      await firstValueFrom(this.catalog.updateProduct(id, { description }));
     } else {
-      await firstValueFrom(
+      const created = await firstValueFrom(
         this.catalog.createProduct({
           name: 'Site settings (system, do not delete)',
           slug: SITE_SETTINGS_SLUG,
@@ -80,19 +98,38 @@ export class SiteSettingsService {
           attributes: [],
         }),
       );
+      this.productId = created?.id || null;
     }
-    this.apply(next);
+    this.saved = next;
   }
 
-  /** Changes only some settings, keeping the rest as saved. */
+  /**
+   * Changes only some settings, keeping the rest as saved. The page updates at once; the save
+   * runs in the background and the change is undone if it fails.
+   */
   async update(patch: Partial<SiteSettings>): Promise<void> {
-    await this.save({ ...(await this.current()), ...patch });
+    const before = this.settings();
+    this.apply({ ...before, ...patch });
+    const run = this.queue.then(async () => {
+      const base = this.saved ?? (await this.current());
+      await this.persist({ ...base, ...patch });
+    });
+    this.queue = run.catch(() => undefined);
+    try {
+      await run;
+    } catch (err) {
+      this.apply(this.saved ?? before);
+      throw err;
+    }
   }
 
   /** The saved values (or the defaults) for the admin form. */
   async current(): Promise<SiteSettings> {
     const existing = await this.find();
-    return existing ? this.parse(existing) : { ...DEFAULT_SITE_SETTINGS };
+    const value = existing ? this.parse(existing) : { ...DEFAULT_SITE_SETTINGS };
+    this.productId = existing?.id || this.productId;
+    this.saved = value;
+    return value;
   }
 
   private async find(): Promise<Product | null> {

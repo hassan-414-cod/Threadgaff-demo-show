@@ -86,7 +86,6 @@ interface FilterRow {
                 [attr.aria-checked]="!isHidden(f.code)"
                 [attr.aria-label]="(isHidden(f.code) ? 'Show ' : 'Hide ') + f.title + ' on the shop'"
                 [title]="isHidden(f.code) ? 'Hidden on the shop. Click to show.' : 'Shown on the shop. Click to hide.'"
-                [disabled]="busy()"
                 (click)="toggleHidden(f)"
               >
                 <span class="knob"></span>
@@ -170,8 +169,9 @@ interface FilterRow {
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; align-items: start; }
-    .filter header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .head-tools { display: flex; align-items: center; gap: 8px; flex: none; }
+    .filter header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 10px; margin-bottom: 12px; }
+    .filter header h2 { flex: 1 1 150px; min-width: 0; overflow-wrap: anywhere; }
+    .head-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
     .state { font-size: 0.68rem; font-weight: 600; color: var(--muted, #6b6f63); min-width: 42px; }
     .toggle {
       position: relative; width: 30px; height: 17px; border-radius: 999px; border: 0; padding: 0; cursor: pointer;
@@ -265,20 +265,16 @@ export class AdminFiltersComponent implements OnInit {
 
   /** Shows or hides a whole filter on the shop (its checklist items are left as they are). */
   async toggleHidden(row: FilterRow) {
-    if (this.busy()) return;
-    const hiding = !this.isHidden(row.code);
-    const next = hiding
-      ? [...this.hidden(), row.code]
-      : this.hidden().filter((c) => c !== row.code);
-    this.busy.set(true);
+    const before = this.hidden();
+    const hiding = !before.includes(row.code);
+    const next = hiding ? [...before, row.code] : before.filter((c) => c !== row.code);
+    this.hidden.set(next); // the switch moves at once; the save happens in the background
     try {
       await this.site.update({ hiddenFilters: next });
-      this.hidden.set(next);
       this.say(hiding ? `“${row.title}” is now hidden on the shop.` : `“${row.title}” is now shown on the shop.`);
     } catch (err) {
+      this.hidden.set(before);
       this.fail(err, 'Could not change this filter');
-    } finally {
-      this.busy.set(false);
     }
   }
 

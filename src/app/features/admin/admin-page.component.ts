@@ -656,7 +656,6 @@ interface CategoryTreeListRow {
                               class="live-toggle"
                               [class.on]="p.isActive"
                               [class.off]="!p.isActive"
-                              [disabled]="statusBusyId() === p.id"
                               (click)="toggleProductLive(p)"
                               [attr.aria-pressed]="p.isActive"
                               [attr.title]="
@@ -786,7 +785,6 @@ interface CategoryTreeListRow {
                             class="live-toggle"
                             [class.on]="p.isActive"
                             [class.off]="!p.isActive"
-                            [disabled]="statusBusyId() === p.id"
                             (click)="toggleProductLive(p)"
                             [attr.aria-pressed]="p.isActive"
                             [attr.title]="
@@ -2062,7 +2060,6 @@ export class AdminPageComponent implements OnInit {
   readonly deleteTarget = signal<Product | null>(null);
   readonly deleteBusy = signal(false);
   readonly deleteError = signal('');
-  readonly statusBusyId = signal<string | null>(null);
   readonly colModalOpen = signal(false);
   readonly brandModalOpen = signal(false);
   readonly attrModalOpen = signal(false);
@@ -2403,44 +2400,73 @@ export class AdminPageComponent implements OnInit {
     this.deleteTarget.set(p);
   }
 
+  /** Per product: the save currently running, so quick repeated clicks are saved in order. */
+  private readonly statusQueue = new Map<string, Promise<void>>();
+
+  private setProductActive(id: string, active: boolean) {
+    const apply = (list: Product[]) =>
+      list.map((x) => (x.id === id ? { ...x, isActive: active } : x));
+    this.products.update(apply);
+    this.drillProductList.update(apply);
+  }
+
+  private shownActive(id: string): boolean | undefined {
+    return (
+      this.products().find((x) => x.id === id) ??
+      this.drillProductList().find((x) => x.id === id)
+    )?.isActive;
+  }
+
+  /**
+   * The API answers "Product not found" for inactive products, even when the change was
+   * saved. So after any error, ask the admin list which state the product really has.
+   * Returns undefined when that cannot be told.
+   */
+  private async verifyProductActive(p: Product, wanted: boolean): Promise<boolean | undefined> {
+    try {
+      const res = await firstValueFrom(
+        this.catalog.getProducts({ search: p.name, isActive: wanted, limit: 100 }),
+      );
+      return (res.items || []).some((x) => x.id === p.id) ? wanted : !wanted;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async saveProductActive(p: Product, next: boolean): Promise<void> {
+    try {
+      await firstValueFrom(
+        this.auth
+          .ensureFreshAccessToken()
+          .pipe(switchMap(() => this.catalog.updateProduct(p.id, { isActive: next }))),
+      );
+      return;
+    } catch (err) {
+      const actual = await this.verifyProductActive(p, next);
+      if (actual === next) return; // saved after all
+      if (actual === undefined && (err as { status?: number })?.status === 404) return;
+      // Really not saved: put the switch back (unless a newer click already changed it).
+      if (this.shownActive(p.id) === next) this.setProductActive(p.id, !next);
+      const msg = (err as { error?: { message?: string | string[] } })?.error?.message;
+      this.error.set(
+        Array.isArray(msg) ? msg.join(', ') : msg || 'Could not update product status',
+      );
+    }
+  }
+
+  /** Flips Live/Off on the spot; the save runs quietly in the background. */
   toggleProductLive(p: Product) {
-    if (this.statusBusyId()) return;
-    const next = !p.isActive;
-    this.statusBusyId.set(p.id);
+    const current = this.shownActive(p.id) ?? p.isActive;
+    const next = !current;
     this.error.set('');
-    this.auth
-      .ensureFreshAccessToken()
-      .pipe(
-        switchMap(() =>
-          this.catalog.updateProduct(p.id, { isActive: next }),
-        ),
-      )
-      .subscribe({
-        next: (saved) => {
-          const active = saved.isActive ?? next;
-          this.products.update((list) =>
-            list.map((x) => (x.id === p.id ? { ...x, isActive: active } : x)),
-          );
-          this.drillProductList.update((list) =>
-            list.map((x) => (x.id === p.id ? { ...x, isActive: active } : x)),
-          );
-          this.statusBusyId.set(null);
-          this.toast(
-            active
-              ? `“${p.name}” is Live on the storefront`
-              : `“${p.name}” hidden from storefront — data kept`,
-          );
-        },
-        error: (err) => {
-          this.statusBusyId.set(null);
-          const msg = err?.error?.message;
-          this.error.set(
-            Array.isArray(msg)
-              ? msg.join(', ')
-              : msg || 'Could not update product status',
-          );
-        },
-      });
+    this.setProductActive(p.id, next);
+    const run = (this.statusQueue.get(p.id) ?? Promise.resolve()).then(() =>
+      this.saveProductActive(p, next),
+    );
+    this.statusQueue.set(p.id, run);
+    void run.finally(() => {
+      if (this.statusQueue.get(p.id) === run) this.statusQueue.delete(p.id);
+    });
   }
 
   cancelDeleteProduct() {

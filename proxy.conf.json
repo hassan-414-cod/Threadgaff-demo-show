@@ -1,15 +1,17 @@
 {
   "/api": {
     "target": "https://threadgaff.rafehahmad.com",
-    "secure": true,
+    "secure": false,
     "changeOrigin": true,
+    "logLevel": "debug",
     "timeout": 60000,
     "proxyTimeout": 60000
   },
   "/uploads": {
     "target": "https://threadgaff.rafehahmad.com",
-    "secure": true,
+    "secure": false,
     "changeOrigin": true,
+    "logLevel": "debug",
     "timeout": 60000,
     "proxyTimeout": 60000
   }
