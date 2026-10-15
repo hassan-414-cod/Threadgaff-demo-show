@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import {
@@ -19,6 +19,7 @@ import {
   DESIGN_UPLOAD_MAX_BYTES,
   DesignUploadStore,
   formatFileSize,
+  isPreviewableImage,
 } from '../../core/services/design-upload.store';
 
 type Garment = 'tee' | 'hoodie' | 'polo';
@@ -136,13 +137,34 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                 <div class="stage-wrap">
                   <div class="stage" [style.transform]="'scale(' + zoom() / 100 + ')'">
                     <img class="stage-img" [src]="previewSrc()" [alt]="product()!.name" />
-                    <div class="stage-tint" [style.background]="selectedColor().hex || '#55613f'"></div>
+                    @if (designPreviewUrl()) {
+                      <div class="stage-design" [class.blend]="designIsJpeg()">
+                        <img [src]="designPreviewUrl()!" alt="Your uploaded design" />
+                      </div>
+                    }
                     @if (logoPreview()) {
-                      <div class="stage-logo"><img [src]="logoPreview()!" alt="Logo" /></div>
+                      <div class="stage-logo" [class.small]="!!designPreviewUrl()"><img [src]="logoPreview()!" alt="Logo" /></div>
                     }
                   </div>
                 </div>
               </div>
+              @if (plFile(); as f) {
+                <div class="design-file">
+                  @if (designPreviewUrl()) {
+                    <img class="df-thumb" [src]="designPreviewUrl()!" alt="" />
+                  } @else {
+                    <span class="df-ext">{{ fileExt(f.name) }}</span>
+                  }
+                  <span class="df-text">
+                    <strong>{{ f.name }}</strong>
+                    <small>
+                      {{ fileSize(f.size) }} ·
+                      {{ designPreviewUrl() ? 'Your design is shown on the garment' : 'Saved with your design (no on-garment preview for this file type)' }}
+                    </small>
+                  </span>
+                  <button type="button" class="linkish" (click)="clearPrivateLabelFile()">Remove</button>
+                </div>
+              }
               <div class="zoom-bar">
                 <button type="button" (click)="zoomBy(-10)" aria-label="Zoom out">−</button>
                 <span>{{ zoom() }}%</span>
@@ -503,15 +525,31 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
     }
     .stage { position: relative; width: 88%; height: 88%; display: grid; place-items: center; transition: transform 0.15s ease; }
     .stage-img { max-width: 100%; max-height: 100%; object-fit: contain; position: relative; z-index: 1; }
-    .stage-tint {
-      position: absolute; inset: 10% 18% 8% 18%; mix-blend-mode: overlay; opacity: 0.32;
-      pointer-events: none; z-index: 2; border-radius: 4px;
-    }
     .stage-logo {
       position: absolute; top: 28%; left: 50%; transform: translateX(-50%);
       width: 26%; z-index: 3; pointer-events: none;
     }
+    .stage-logo.small { top: 26%; left: 63%; transform: none; width: 11%; }
     .stage-logo img { width: 100%; display: block; }
+    .stage-design {
+      position: absolute; top: 32%; left: 50%; transform: translateX(-50%);
+      width: 34%; z-index: 3; pointer-events: none;
+    }
+    .stage-design img { width: 100%; max-height: 34%; display: block; object-fit: contain; }
+    .stage-design.blend img { mix-blend-mode: multiply; }
+    .design-file {
+      display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    }
+    .df-thumb { width: 40px; height: 40px; object-fit: contain; border-radius: 6px; background: #f4f2ec; flex: none; }
+    .df-ext {
+      width: 40px; height: 40px; border-radius: 6px; background: var(--forest-tint); color: var(--forest);
+      display: inline-flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 800;
+      text-transform: uppercase; flex: none;
+    }
+    .df-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .df-text strong { font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .df-text small { font-size: 0.7rem; color: var(--muted); }
     .zoom-bar {
       display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--muted); font-size: 0.78rem;
     }
@@ -725,7 +763,7 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
   `,
 })
 
-export class DesignerPageComponent implements OnInit {
+export class DesignerPageComponent implements OnInit, OnDestroy {
   readonly catalog = inject(CatalogService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -766,6 +804,9 @@ export class DesignerPageComponent implements OnInit {
   readonly privateLabelValues = signal<string[]>([]);
   private readonly designUpload = inject(DesignUploadStore);
   readonly plFile = signal<File | null>(null);
+  /** Object URL of the uploaded design when it is an image, so it can be drawn on the garment. */
+  readonly designPreviewUrl = signal<string | null>(null);
+  readonly designIsJpeg = computed(() => /\.jpe?g$/i.test(this.plFile()?.name || ''));
   readonly plFileError = signal('');
   readonly plMaterial = signal('');
   readonly plNotes = signal('');
@@ -773,6 +814,9 @@ export class DesignerPageComponent implements OnInit {
   readonly plAcceptLabel = 'PDF, PNG, JPG, AI or ZIP';
   readonly plMaxLabel = formatFileSize(DESIGN_UPLOAD_MAX_BYTES);
   readonly fileSize = formatFileSize;
+  fileExt(name: string): string {
+    return name.split('.').pop()?.slice(0, 4) || 'file';
+  }
   readonly productSleeveOpts = signal<AttrOpt[]>([]);
   readonly productFabricOpts = signal<AttrOpt[]>([]);
   readonly productGsmOpts = signal<AttrOpt[]>([]);
@@ -950,7 +994,25 @@ export class DesignerPageComponent implements OnInit {
     Object.values(this.qtyMap()).reduce((a, b) => a + (Number(b) || 0), 0),
   );
 
+  ngOnDestroy() {
+    this.revokeDesignPreview();
+  }
+
   ngOnInit() {
+    // Bring back the uploads saved from an earlier visit (design file + logo).
+    void this.designUpload.restore().then((f) => {
+      if (f && !this.plFile()) this.applyPlFile(f);
+    });
+    void this.designUpload.restoreLogo().then((f) => {
+      if (!f || this.logoPreview()) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (this.logoPreview()) return;
+        this.logoName.set(f.name);
+        this.logoPreview.set(String(reader.result || ''));
+      };
+      reader.readAsDataURL(f);
+    });
     this.catalog.getAttributes().subscribe({
       next: (defs) => {
         this.attrDefs.set(defs.filter((d) => d.isActive !== false));
@@ -1036,14 +1098,27 @@ export class DesignerPageComponent implements OnInit {
       return;
     }
     this.plFileError.set('');
-    this.plFile.set(file);
+    this.applyPlFile(file);
     this.designUpload.set(file);
   }
 
   clearPrivateLabelFile() {
-    this.plFile.set(null);
+    this.applyPlFile(null);
     this.plFileError.set('');
     this.designUpload.set(null);
+  }
+
+  /** Shows the file in the form and, when it is an image, on the garment preview. */
+  private applyPlFile(file: File | null) {
+    this.revokeDesignPreview();
+    this.plFile.set(file);
+    if (file && isPreviewableImage(file)) this.designPreviewUrl.set(URL.createObjectURL(file));
+  }
+
+  private revokeDesignPreview() {
+    const url = this.designPreviewUrl();
+    if (url) URL.revokeObjectURL(url);
+    this.designPreviewUrl.set(null);
   }
 
   privateLabelSummary(): string {
@@ -1080,6 +1155,8 @@ export class DesignerPageComponent implements OnInit {
         privateLabelMaterial: this.plMaterial(),
         privateLabelNotes: this.plNotes(),
         privateLabelFile: this.plFile()?.name || '',
+        privateLabelFileSize: this.plFile()?.size || 0,
+        logoName: this.logoName(),
         savedAt: new Date().toISOString(),
       };
       localStorage.setItem('tg_saved_design', JSON.stringify(payload));
@@ -1299,6 +1376,7 @@ export class DesignerPageComponent implements OnInit {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (!file) return;
     this.logoName.set(file.name);
+    this.designUpload.setLogo(file);
     const reader = new FileReader();
     reader.onload = () => this.logoPreview.set(String(reader.result || ''));
     reader.readAsDataURL(file);
@@ -1307,6 +1385,7 @@ export class DesignerPageComponent implements OnInit {
   clearLogo() {
     this.logoPreview.set(null);
     this.logoName.set('');
+    this.designUpload.setLogo(null);
   }
 
   checkout() {

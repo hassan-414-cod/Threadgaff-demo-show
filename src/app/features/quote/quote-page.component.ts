@@ -403,7 +403,8 @@ export class QuotePageComponent {
     } catch {
       // ignore
     }
-    this.loadDesignFile();
+    // Only pick up the saved design file when arriving from the designer with one attached.
+    if (q.get('plFile')) this.loadDesignFile();
   }
 
   isImageSample(): boolean {
@@ -411,8 +412,8 @@ export class QuotePageComponent {
   }
 
   /** The design file from the designer's Private Label step becomes the enquiry attachment. */
-  private loadDesignFile() {
-    const file = this.designUpload.take();
+  private async loadDesignFile() {
+    const file = await this.designUpload.restore();
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
@@ -478,6 +479,8 @@ export class QuotePageComponent {
           this.segment = 'own-label';
           this.message = this.messageFromSpec;
           this.clearSample();
+          // The enquiry now holds the file, so the saved draft is no longer needed.
+          this.designUpload.clear();
           this.submitting.set(false);
         },
         error: (err) => {
