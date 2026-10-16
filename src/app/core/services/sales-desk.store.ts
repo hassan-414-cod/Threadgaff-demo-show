@@ -5,6 +5,22 @@ export interface LineItem {
   description: string;
   qty: number;
   unitPrice: number;
+  /** Set when the line was built from a catalogue product, so its price can be recalculated. */
+  productId?: string;
+  colorId?: string;
+  /** Add-on keys such as "decoration:Embroidery" that are priced per unit. */
+  addons?: string[];
+  /** True once the price was typed by hand; automatic repricing then leaves it alone. */
+  manualPrice?: boolean;
+}
+
+/** Every document that belongs to the same piece of business. */
+export interface DocChain {
+  enquiryId: string | null;
+  enquiryRef: string | null;
+  quotation: Quotation | null;
+  invoice: Invoice | null;
+  order: SalesOrder | null;
 }
 
 export interface Party {
@@ -147,6 +163,63 @@ export class SalesDeskStore {
 
   emptyParty(): Party {
     return { name: '', company: '', email: '', phone: '' };
+  }
+
+  /** Finds the inquiry, quotation, invoice and order that belong together. */
+  chainOf(doc: Quotation | Invoice | SalesOrder): DocChain {
+    const quotations = this.quotations();
+    const invoices = this.invoices();
+    const orders = this.orders();
+    let quotation: Quotation | null = null;
+    let invoice: Invoice | null = null;
+    let order: SalesOrder | null = null;
+    if ('validUntil' in doc) {
+      quotation = doc;
+      invoice = invoices.find((i) => i.quotationId === doc.id) ?? null;
+    } else if ('dueDate' in doc) {
+      invoice = doc;
+      quotation = quotations.find((q) => q.id === doc.quotationId) ?? null;
+    } else {
+      order = doc;
+      invoice = invoices.find((i) => i.id === doc.invoiceId) ?? null;
+      quotation = invoice ? (quotations.find((q) => q.id === invoice!.quotationId) ?? null) : null;
+    }
+    if (invoice && !order) order = orders.find((o) => o.invoiceId === invoice!.id) ?? null;
+    return {
+      enquiryId: doc.enquiryId,
+      enquiryRef: doc.enquiryRef,
+      quotation,
+      invoice,
+      order,
+    };
+  }
+
+  /** Everything as one JSON text, for a backup file. */
+  exportBackup(): string {
+    return JSON.stringify(
+      {
+        app: 'threadgaff-sales-desk',
+        version: 1,
+        savedAt: new Date().toISOString(),
+        quotations: this.quotations(),
+        invoices: this.invoices(),
+        orders: this.orders(),
+      },
+      null,
+      2,
+    );
+  }
+
+  /** Loads a backup file made by exportBackup(). Returns how many documents it holds. */
+  importBackup(text: string): number {
+    const d = JSON.parse(text);
+    if (!d || d.app !== 'threadgaff-sales-desk') throw new Error('This is not a Sales desk backup file.');
+    const list = (v: unknown) => (Array.isArray(v) ? v : []);
+    this.quotations.set(list(d.quotations) as Quotation[]);
+    this.invoices.set(list(d.invoices) as Invoice[]);
+    this.orders.set(list(d.orders) as SalesOrder[]);
+    this.persist();
+    return this.quotations().length + this.invoices().length + this.orders().length;
   }
 
   // ---- Quotations ----

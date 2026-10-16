@@ -75,3 +75,71 @@ export function estimatedTotal(
   const n = Math.max(0, Number(qty) || 0);
   return unit > 0 && n > 0 ? unit * n : 0;
 }
+
+/**
+ * Quantity pricing used by the Custom Designer's tier table and by Sales desk quotations:
+ * smaller runs cost a little more per unit, big runs a little less.
+ */
+export function quantityTierFactor(qty: number): number {
+  const n = Number(qty) || 0;
+  if (n >= 1000) return 0.9;
+  if (n >= 500) return 1;
+  if (n >= 300) return 1.05;
+  return 1.12;
+}
+
+export function quantityTierLabel(qty: number): string {
+  const n = Number(qty) || 0;
+  if (n >= 1000) return '1000+ units';
+  if (n >= 500) return '500–999 units';
+  if (n >= 300) return '300–499 units';
+  return 'under 300 units';
+}
+
+/** Per-unit add-on prices set on a product, keyed like "decoration:Embroidery". */
+export function serviceAddOnsOf(p: Product | null | undefined): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const av of p?.attributeValues || []) {
+    if (av.attributeDefinition?.code !== 'service_addons') continue;
+    const text = (av.valueText || '').trim();
+    if (!text) continue;
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const [k, v] of Object.entries(parsed)) {
+          const n = Number(v);
+          if (k && Number.isFinite(n) && n > 0) out[k] = Math.round(n * 100) / 100;
+        }
+      }
+    } catch {
+      for (const part of text.split(',')) {
+        const bits = part.split('|').map((s) => s.trim());
+        if (bits.length < 3) continue;
+        const n = Number(bits[2]);
+        if (Number.isFinite(n) && n > 0) out[`${bits[0]}:${bits[1]}`] = Math.round(n * 100) / 100;
+      }
+    }
+  }
+  return out;
+}
+
+/** Labels of a multi-value attribute on a product (e.g. its decoration methods). */
+export function attributeLabelsOf(
+  p: Product | null | undefined,
+  code: string,
+  defs: Array<{ code: string; options?: Array<{ id: string; label: string }> }> = [],
+): string[] {
+  const def = defs.find((d) => d.code === code);
+  const out: string[] = [];
+  for (const av of p?.attributeValues || []) {
+    if (av.attributeDefinition?.code !== code) continue;
+    const push = (s?: string | null) => {
+      const v = (s || '').trim();
+      if (v && !out.includes(v)) out.push(v);
+    };
+    push(av.option?.label);
+    for (const id of av.optionIds || []) push(def?.options?.find((o) => o.id === id)?.label);
+    for (const part of (av.valueText || '').split(',')) push(part);
+  }
+  return out;
+}

@@ -1,6 +1,32 @@
-import { Component, OnInit, computed, inject, input, signal } from '@angular/core';
+import { Component, ElementRef, OnInit, computed, inject, input, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { CatalogService, Enquiry } from '../../core/services/catalog.service';
+import { AttributeDefinition, CatalogService, Enquiry } from '../../core/services/catalog.service';
+import { Product } from '../../core/models/catalog.models';
+import {
+  attributeLabelsOf,
+  effectiveUnitPrice,
+  quantityTierFactor,
+  quantityTierLabel,
+  serviceAddOnsOf,
+} from '../../core/utils/price';
+import {
+  ExportDoc,
+  ExportFormat,
+  ExportTable,
+  docToCsv,
+  docToHtml,
+  docToPdf,
+  docToWord,
+  downloadBlob,
+  fmtDate,
+  money as fmtMoney,
+  openPrint,
+  safeFileName,
+  tableToCsv,
+  tableToHtml,
+  tableToPdf,
+  tableToWord,
+} from '../../core/utils/sales-export';
 import {
   Invoice,
   LineItem,
@@ -15,7 +41,11 @@ import {
 
 export type SalesSection = 'enquiries' | 'quotations' | 'invoices' | 'orders';
 
+type DocKind = 'quotation' | 'invoice' | 'order';
+
 interface QuoteForm {
+  /** Set when an existing quotation is being edited. */
+  id: string | null;
   enquiry: Enquiry | null;
   customer: Party;
   items: LineItem[];
@@ -47,9 +77,15 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
         </div>
         <div class="sd-head-actions">
           @if (section() === 'enquiries') {
-            <button type="button" class="btn" (click)="exportEnquiriesCsv()">Export CSV</button>
             <button type="button" class="btn" (click)="loadEnquiries()">Refresh</button>
           }
+          <select class="sel exp" aria-label="Export this list" (change)="onListExport($event)">
+            <option value="">Export list…</option>
+            <option value="csv">CSV (Excel)</option>
+            <option value="pdf">PDF</option>
+            <option value="word">Word</option>
+            <option value="print">Print</option>
+          </select>
           @if (section() === 'quotations') {
             <button type="button" class="btn btn-dark" (click)="openQuoteForm(null)">
               + New quotation
@@ -192,13 +228,13 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
                 </thead>
                 <tbody>
                   @for (q of filteredQuotations(); track q.id) {
-                    <tr>
+                    <tr class="row-click" (click)="openDoc('quotation', q.id)">
                       <td><b>{{ q.number }}</b><small>{{ fmt(q.createdAt) }}</small></td>
                       <td>{{ q.customer.name }}<small>{{ q.customer.company || q.customer.email }}</small></td>
                       <td>{{ q.enquiryRef || '—' }}</td>
                       <td>{{ q.validUntil || '—' }}</td>
                       <td class="right">{{ money(totals(q).total, q.currency) }}</td>
-                      <td>
+                      <td (click)="$event.stopPropagation()">
                         <select
                           class="sel"
                           [ngModel]="q.status"
@@ -210,8 +246,15 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
                           <option value="rejected">rejected</option>
                         </select>
                       </td>
-                      <td class="right nowrap">
-                        <button type="button" class="btn btn-sm" (click)="print('Quotation', q)">Print / PDF</button>
+                      <td class="right nowrap" (click)="$event.stopPropagation()">
+                        <button type="button" class="btn btn-sm" (click)="openDoc('quotation', q.id)">View</button>
+                        <select class="sel exp" aria-label="Export quotation" (change)="onDocExport($event, 'quotation', q)">
+                          <option value="">Export…</option>
+                          <option value="print">Print</option>
+                          <option value="pdf">PDF</option>
+                          <option value="word">Word</option>
+                          <option value="csv">CSV</option>
+                        </select>
                         <button type="button" class="btn btn-sm btn-dark" (click)="makeInvoice(q)" [disabled]="invoiceFor(q)">
                           {{ invoiceFor(q) ? 'Invoiced' : 'Create invoice' }}
                         </button>
@@ -229,8 +272,8 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
       <!-- ===================== INVOICES ===================== -->
       @if (section() === 'invoices') {
         <div class="kpis">
-          <div class="kpi"><span>Paid</span><b>{{ money(store.revenuePaid(), 'USD') }}</b></div>
-          <div class="kpi"><span>Outstanding</span><b>{{ money(store.outstanding(), 'USD') }}</b></div>
+          <div class="kpi"><span>Paid</span><b>{{ kpi('paid') }}</b></div>
+          <div class="kpi"><span>Outstanding</span><b>{{ kpi('unpaid') }}</b></div>
           <div class="kpi"><span>Invoices</span><b>{{ store.invoices().length }}</b></div>
         </div>
         <div class="panel">
@@ -263,20 +306,27 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
                 </thead>
                 <tbody>
                   @for (i of filteredInvoices(); track i.id) {
-                    <tr>
+                    <tr class="row-click" (click)="openDoc('invoice', i.id)">
                       <td><b>{{ i.number }}</b><small>{{ fmt(i.createdAt) }}</small></td>
                       <td>{{ i.customer.name }}<small>{{ i.customer.company || i.customer.email }}</small></td>
                       <td>{{ i.quotationNumber || '—' }}</td>
                       <td [class.overdue]="isOverdue(i)">{{ i.dueDate }}{{ isOverdue(i) ? ' · overdue' : '' }}</td>
                       <td class="right">{{ money(totals(i).total, i.currency) }}</td>
                       <td><span class="badge" [class]="'b-' + i.status">{{ i.status }}</span></td>
-                      <td class="right nowrap">
+                      <td class="right nowrap" (click)="$event.stopPropagation()">
                         @if (i.status === 'unpaid') {
-                          <button type="button" class="btn btn-sm" (click)="store.setInvoiceStatus(i.id, 'paid')">Mark paid</button>
+                          <button type="button" class="btn btn-sm" (click)="markPaid(i)">Mark paid</button>
                         } @else if (i.status === 'paid') {
                           <button type="button" class="btn btn-sm" (click)="store.setInvoiceStatus(i.id, 'unpaid')">Mark unpaid</button>
                         }
-                        <button type="button" class="btn btn-sm" (click)="print('Invoice', i)">Print / PDF</button>
+                        <button type="button" class="btn btn-sm" (click)="openDoc('invoice', i.id)">View</button>
+                        <select class="sel exp" aria-label="Export invoice" (change)="onDocExport($event, 'invoice', i)">
+                          <option value="">Export…</option>
+                          <option value="print">Print</option>
+                          <option value="pdf">PDF</option>
+                          <option value="word">Word</option>
+                          <option value="csv">CSV</option>
+                        </select>
                         <button type="button" class="btn btn-sm btn-dark" (click)="makeOrder(i)" [disabled]="orderFor(i)">
                           {{ orderFor(i) ? 'Ordered' : 'Create order' }}
                         </button>
@@ -338,7 +388,7 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
                         type="button"
                         class="step"
                         [class.done]="stageIndex(o.stage) >= idx"
-                        (click)="store.setOrderStage(o.id, s.key)"
+                        (click)="setStage(o, s.key)"
                       >
                         <i>{{ idx + 1 }}</i>{{ s.label }}
                       </button>
@@ -353,11 +403,18 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
                     [ngModel]="o.tracking"
                     (blur)="store.setOrderTracking(o.id, $any($event.target).value)"
                   />
-                  <button type="button" class="btn btn-sm" (click)="print('Order', o)">Print</button>
+                  <button type="button" class="btn btn-sm" (click)="openDoc('order', o.id)">View</button>
+                  <select class="sel exp" aria-label="Export order" (change)="onDocExport($event, 'order', o)">
+                    <option value="">Export…</option>
+                    <option value="print">Print</option>
+                    <option value="pdf">PDF</option>
+                    <option value="word">Word</option>
+                    <option value="csv">CSV</option>
+                  </select>
                   @if (o.stage !== 'cancelled' && o.stage !== 'delivered') {
-                    <button type="button" class="btn btn-sm btn-danger" (click)="store.setOrderStage(o.id, 'cancelled')">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-danger" (click)="setStage(o, 'cancelled')">Cancel</button>
                   } @else if (o.stage === 'cancelled') {
-                    <button type="button" class="btn btn-sm" (click)="store.setOrderStage(o.id, 'confirmed')">Reopen</button>
+                    <button type="button" class="btn btn-sm" (click)="setStage(o, 'confirmed')">Reopen</button>
                   }
                   <button type="button" class="btn btn-sm btn-danger" (click)="removeOrder(o)">Delete</button>
                 </div>
@@ -365,6 +422,14 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
             }
           </div>
         }
+      }
+      @if (section() !== 'enquiries') {
+        <p class="backup">
+          Quotations, invoices and orders are saved in this browser.
+          <button type="button" class="link" (click)="downloadBackup()">Download a backup</button> ·
+          <button type="button" class="link" (click)="chooseBackup()">Restore from a backup</button>
+          <input #restoreFile type="file" accept="application/json,.json" hidden (change)="restoreBackup($event)" />
+        </p>
       }
     </div>
 
@@ -431,7 +496,14 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
               <ul class="plain">
                 @for (q of quotesFor(e); track q.id) {
                   <li>
-                    <b>{{ q.number }}</b> · {{ q.status }} · {{ money(totals(q).total, q.currency) }}
+                    <button type="button" class="link" (click)="openQuoteDoc(q)"><b>{{ q.number }}</b></button>
+                    · {{ q.status }} · {{ money(totals(q).total, q.currency) }}
+                    @if (store.chainOf(q).invoice; as inv) {
+                      → <button type="button" class="link" (click)="openDoc('invoice', inv.id)">{{ inv.number }}</button> ({{ inv.status }})
+                    }
+                    @if (store.chainOf(q).order; as ord) {
+                      → <button type="button" class="link" (click)="openDoc('order', ord.id)">{{ ord.number }}</button> ({{ stageLabel(ord.stage) }})
+                    }
                   </li>
                 }
               </ul>
@@ -439,6 +511,13 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
           }
         </div>
         <footer>
+          <select class="sel exp" aria-label="Export inquiry" (change)="onEnquiryExport($event, e)">
+            <option value="">Export…</option>
+            <option value="print">Print</option>
+            <option value="pdf">PDF</option>
+            <option value="word">Word</option>
+            <option value="csv">CSV</option>
+          </select>
           <a class="btn" [href]="'mailto:' + e.email + '?subject=' + encode('Re: ' + e.ref)">Reply by email</a>
           <button type="button" class="btn btn-dark" (click)="openQuoteForm(e)">Create quotation</button>
         </footer>
@@ -450,7 +529,7 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
       <div class="scrim" (click)="quoteForm.set(null)"></div>
       <div class="modal" role="dialog" aria-label="Quotation">
         <header>
-          <h2>New quotation{{ f.enquiry ? ' · ' + f.enquiry.ref : '' }}</h2>
+          <h2>{{ f.id ? 'Edit quotation' : 'New quotation' }}{{ f.enquiry ? ' · ' + f.enquiry.ref : '' }}</h2>
           <button type="button" class="x" (click)="quoteForm.set(null)" aria-label="Close">×</button>
         </header>
         <div class="modal-body">
@@ -462,16 +541,50 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
           </div>
 
           <h3>Line items</h3>
+          <div class="picker" aria-label="Add a product from the catalogue">
+            <select [(ngModel)]="pick.productId" (ngModelChange)="onPickProduct()" aria-label="Product">
+              <option value="">Add a catalogue product…</option>
+              @for (p of products(); track p.id) {
+                <option [value]="p.id">{{ p.name }}{{ p.isActive ? '' : ' (off)' }}</option>
+              }
+            </select>
+            @if (pickProduct(); as pp) {
+              <select [(ngModel)]="pick.colorId" aria-label="Colour">
+                @for (c of pp.colors || []; track c.id) {
+                  <option [value]="c.id">{{ c.name }}</option>
+                }
+              </select>
+              <select [(ngModel)]="pick.decoration" aria-label="Decoration">
+                <option value="">No decoration</option>
+                @for (d of pickDecorations(); track d) {
+                  <option [value]="d">{{ d }}</option>
+                }
+              </select>
+              <input type="number" min="1" [(ngModel)]="pick.qty" aria-label="Quantity" />
+              <span class="pick-price">{{ money(pickUnit(), f.currency) }} / unit<small>{{ tierLabel(pick.qty) }}</small></span>
+              <button type="button" class="btn btn-sm btn-dark" (click)="addProductLine(f)">Add</button>
+            }
+          </div>
           <div class="items">
             <div class="item head"><span>Description</span><span>Qty</span><span>Unit price</span><span>Amount</span><span></span></div>
             @for (it of f.items; track $index) {
               <div class="item">
                 <input type="text" [(ngModel)]="it.description" placeholder="e.g. Custom hoodie · 380 GSM" />
-                <input type="number" min="0" [(ngModel)]="it.qty" />
-                <input type="number" min="0" step="0.01" [(ngModel)]="it.unitPrice" />
+                <input type="number" min="0" [(ngModel)]="it.qty" (ngModelChange)="onQty(it)" />
+                <input type="number" min="0" step="0.01" [(ngModel)]="it.unitPrice" (ngModelChange)="onPrice(it)" />
                 <span class="amt">{{ money((it.qty || 0) * (it.unitPrice || 0), f.currency) }}</span>
                 <button type="button" class="x" (click)="removeItem(f, $index)" aria-label="Remove line">×</button>
               </div>
+              @if (it.productId) {
+                <div class="item-hint">
+                  @if (it.manualPrice) {
+                    Price typed by hand.
+                    <button type="button" class="link" (click)="resetPrice(it)">Use catalogue price ({{ money(priceFor(it), f.currency) }})</button>
+                  } @else {
+                    Catalogue price, {{ tierLabel(it.qty) }} (×{{ tierFactor(it.qty) }}). Changes with the quantity.
+                  }
+                </div>
+              }
             }
             <button type="button" class="btn btn-sm" (click)="addItem(f)">+ Add line</button>
           </div>
@@ -479,7 +592,7 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
           <div class="grid4">
             <label>Currency
               <select [(ngModel)]="f.currency">
-                <option>USD</option><option>EUR</option><option>GBP</option><option>PKR</option><option>AED</option>
+                <option>GBP</option><option>USD</option><option>EUR</option><option>PKR</option><option>AED</option>
               </select>
             </label>
             <label>Tax %<input type="number" min="0" [(ngModel)]="f.taxPct" /></label>
@@ -499,6 +612,110 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
           <button type="button" class="btn" (click)="quoteForm.set(null)">Cancel</button>
           <button type="button" class="btn" (click)="saveQuote('draft')">Save draft</button>
           <button type="button" class="btn btn-dark" (click)="saveQuote('sent')">Save as sent</button>
+        </footer>
+      </div>
+    }
+
+    <!-- ===================== DOCUMENT VIEW ===================== -->
+    @if (docView(); as v) {
+      <div class="scrim" (click)="closeDoc()"></div>
+      <div class="modal doc-modal" role="dialog" [attr.aria-label]="v.title + ' ' + v.doc.number">
+        <header>
+          <div>
+            <h2>{{ v.title }} {{ v.doc.number }}</h2>
+            <small class="muted">{{ fmt(v.doc.createdAt) }} · {{ v.statusLabel }}</small>
+          </div>
+          <button type="button" class="x" (click)="closeDoc()" aria-label="Close">×</button>
+        </header>
+        <div class="modal-body">
+          <div class="chain" aria-label="Linked documents">
+            @if (v.chain.enquiryRef) {
+              <button type="button" class="chain-chip" [disabled]="!enquiryOf(v.chain.enquiryId)" (click)="openEnquiryById(v.chain.enquiryId)">
+                <small>Inquiry</small>{{ v.chain.enquiryRef }}
+              </button>
+              <i>→</i>
+            }
+            <button type="button" class="chain-chip" [class.on]="v.kind === 'quotation'" [disabled]="!v.chain.quotation" (click)="v.chain.quotation && openDoc('quotation', v.chain.quotation.id)">
+              <small>Quotation</small>{{ v.chain.quotation?.number || '—' }}
+            </button>
+            <i>→</i>
+            <button type="button" class="chain-chip" [class.on]="v.kind === 'invoice'" [disabled]="!v.chain.invoice" (click)="v.chain.invoice && openDoc('invoice', v.chain.invoice.id)">
+              <small>Invoice</small>{{ v.chain.invoice?.number || '—' }}
+            </button>
+            <i>→</i>
+            <button type="button" class="chain-chip" [class.on]="v.kind === 'order'" [disabled]="!v.chain.order" (click)="v.chain.order && openDoc('order', v.chain.order.id)">
+              <small>Order</small>{{ v.chain.order?.number || '—' }}
+            </button>
+          </div>
+
+          <div class="grid2 doc-parties">
+            <div>
+              <h3>Customer</h3>
+              <p class="lines">
+                <b>{{ v.doc.customer.name }}</b>
+                @if (v.doc.customer.company) { <br />{{ v.doc.customer.company }} }
+                @if (v.doc.customer.email) { <br />{{ v.doc.customer.email }} }
+                @if (v.doc.customer.phone) { <br />{{ v.doc.customer.phone }} }
+              </p>
+            </div>
+            <div>
+              <h3>Details</h3>
+              <p class="lines">
+                @for (m of v.export.meta; track m[0]) { {{ m[0] }}: <b>{{ m[1] }}</b><br /> }
+              </p>
+            </div>
+          </div>
+
+          <table class="data doc-items">
+            <thead><tr><th>Description</th><th class="right">Qty</th><th class="right">Unit price</th><th class="right">Amount</th></tr></thead>
+            <tbody>
+              @for (it of v.doc.items; track $index) {
+                <tr>
+                  <td>{{ it.description }}</td>
+                  <td class="right">{{ it.qty }}</td>
+                  <td class="right">{{ money(it.unitPrice, v.doc.currency) }}</td>
+                  <td class="right">{{ money(it.qty * it.unitPrice, v.doc.currency) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          <div class="totals">
+            <div><span>Subtotal</span><b>{{ money(v.export.subtotal, v.doc.currency) }}</b></div>
+            <div><span>Discount</span><b>− {{ money(v.export.discount, v.doc.currency) }}</b></div>
+            <div><span>Tax ({{ v.doc.taxPct }}%)</span><b>{{ money(v.export.tax, v.doc.currency) }}</b></div>
+            <div class="grand"><span>Total</span><b>{{ money(v.export.total, v.doc.currency) }}</b></div>
+          </div>
+          @if (v.doc.notes) {
+            <h3>Notes / terms</h3>
+            <pre class="msg">{{ v.doc.notes }}</pre>
+          }
+        </div>
+        <footer>
+          <select class="sel exp" aria-label="Export" (change)="onDocExport($event, v.kind, v.doc)">
+            <option value="">Export…</option>
+            <option value="print">Print</option>
+            <option value="pdf">PDF</option>
+            <option value="word">Word</option>
+            <option value="csv">CSV</option>
+          </select>
+          @if (v.kind === 'quotation') {
+            <button type="button" class="btn" (click)="editQuote(v.chain.quotation!)" [disabled]="!!v.chain.invoice" [attr.title]="v.chain.invoice ? 'Already invoiced: edit the invoice instead' : null">Edit</button>
+            <button type="button" class="btn btn-dark" (click)="makeInvoice(v.chain.quotation!)" [disabled]="!!v.chain.invoice">{{ v.chain.invoice ? 'Invoiced' : 'Create invoice' }}</button>
+          }
+          @if (v.kind === 'invoice') {
+            @if (v.chain.invoice!.status === 'unpaid') {
+              <button type="button" class="btn" (click)="markPaid(v.chain.invoice!)">Mark paid</button>
+            } @else if (v.chain.invoice!.status === 'paid') {
+              <button type="button" class="btn" (click)="store.setInvoiceStatus(v.chain.invoice!.id, 'unpaid')">Mark unpaid</button>
+            }
+            <button type="button" class="btn btn-dark" (click)="makeOrder(v.chain.invoice!)" [disabled]="!!v.chain.order">{{ v.chain.order ? 'Ordered' : 'Create order' }}</button>
+          }
+          @if (v.kind === 'order') {
+            <select class="sel" aria-label="Order stage" [ngModel]="v.chain.order!.stage" (ngModelChange)="setStage(v.chain.order!, $event)">
+              @for (st of stages; track st.key) { <option [value]="st.key">{{ st.label }}</option> }
+              <option value="cancelled">Cancelled</option>
+            </select>
+          }
         </footer>
       </div>
     }
@@ -656,7 +873,37 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
       .totals div { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.88rem; }
       .totals .grand { border-top: 1px solid var(--ui-line); margin-top: 4px; padding-top: 8px; font-size: 1.05rem; }
 
+      .sel.exp, .doc-modal footer select, .drawer footer select { width: auto; flex: none; }
+      .doc-modal footer, .drawer footer { align-items: center; flex-wrap: wrap; }
+      .sel.exp { padding: 6px 8px; border: 1px solid var(--ui-line); border-radius: 8px; background: #fff; font: inherit; font-size: 0.78rem; cursor: pointer; }
+      .backup { margin: 14px 2px 0; font-size: 0.8rem; color: var(--ui-muted); }
+      .link { border: 0; background: none; padding: 0; font: inherit; color: var(--ui-primary); text-decoration: underline; cursor: pointer; }
+      .picker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px; margin-bottom: 10px; background: var(--ui-soft); border: 1px solid #d8e0d1; border-radius: 10px; }
+      .picker select, .picker input { padding: 7px 8px; margin: 0; width: auto; border: 1px solid var(--ui-line); border-radius: 8px; background: #fff; font: inherit; font-size: 0.82rem; max-width: 100%; }
+      .picker > select:first-child { flex: 1 1 100%; }
+      .picker > select:not(:first-child) { flex: 1 1 130px; min-width: 0; }
+      .picker input { width: 84px; }
+      .pick-price { display: flex; flex-direction: column; font-size: 0.86rem; font-weight: 700; margin-left: auto; }
+      .pick-price small { font-weight: 400; color: var(--ui-muted); font-size: 0.7rem; }
+      .item-hint { font-size: 0.72rem; color: var(--ui-muted); margin: -2px 0 4px 2px; }
+      .doc-modal { width: min(860px, 94vw); }
+      .doc-modal header { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 20px; border-bottom: 1px solid var(--ui-line); }
+      .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; }
+      .chain i { font-style: normal; color: var(--ui-muted); }
+      .chain-chip { display: flex; flex-direction: column; text-align: left; border: 1px solid var(--ui-line); background: #fff; border-radius: 10px; padding: 6px 12px; font: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
+      .chain-chip small { font-weight: 400; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ui-muted); }
+      .chain-chip.on { border-color: var(--ui-primary); background: var(--ui-soft); }
+      .chain-chip:disabled { opacity: 0.45; cursor: default; }
+      .doc-parties h3 { margin: 0 0 6px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ui-muted); }
+      .lines { margin: 0 0 12px; font-size: 0.88rem; line-height: 1.5; }
+      .doc-items { width: 100%; border-collapse: collapse; margin-top: 4px; }
+      .doc-items th, .doc-items td { padding: 8px; border-bottom: 1px solid var(--ui-line); text-align: left; font-size: 0.86rem; }
+      .doc-items th.right, .doc-items td.right { text-align: right; }
+      .muted { color: var(--ui-muted); }
+
       @media (max-width: 720px) {
+        .picker { flex-direction: column; align-items: stretch; }
+        .pick-price { margin-left: 0; }
         .grid2, .grid4 { grid-template-columns: 1fr 1fr; }
         .item { grid-template-columns: 1fr 60px 80px; }
         .item .amt, .item.head span:nth-child(4) { display: none; }
@@ -713,6 +960,35 @@ export class AdminSalesDeskComponent implements OnInit {
   readonly quoteForm = signal<QuoteForm | null>(null);
   notesDraft = '';
 
+  readonly products = signal<Product[]>([]);
+  readonly attrDefs = signal<AttributeDefinition[]>([]);
+  readonly viewRef = signal<{ kind: DocKind; id: string } | null>(null);
+  readonly restoreInput = viewChild<ElementRef<HTMLInputElement>>('restoreFile');
+  /** The product row above the quotation lines. */
+  pick = { productId: '', colorId: '', decoration: '', qty: 300 };
+
+  /** The opened quotation / invoice / order with everything linked to it. */
+  readonly docView = computed(() => {
+    const ref = this.viewRef();
+    if (!ref) return null;
+    const doc: Quotation | Invoice | SalesOrder | undefined =
+      ref.kind === 'quotation'
+        ? this.store.quotations().find((d) => d.id === ref.id)
+        : ref.kind === 'invoice'
+          ? this.store.invoices().find((d) => d.id === ref.id)
+          : this.store.orders().find((d) => d.id === ref.id);
+    if (!doc) return null;
+    const exp = this.toExportDoc(ref.kind, doc);
+    return {
+      kind: ref.kind,
+      doc,
+      chain: this.store.chainOf(doc),
+      export: exp,
+      title: exp.kind,
+      statusLabel: exp.status,
+    };
+  });
+
   readonly filteredEnquiries = computed(() => {
     const q = this.enqSearch().trim().toLowerCase();
     const st = this.enqStatus();
@@ -757,6 +1033,14 @@ export class AdminSalesDeskComponent implements OnInit {
   });
 
   ngOnInit() {
+    this.catalog.getAttributes().subscribe({
+      next: (d) => this.attrDefs.set(d),
+      error: () => undefined,
+    });
+    this.catalog.getAdminProducts({ limit: 100 }).subscribe({
+      next: (r) => this.products.set(r.items || []),
+      error: () => undefined,
+    });
     this.loadEnquiries();
   }
 
@@ -830,51 +1114,41 @@ export class AdminSalesDeskComponent implements OnInit {
     return encodeURIComponent(s);
   }
 
-  exportEnquiriesCsv() {
-    const rows = this.filteredEnquiries();
-    const head = ['Ref', 'Received', 'Name', 'Company', 'Email', 'Phone', 'Segment', 'Status', 'Message'];
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`;
-    const csv = [head.join(',')]
-      .concat(
-        rows.map((e) =>
-          [e.ref, e.createdAt, e.name, e.company, e.email, e.phone, e.segment, e.status, e.message]
-            .map(esc)
-            .join(','),
-        ),
-      )
-      .join('\n');
-    this.download(`inquiries-${new Date().toISOString().slice(0, 10)}.csv`, csv, 'text/csv');
-  }
-
-  private download(name: string, content: string, type: string) {
-    const url = URL.createObjectURL(new Blob([content], { type }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   // ---------- Quotations ----------
-  openQuoteForm(e: Enquiry | null) {
+  openQuoteForm(e: Enquiry | null, existing?: Quotation) {
+    this.pick = { productId: '', colorId: '', decoration: '', qty: 300 };
+    if (existing) {
+      this.quoteForm.set({
+        id: existing.id,
+        enquiry: this.enquiries().find((x) => x.id === existing.enquiryId) ?? null,
+        customer: { ...existing.customer },
+        items: existing.items.map((i) => ({ ...i, addons: i.addons ? [...i.addons] : undefined })),
+        taxPct: existing.taxPct,
+        discount: existing.discount,
+        currency: existing.currency,
+        notes: existing.notes,
+        validUntil: existing.validUntil,
+      });
+      return;
+    }
     const valid = new Date();
     valid.setDate(valid.getDate() + 14);
     this.quoteForm.set({
+      id: null,
       enquiry: e,
       customer: e ? this.store.partyFromEnquiry(e) : this.store.emptyParty(),
-      items: [
-        {
-          description: e?.segment ? `${e.segment} – custom apparel` : '',
-          qty: 1,
-          unitPrice: 0,
-        },
-      ],
+      items: [e ? this.lineFromEnquiry(e) : { description: '', qty: 1, unitPrice: 0 }],
       taxPct: 0,
       discount: 0,
-      currency: 'USD',
+      currency: 'GBP',
       notes: 'Payment: 50% advance, 50% before dispatch. Prices exclude shipping.',
       validUntil: valid.toISOString().slice(0, 10),
     });
+  }
+
+  editQuote(q: Quotation) {
+    this.closeDoc();
+    this.openQuoteForm(null, q);
   }
 
   addItem(f: QuoteForm) {
@@ -890,6 +1164,115 @@ export class AdminSalesDeskComponent implements OnInit {
     return docTotals(f);
   }
 
+  // ---------- Pricing ----------
+  /** Catalogue price per unit: colour price + add-ons, adjusted for the quantity band. */
+  priceFor(it: LineItem): number {
+    const p = this.products().find((x) => x.id === it.productId);
+    if (!p) return Number(it.unitPrice) || 0;
+    const base = effectiveUnitPrice(p, it.colorId);
+    const prices = serviceAddOnsOf(p);
+    const add = (it.addons || []).reduce((sum, k) => sum + (prices[k] || 0), 0);
+    return Math.round((base + add) * quantityTierFactor(it.qty) * 100) / 100;
+  }
+
+  tierFactor(qty: number): number {
+    return quantityTierFactor(qty);
+  }
+
+  tierLabel(qty: number): string {
+    return quantityTierLabel(qty);
+  }
+
+  onQty(it: LineItem) {
+    if (it.productId && !it.manualPrice) it.unitPrice = this.priceFor(it);
+  }
+
+  onPrice(it: LineItem) {
+    if (it.productId) it.manualPrice = true;
+  }
+
+  resetPrice(it: LineItem) {
+    it.manualPrice = false;
+    it.unitPrice = this.priceFor(it);
+  }
+
+  pickProduct(): Product | undefined {
+    return this.products().find((p) => p.id === this.pick.productId);
+  }
+
+  pickDecorations(): string[] {
+    return attributeLabelsOf(this.pickProduct(), 'decoration', this.attrDefs());
+  }
+
+  onPickProduct() {
+    const p = this.pickProduct();
+    this.pick.colorId = (p?.colors?.find((c) => c.isDefault) || p?.colors?.[0])?.id || '';
+    this.pick.decoration = '';
+  }
+
+  private pickItem(): LineItem {
+    return {
+      description: '',
+      qty: Math.max(1, Number(this.pick.qty) || 1),
+      unitPrice: 0,
+      productId: this.pick.productId,
+      colorId: this.pick.colorId,
+      addons: this.pick.decoration ? ['decoration:' + this.pick.decoration] : [],
+    };
+  }
+
+  pickUnit(): number {
+    return this.pick.productId ? this.priceFor(this.pickItem()) : 0;
+  }
+
+  addProductLine(f: QuoteForm) {
+    const p = this.pickProduct();
+    if (!p) return;
+    const item = this.pickItem();
+    const colour = p.colors?.find((c) => c.id === this.pick.colorId)?.name;
+    item.description = [p.name, colour, this.pick.decoration].filter(Boolean).join(' · ');
+    item.unitPrice = this.priceFor(item);
+    const first = f.items[0];
+    if (f.items.length === 1 && !first.description.trim() && !Number(first.unitPrice)) f.items = [item];
+    else f.items.push(item);
+  }
+
+  /** Builds the first quotation line from what the customer sent (the Custom Designer's summary). */
+  private lineFromEnquiry(e: Enquiry): LineItem {
+    const spec: Record<string, string> = {};
+    for (const line of (e.message || '').split(/\r?\n/)) {
+      const i = line.indexOf(':');
+      if (i > 0) spec[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
+    }
+    const num = (v?: string) => Number((v || '').replace(/[^0-9.]/g, '')) || 0;
+    const garment = spec['garment'];
+    const product = garment
+      ? this.products().find((p) => p.name.toLowerCase() === garment.toLowerCase())
+      : undefined;
+    const colour = product?.colors?.find((c) => c.name.toLowerCase() === (spec['colour'] || '').toLowerCase());
+    const addons: string[] = [];
+    if (spec['decoration']) addons.push('decoration:' + spec['decoration']);
+    if (spec['placement']) addons.push('placement:' + spec['placement']);
+    if (spec['gsm']) addons.push('gsm:' + spec['gsm']);
+    for (const pl of (spec['private label'] || '').split(',').map((x) => x.trim()).filter(Boolean)) {
+      addons.push('private_label:' + pl);
+    }
+    const description =
+      [garment, spec['colour'], spec['style / neckline'], spec['sleeve'], spec['decoration'], spec['placement'], spec['fabric'], spec['gsm']]
+        .filter(Boolean)
+        .join(' · ') || (e.segment ? e.segment + ' – custom apparel' : '');
+    const item: LineItem = { description, qty: num(spec['quantity']) || 1, unitPrice: 0 };
+    if (product) {
+      item.productId = product.id;
+      item.colorId = colour?.id || (product.colors?.find((c) => c.isDefault) || product.colors?.[0])?.id || '';
+      item.addons = addons;
+      item.unitPrice = this.priceFor(item);
+    } else if (num(spec['unit price'])) {
+      item.unitPrice = num(spec['unit price']);
+    }
+    return item;
+  }
+
   saveQuote(status: QuotationStatus) {
     const f = this.quoteForm();
     if (!f) return;
@@ -900,6 +1283,7 @@ export class AdminSalesDeskComponent implements OnInit {
     const items = f.items
       .filter((i) => i.description.trim())
       .map((i) => ({
+        ...i,
         description: i.description.trim(),
         qty: Number(i.qty) || 0,
         unitPrice: Number(i.unitPrice) || 0,
@@ -909,8 +1293,7 @@ export class AdminSalesDeskComponent implements OnInit {
       return;
     }
     this.error.set('');
-    const q = this.store.createQuotation({
-      enquiry: f.enquiry,
+    const fields = {
       customer: f.customer,
       items,
       taxPct: Number(f.taxPct) || 0,
@@ -919,19 +1302,39 @@ export class AdminSalesDeskComponent implements OnInit {
       notes: f.notes,
       validUntil: f.validUntil,
       status,
-    });
+    };
     this.quoteForm.set(null);
-    this.flash(`${q.number} created`);
-    if (f.enquiry && f.enquiry.status === 'new') {
-      this.catalog.updateEnquiry(f.enquiry.id, { status: 'quoted' }).subscribe({
-        next: () => this.loadEnquiries(),
-        error: () => undefined,
-      });
+    if (f.id) {
+      this.store.updateQuotation(f.id, fields);
+      this.flash('Quotation updated');
+      if (status === 'sent') this.syncEnquiry(f.enquiry?.id ?? null, 'quoted');
+      return;
     }
+    const q = this.store.createQuotation({ enquiry: f.enquiry, ...fields });
+    this.flash(q.number + ' created');
+    this.syncEnquiry(f.enquiry?.id ?? null, 'quoted');
+  }
+
+  /** Keeps the inquiry's status in step with its quotation / order. */
+  private syncEnquiry(id: string | null, status: Enquiry['status']) {
+    if (!id) return;
+    const e = this.enquiries().find((x) => x.id === id);
+    if (!e || e.status === status) return;
+    if (status === 'quoted' && e.status !== 'new') return;
+    this.catalog.updateEnquiry(id, { status }).subscribe({
+      next: () => this.loadEnquiries(),
+      error: () => undefined,
+    });
   }
 
   setQuoteStatus(q: Quotation, status: QuotationStatus) {
     this.store.updateQuotation(q.id, { status });
+    if (status === 'sent') this.syncEnquiry(q.enquiryId, 'quoted');
+  }
+
+  openQuoteDoc(q: Quotation) {
+    this.closeEnquiry();
+    this.openDoc('quotation', q.id);
   }
 
   removeQuote(q: Quotation) {
@@ -965,6 +1368,30 @@ export class AdminSalesDeskComponent implements OnInit {
     this.flash(`${o.number} created from ${i.number}`);
   }
 
+  /** Paying an invoice moves the business on: the order is created if it does not exist yet. */
+  markPaid(i: Invoice) {
+    this.store.setInvoiceStatus(i.id, 'paid');
+    if (!this.orderFor(i)) {
+      const o = this.store.createOrderFromInvoice(i);
+      this.flash(`${i.number} paid · ${o.number} created`);
+    } else {
+      this.flash(`${i.number} marked paid`);
+    }
+  }
+
+  setStage(o: SalesOrder, stage: OrderStage) {
+    this.store.setOrderStage(o.id, stage);
+    if (stage === 'delivered') this.syncEnquiry(o.enquiryId, 'closed');
+  }
+
+  kpi(status: 'paid' | 'unpaid'): string {
+    const by = new Map<string, number>();
+    for (const i of this.store.invoices().filter((x) => x.status === status)) {
+      by.set(i.currency, (by.get(i.currency) || 0) + docTotals(i).total);
+    }
+    return by.size ? [...by].map(([c, n]) => this.money(n, c)).join(' + ') : this.money(0, 'GBP');
+  }
+
   removeOrder(o: SalesOrder) {
     if (confirm(`Delete order ${o.number}?`)) this.store.deleteOrder(o.id);
   }
@@ -989,18 +1416,11 @@ export class AdminSalesDeskComponent implements OnInit {
   }
 
   money(n: number, currency: string): string {
-    try {
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(n || 0);
-    } catch {
-      return `${currency} ${(n || 0).toFixed(2)}`;
-    }
+    return fmtMoney(n, currency);
   }
 
   fmt(iso: string): string {
-    const d = new Date(iso);
-    return isNaN(d.getTime())
-      ? '—'
-      : d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+    return fmtDate(iso);
   }
 
   private flash(msg: string) {
@@ -1010,60 +1430,216 @@ export class AdminSalesDeskComponent implements OnInit {
     }, 3500);
   }
 
-  /** Opens a print-ready document; use the browser's "Save as PDF". */
-  print(kind: 'Quotation' | 'Invoice' | 'Order', d: Quotation | Invoice | SalesOrder) {
-    const esc = (s: unknown) =>
-      String(s ?? '').replace(/[&<>"']/g, (c) =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
-      );
+  // ---------- Document view ----------
+  openDoc(kind: DocKind, id: string) {
+    this.viewRef.set({ kind, id });
+  }
+
+  closeDoc() {
+    this.viewRef.set(null);
+  }
+
+  enquiryOf(id: string | null): Enquiry | undefined {
+    return id ? this.enquiries().find((e) => e.id === id) : undefined;
+  }
+
+  openEnquiryById(id: string | null) {
+    const e = this.enquiryOf(id);
+    if (!e) return;
+    this.closeDoc();
+    this.openEnquiry(e);
+  }
+
+  // ---------- Export ----------
+  toExportDoc(kind: DocKind, d: Quotation | Invoice | SalesOrder): ExportDoc {
     const t = docTotals(d);
-    const extra =
-      'validUntil' in d
-        ? `<p>Valid until: <b>${esc(d.validUntil || '—')}</b></p>`
-        : 'dueDate' in d
-          ? `<p>Due date: <b>${esc(d.dueDate)}</b> · Status: <b>${esc(d.status)}</b></p>`
-          : `<p>Stage: <b>${esc(this.stageLabel((d as SalesOrder).stage))}</b>${
-              (d as SalesOrder).tracking ? ' · Tracking: <b>' + esc((d as SalesOrder).tracking) + '</b>' : ''
-            }</p>`;
-    const rows = d.items
-      .map(
-        (i) =>
-          `<tr><td>${esc(i.description)}</td><td class="r">${i.qty}</td><td class="r">${this.money(i.unitPrice, d.currency)}</td><td class="r">${this.money(i.qty * i.unitPrice, d.currency)}</td></tr>`,
-      )
-      .join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${kind} ${esc(d.number)}</title>
-<style>
-body{font-family:Inter,Arial,sans-serif;color:#1c1c1c;margin:40px;font-size:13px}
-h1{margin:0;font-size:24px;letter-spacing:.04em} .top{display:flex;justify-content:space-between;border-bottom:2px solid #3d4b37;padding-bottom:14px;margin-bottom:20px}
-.brand{font-weight:700;letter-spacing:.2em;color:#3d4b37} table{width:100%;border-collapse:collapse;margin-top:18px}
-th{background:#eef2ea;text-align:left;padding:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-td{padding:8px;border-bottom:1px solid #e4e0d6} .r{text-align:right}
-.tot{margin-left:auto;width:260px;margin-top:16px} .tot div{display:flex;justify-content:space-between;padding:4px 0}
-.tot .g{border-top:2px solid #3d4b37;font-weight:700;font-size:15px;margin-top:4px;padding-top:8px}
-.notes{margin-top:26px;color:#555;white-space:pre-wrap}
-@media print{body{margin:18px}}
-</style></head><body>
-<div class="top"><div><div class="brand">THREADGAFF</div><div>Custom apparel manufacturing</div></div>
-<div style="text-align:right"><h1>${kind.toUpperCase()}</h1><div><b>${esc(d.number)}</b></div><div>${this.fmt(d.createdAt)}</div></div></div>
-<p><b>Bill to</b><br>${esc(d.customer.name)}${d.customer.company ? '<br>' + esc(d.customer.company) : ''}${
-      d.customer.email ? '<br>' + esc(d.customer.email) : ''
-    }${d.customer.phone ? '<br>' + esc(d.customer.phone) : ''}</p>
-${d.enquiryRef ? `<p>Inquiry ref: <b>${esc(d.enquiryRef)}</b></p>` : ''}${extra}
-<table><thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>
-<div class="tot"><div><span>Subtotal</span><span>${this.money(t.subtotal, d.currency)}</span></div>
-<div><span>Discount</span><span>− ${this.money(t.discount, d.currency)}</span></div>
-<div><span>Tax (${d.taxPct}%)</span><span>${this.money(t.tax, d.currency)}</span></div>
-<div class="g"><span>Total</span><span>${this.money(t.total, d.currency)}</span></div></div>
-${d.notes ? `<div class="notes"><b>Notes / terms</b><br>${esc(d.notes)}</div>` : ''}
-<script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
-</body></html>`;
-    const w = window.open('', '_blank');
-    if (!w) {
-      this.error.set('Pop-up blocked. Allow pop-ups to print or save as PDF.');
-      return;
+    const chain = this.store.chainOf(d);
+    const meta: Array<[string, string]> = [];
+    let status = '';
+    let label: ExportDoc['kind'] = 'Quotation';
+    if (kind === 'quotation') {
+      const q = d as Quotation;
+      status = q.status;
+      meta.push(['Valid until', q.validUntil || '—']);
+      if (chain.invoice) meta.push(['Invoice', chain.invoice.number]);
+    } else if (kind === 'invoice') {
+      const i = d as Invoice;
+      label = 'Invoice';
+      status = i.status;
+      meta.push(['Due date', i.dueDate]);
+      if (i.quotationNumber) meta.push(['From quotation', i.quotationNumber]);
+      if (i.paidAt) meta.push(['Paid on', fmtDate(i.paidAt)]);
+      if (chain.order) meta.push(['Order', chain.order.number]);
+    } else {
+      const o = d as SalesOrder;
+      label = 'Order';
+      status = this.stageLabel(o.stage);
+      if (o.tracking) meta.push(['Tracking', o.tracking]);
+      if (o.invoiceNumber) meta.push(['Invoice', o.invoiceNumber]);
+      if (o.quotationNumber) meta.push(['Quotation', o.quotationNumber]);
     }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
+    return {
+      kind: label,
+      number: d.number,
+      createdAt: d.createdAt,
+      status,
+      customer: { ...d.customer },
+      enquiryRef: d.enquiryRef,
+      meta,
+      items: d.items.map((i) => ({ description: i.description, qty: i.qty, unitPrice: i.unitPrice })),
+      currency: d.currency,
+      taxPct: d.taxPct,
+      subtotal: t.subtotal,
+      discount: t.discount,
+      tax: t.tax,
+      total: t.total,
+      notes: d.notes,
+    };
+  }
+
+  exportDoc(kind: DocKind, d: Quotation | Invoice | SalesOrder, format: ExportFormat) {
+    const doc = this.toExportDoc(kind, d);
+    const base = safeFileName(`${doc.kind}-${doc.number}`);
+    if (format === 'print') this.printHtml(docToHtml(doc, true));
+    else if (format === 'pdf') downloadBlob(base + '.pdf', docToPdf(doc));
+    else if (format === 'word') downloadBlob(base + '.doc', docToWord(doc));
+    else downloadBlob(base + '.csv', docToCsv(doc));
+  }
+
+  onDocExport(ev: Event, kind: DocKind, d: Quotation | Invoice | SalesOrder) {
+    const sel = ev.target as HTMLSelectElement;
+    const format = sel.value as ExportFormat | '';
+    sel.value = '';
+    if (format) this.exportDoc(kind, d, format);
+  }
+
+  private exportTable(t: ExportTable, file: string, format: ExportFormat) {
+    const base = safeFileName(file + '-' + new Date().toISOString().slice(0, 10));
+    if (format === 'print') this.printHtml(tableToHtml(t, true));
+    else if (format === 'pdf') downloadBlob(base + '.pdf', tableToPdf(t));
+    else if (format === 'word') downloadBlob(base + '.doc', tableToWord(t));
+    else downloadBlob(base + '.csv', tableToCsv(t));
+  }
+
+  private printHtml(html: string) {
+    if (!openPrint(html)) this.error.set('Pop-up blocked. Allow pop-ups to print.');
+  }
+
+  /** The list on screen (with its search / filters) as a table. */
+  private listTable(format: ExportFormat): { table: ExportTable; file: string } {
+    const sub = new Date().toLocaleDateString('en-GB') + ' · Threadgaff';
+    const sec = this.section();
+    if (sec === 'enquiries') {
+      const columns = ['Ref', 'Received', 'Name', 'Company', 'Email', 'Phone', 'Segment', 'Status'];
+      if (format === 'csv') columns.push('Message');
+      return {
+        file: 'inquiries',
+        table: {
+          title: 'Inquiries',
+          subtitle: sub,
+          columns,
+          rows: this.filteredEnquiries().map((e) => {
+            const row = [e.ref, fmtDate(e.createdAt), e.name, e.company || '', e.email, e.phone || '', e.segment || '', e.status];
+            if (format === 'csv') row.push(e.message || '');
+            return row;
+          }),
+        },
+      };
+    }
+    if (sec === 'quotations') {
+      return {
+        file: 'quotations',
+        table: {
+          title: 'Quotations',
+          subtitle: sub,
+          columns: ['No.', 'Date', 'Customer', 'Company', 'Inquiry', 'Valid until', 'Total', 'Status'],
+          right: [6],
+          rows: this.filteredQuotations().map((q) => [
+            q.number, fmtDate(q.createdAt), q.customer.name, q.customer.company, q.enquiryRef || '',
+            q.validUntil || '', fmtMoney(docTotals(q).total, q.currency), q.status,
+          ]),
+        },
+      };
+    }
+    if (sec === 'invoices') {
+      return {
+        file: 'invoices',
+        table: {
+          title: 'Invoices',
+          subtitle: sub,
+          columns: ['No.', 'Date', 'Customer', 'Quotation', 'Due', 'Total', 'Status'],
+          right: [5],
+          rows: this.filteredInvoices().map((i) => [
+            i.number, fmtDate(i.createdAt), i.customer.name, i.quotationNumber || '', i.dueDate,
+            fmtMoney(docTotals(i).total, i.currency), i.status,
+          ]),
+        },
+      };
+    }
+    return {
+      file: 'orders',
+      table: {
+        title: 'Orders',
+        subtitle: sub,
+        columns: ['No.', 'Date', 'Customer', 'Invoice', 'Items', 'Total', 'Stage', 'Tracking'],
+        right: [5],
+        rows: this.filteredOrders().map((o) => [
+          o.number, fmtDate(o.createdAt), o.customer.name, o.invoiceNumber || '',
+          o.items.map((x) => x.description + ' × ' + x.qty).join('; '),
+          fmtMoney(docTotals(o).total, o.currency), this.stageLabel(o.stage), o.tracking || '',
+        ]),
+      },
+    };
+  }
+
+  onListExport(ev: Event) {
+    const sel = ev.target as HTMLSelectElement;
+    const format = sel.value as ExportFormat | '';
+    sel.value = '';
+    if (!format) return;
+    const { table, file } = this.listTable(format);
+    this.exportTable(table, file, format);
+  }
+
+  onEnquiryExport(ev: Event, e: Enquiry) {
+    const sel = ev.target as HTMLSelectElement;
+    const format = sel.value as ExportFormat | '';
+    sel.value = '';
+    if (!format) return;
+    const table: ExportTable = {
+      title: 'Inquiry ' + e.ref,
+      subtitle: 'Received ' + fmtDate(e.createdAt),
+      columns: ['Field', 'Value'],
+      rows: [
+        ['Name', e.name], ['Company', e.company || ''], ['Email', e.email], ['Phone', e.phone || ''],
+        ['Segment', e.segment || ''], ['Status', e.status], ['Attachment', e.sampleName || ''],
+        ['Message', e.message || ''], ['Internal notes', e.adminNotes || ''],
+      ],
+    };
+    this.exportTable(table, 'inquiry-' + e.ref, format);
+  }
+
+  // ---------- Backup ----------
+  downloadBackup() {
+    downloadBlob(
+      `sales-desk-backup-${new Date().toISOString().slice(0, 10)}.json`,
+      new Blob([this.store.exportBackup()], { type: 'application/json' }),
+    );
+  }
+
+  chooseBackup() {
+    this.restoreInput()?.nativeElement.click();
+  }
+
+  restoreBackup(ev: Event) {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (!confirm('Replace the quotations, invoices and orders in this browser with the ones in this backup?')) return;
+    file
+      .text()
+      .then((t) => this.flash(`Backup restored (${this.store.importBackup(t)} documents)`))
+      .catch((err: Error) => this.error.set(err.message || 'Could not read that backup file.'));
   }
 }
