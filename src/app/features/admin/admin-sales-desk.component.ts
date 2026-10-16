@@ -576,9 +576,9 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
                 <span class="amt">{{ money((it.qty || 0) * (it.unitPrice || 0), f.currency) }}</span>
                 <button type="button" class="x" (click)="removeItem(f, $index)" aria-label="Remove line">×</button>
               </div>
-              @if (it.productId) {
+              @if (isCatalogueLine(it)) {
                 <div class="item-hint">
-                  @if (it.manualPrice) {
+                  @if (isManualPrice(it)) {
                     Price typed by hand.
                     <button type="button" class="link" (click)="resetPrice(it)">Use catalogue price ({{ money(priceFor(it), f.currency) }})</button>
                   } @else {
@@ -1174,6 +1174,14 @@ export class AdminSalesDeskComponent implements OnInit {
     const prices = serviceAddOnsOf(p);
     const add = (it.addons || []).reduce((sum, k) => sum + (prices[k] || 0), 0);
     return Math.round((base + add) * quantityTierFactor(it.qty) * 100) / 100;
+  }
+
+  isCatalogueLine(it: LineItem): boolean {
+    return !!it.productId;
+  }
+
+  isManualPrice(it: LineItem): boolean {
+    return !!it.manualPrice;
   }
 
   tierFactor(qty: number): number {
