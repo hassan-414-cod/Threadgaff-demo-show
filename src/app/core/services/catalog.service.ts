@@ -248,8 +248,31 @@ export class CatalogService {
   }
 
   /**
+   * Every product in the catalogue, live and hidden, from the admin-only export endpoint.
+   * The normal list can return live products only (hidden ones then vanish from the admin
+   * after being switched Off), so this is the reliable source for hidden products.
+   * Resolves to [] if the export is not available to this account.
+   */
+  getCatalogExport(): Observable<Product[]> {
+    return this.http.get<unknown>(`${this.base}/products/export`).pipe(
+      map((raw) => {
+        const box = raw as { products?: unknown; items?: unknown; data?: unknown } | null;
+        const list = Array.isArray(raw) ? raw : (box?.products ?? box?.items ?? box?.data ?? []);
+        return (Array.isArray(list) ? list : [])
+          .filter(
+            (p): p is Product & { deletedAt?: string | null } =>
+              !!p && typeof p.id === 'string' && typeof p.slug === 'string' && !p.deletedAt,
+          )
+          .map((p) => ({ ...p, isActive: p.isActive !== false, sortOrder: p.sortOrder ?? 0 }) as Product);
+      }),
+      catchError(() => of([] as Product[])),
+    );
+  }
+
+  /**
    * Admin list: live AND hidden products. An unfiltered list is not reliable on every setup
-   * (the deployed site can return live products only), so ask for both states explicitly.
+   * (the deployed site can return live products only), so ask for both states explicitly and
+   * add anything else the admin export knows about (hidden products).
    */
   getAdminProducts(
     opts: {
@@ -262,10 +285,19 @@ export class CatalogService {
     const hidden$ = this.getProducts({ ...opts, isActive: false }).pipe(
       catchError(() => of(null)),
     );
-    return forkJoin([live$, hidden$]).pipe(
-      map(([live, hidden]) => {
+    return forkJoin([live$, hidden$, this.getCatalogExport()]).pipe(
+      map(([live, hidden, exported]) => {
         const seen = new Set<string>();
-        const items = [...(live.items || []), ...(hidden?.items || [])].filter((p) => {
+        const inCategory = (p: Product) =>
+          !opts.categoryId ||
+          p.categoryId === opts.categoryId ||
+          (p.extraCategoryIds || []).includes(opts.categoryId) ||
+          p.category?.id === opts.categoryId;
+        const items = [
+          ...(live.items || []),
+          ...(hidden?.items || []),
+          ...exported.filter((p) => !SYSTEM_PRODUCT_SLUGS.includes(p.slug) && inCategory(p)),
+        ].filter((p) => {
           if (seen.has(p.id)) return false;
           seen.add(p.id);
           return true;

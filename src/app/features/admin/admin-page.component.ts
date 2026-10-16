@@ -2423,14 +2423,21 @@ export class AdminPageComponent implements OnInit {
    * Returns undefined when that cannot be told.
    */
   private async verifyProductActive(p: Product, wanted: boolean): Promise<boolean | undefined> {
+    // The admin export lists live and hidden products with their real state.
+    const exported = await firstValueFrom(this.catalog.getCatalogExport()).catch(() => []);
+    const hit = exported.find((x) => x.id === p.id);
+    if (hit) return hit.isActive;
     try {
       const res = await firstValueFrom(
         this.catalog.getProducts({ search: p.name, isActive: wanted, limit: 100 }),
       );
-      return (res.items || []).some((x) => x.id === p.id) ? wanted : !wanted;
+      // Only a match that really has the wanted state proves it. Not finding the product
+      // proves nothing (the normal list may not return hidden products at all).
+      if ((res.items || []).some((x) => x.id === p.id && x.isActive === wanted)) return wanted;
     } catch {
-      return undefined;
+      /* fall through */
     }
+    return undefined;
   }
 
   private async saveProductActive(p: Product, next: boolean): Promise<void> {

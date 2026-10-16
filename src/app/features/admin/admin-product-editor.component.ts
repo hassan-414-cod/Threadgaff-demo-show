@@ -3039,6 +3039,32 @@ export class AdminProductEditorComponent implements OnChanges {
     });
   }
 
+  /** Ids of every image the product has on the server right now. */
+  private imageIdsOf(productId: string): Promise<Set<string>> {
+    return new Promise((resolve) =>
+      this.catalog.getProduct(productId).subscribe({
+        next: (p) =>
+          resolve(
+            new Set(
+              [...(p.images || []), ...(p.colors || []).flatMap((c) => c.images || [])].map(
+                (im) => im.id,
+              ),
+            ),
+          ),
+        error: () => resolve(new Set<string>()),
+      }),
+    );
+  }
+
+  /**
+   * After an upload the product has the old image and the new one with the same angle.
+   * Pick the one that was not there before (the new upload), else the last one.
+   */
+  private newestImage<T extends { id: string }>(list: T[], priorIds: Set<string>): T | undefined {
+    const fresh = list.filter((im) => !priorIds.has(im.id));
+    return (fresh.length ? fresh : list).slice(-1)[0];
+  }
+
   /** Upload a variant image immediately when the product already exists. */
   private async persistColorImageNow(
     colorIndex: number,
@@ -3091,6 +3117,7 @@ export class AdminProductEditorComponent implements OnChanges {
     try {
       let colorId = await resolveColorId();
       if (!colorId) return;
+      const priorIds = await this.imageIdsOf(productId);
       let uploaded = await tryUpload(colorId);
       if (!uploaded) {
         // Color may have been recreated on a prior save — refresh ids and retry once
@@ -3123,23 +3150,24 @@ export class AdminProductEditorComponent implements OnChanges {
             ),
           ]);
           if (meta.role === 'card') {
-            const card = imgs.find((im) => im.role === 'card')?.url;
+            const card = this.newestImage(
+              imgs.filter((im) => im.role === 'card'),
+              priorIds,
+            )?.url;
             if (card && this.colors[colorIndex]) {
               this.colors[colorIndex].cardImage = card;
             }
             return;
           }
+          const views = imgs.filter((im) => im.role === 'view' || im.role === 'gallery');
           const match =
-            imgs.find(
-              (im) =>
-                (im.role === 'view' || im.role === 'gallery') &&
-                im.angle === meta.angle &&
-                im.sortOrder === meta.sortOrder,
+            this.newestImage(
+              views.filter((im) => im.angle === meta.angle && im.sortOrder === meta.sortOrder),
+              priorIds,
             ) ||
-            imgs.find(
-              (im) =>
-                (im.role === 'view' || im.role === 'gallery') &&
-                im.angle === meta.angle,
+            this.newestImage(
+              views.filter((im) => im.angle === meta.angle),
+              priorIds,
             );
           if (match?.url && this.colors[colorIndex]?.views[meta.sortOrder - 1]) {
             this.colors[colorIndex].views[meta.sortOrder - 1].src = match.url;
@@ -3160,6 +3188,7 @@ export class AdminProductEditorComponent implements OnChanges {
     const productId = this.productId || this.persistedId;
     if (!productId || !dataUrl.startsWith('data:')) return;
     try {
+      const priorIds = await this.imageIdsOf(productId);
       const file = this.dataUrlToFile(
         dataUrl,
         `${meta.role}-${meta.angle}.jpg`,
@@ -3178,16 +3207,21 @@ export class AdminProductEditorComponent implements OnChanges {
         next: (fresh) => {
           if (meta.role === 'card') {
             const card =
-              fresh.images?.find((im) => im.role === 'card' && !im.productColorId)
-                ?.url || this.catalog.cardImageUrl(fresh);
+              this.newestImage(
+                (fresh.images || []).filter((im) => im.role === 'card' && !im.productColorId),
+                priorIds,
+              )?.url || this.catalog.cardImageUrl(fresh);
             if (card) this.form.cardImageUrl = card;
             return;
           }
-          const match = (fresh.images || []).find(
-            (im) =>
-              !im.productColorId &&
-              (im.role === 'view' || im.role === 'gallery') &&
-              im.angle === meta.angle,
+          const match = this.newestImage(
+            (fresh.images || []).filter(
+              (im) =>
+                !im.productColorId &&
+                (im.role === 'view' || im.role === 'gallery') &&
+                im.angle === meta.angle,
+            ),
+            priorIds,
           );
           if (match?.url && this.defaultAngles[meta.sortOrder - 1]) {
             this.defaultAngles[meta.sortOrder - 1].src = match.url;
