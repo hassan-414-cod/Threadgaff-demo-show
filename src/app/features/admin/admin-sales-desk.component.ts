@@ -28,6 +28,7 @@ import {
   tableToWord,
 } from '../../core/utils/sales-export';
 import {
+  DocChain,
   Invoice,
   LineItem,
   Party,
@@ -498,10 +499,10 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
                   <li>
                     <button type="button" class="link" (click)="openQuoteDoc(q)"><b>{{ q.number }}</b></button>
                     · {{ q.status }} · {{ money(totals(q).total, q.currency) }}
-                    @if (store.chainOf(q).invoice; as inv) {
+                    @if (chainOf(q).invoice; as inv) {
                       → <button type="button" class="link" (click)="openDoc('invoice', inv.id)">{{ inv.number }}</button> ({{ inv.status }})
                     }
-                    @if (store.chainOf(q).order; as ord) {
+                    @if (chainOf(q).order; as ord) {
                       → <button type="button" class="link" (click)="openDoc('order', ord.id)">{{ ord.number }}</button> ({{ stageLabel(ord.stage) }})
                     }
                   </li>
@@ -1408,6 +1409,10 @@ export class AdminSalesDeskComponent implements OnInit {
 
   stageLabel(stage: OrderStage): string {
     return STAGES.find((s) => s.key === stage)?.label || 'Cancelled';
+  }
+
+  chainOf(d: Quotation | Invoice | SalesOrder): DocChain {
+    return this.store.chainOf(d);
   }
 
   // ---------- helpers ----------
