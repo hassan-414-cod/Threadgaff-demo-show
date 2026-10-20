@@ -8,6 +8,7 @@ import {
   catchError,
   switchMap,
   throwError,
+  timeout,
 } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
@@ -265,6 +266,7 @@ export class CatalogService {
           )
           .map((p) => ({ ...p, isActive: p.isActive !== false, sortOrder: p.sortOrder ?? 0 }) as Product);
       }),
+      timeout(8000),
       catchError(() => of([] as Product[])),
     );
   }
@@ -282,7 +284,9 @@ export class CatalogService {
     } = {},
   ): Observable<PaginatedProducts> {
     const live$ = this.getProducts({ ...opts, isActive: true });
+    // The hidden list and the export are extras: never let them hold the page up.
     const hidden$ = this.getProducts({ ...opts, isActive: false }).pipe(
+      timeout(8000),
       catchError(() => of(null)),
     );
     return forkJoin([live$, hidden$, this.getCatalogExport()]).pipe(
