@@ -21,12 +21,23 @@ import {
   fmtDate,
   money as fmtMoney,
   openPrint,
+  prepareFilesForPdf,
   safeFileName,
   tableToCsv,
   tableToHtml,
   tableToPdf,
   tableToWord,
 } from '../../core/utils/sales-export';
+import {
+  Attachment,
+  downloadAttachment,
+  fileExt,
+  isImageAttachment,
+  openAttachment,
+  roleLabel,
+  sizeLabel,
+  unpackAttachments,
+} from '../../core/utils/attachments';
 import {
   DocChain,
   Invoice,
@@ -174,7 +185,7 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
                         <small>{{ e.company || e.email }}</small>
                       </td>
                       <td>{{ e.segment || '—' }}</td>
-                      <td>{{ e.sampleDataUrl ? '📎 ' + (e.sampleName || 'file') : '—' }}</td>
+                      <td>{{ attLabel(e) }}</td>
                       <td><span class="badge" [class]="'b-' + e.status">{{ e.status }}</span></td>
                       <td>
                         @if (quotesFor(e).length) {
@@ -462,15 +473,28 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
             <pre class="msg">{{ e.message || 'No message provided.' }}</pre>
           </section>
 
-          @if (e.sampleDataUrl) {
+          @if (filesFor(e.id).length) {
             <section>
-              <h3>Uploaded logo / design</h3>
-              @if (isImage(e.sampleDataUrl)) {
-                <img class="sample" [src]="sampleSrc(e.sampleDataUrl)" [alt]="e.sampleName || 'Uploaded design'" />
+              <h3>Customer design files</h3>
+              <ul class="att-list">
+                @for (a of filesFor(e.id); track $index) {
+                  <li class="att">
+                    @if (isImg(a)) {
+                      <img [src]="a.dataUrl" [alt]="a.name" />
+                    } @else {
+                      <span class="att-ext">{{ ext(a.name) }}</span>
+                    }
+                    <span class="att-text"><strong>{{ a.name }}</strong><small>{{ role(a.role) }} · {{ size(a.size) }}</small></span>
+                    @if (a.type === 'application/pdf') {
+                      <button type="button" class="btn btn-sm" (click)="openFile(a)">Open</button>
+                    }
+                    <button type="button" class="btn btn-sm" (click)="downloadFile(a)">Download</button>
+                  </li>
+                }
+              </ul>
+              @if (filesFor(e.id).length > 1) {
+                <button type="button" class="btn btn-sm" (click)="downloadAll(filesFor(e.id))">Download all</button>
               }
-              <a class="btn btn-sm" [href]="sampleSrc(e.sampleDataUrl)" target="_blank" rel="noopener" [attr.download]="e.sampleName || 'design'">
-                Open / download {{ e.sampleName || 'file' }}
-              </a>
             </section>
           }
 
@@ -541,6 +565,17 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
             <label>Phone<input type="text" [(ngModel)]="f.customer.phone" /></label>
           </div>
 
+          @if (f.enquiry && filesFor(f.enquiry.id).length) {
+            <div class="cust-files" aria-label="Files the customer sent">
+              <b>Customer files</b>
+              @for (a of filesFor(f.enquiry.id); track $index) {
+                <button type="button" class="file-chip" (click)="downloadFile(a)" [title]="'Download ' + a.name">
+                  @if (isImg(a)) { <img [src]="a.dataUrl" alt="" /> } @else { <i>{{ ext(a.name) }}</i> }
+                  {{ a.name }}
+                </button>
+              }
+            </div>
+          }
           <h3>Line items</h3>
           <div class="picker" aria-label="Add a product from the catalogue">
             <select [(ngModel)]="pick.productId" (ngModelChange)="onPickProduct()" aria-label="Product">
@@ -689,6 +724,28 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
           @if (v.doc.notes) {
             <h3>Notes / terms</h3>
             <pre class="msg">{{ v.doc.notes }}</pre>
+          }
+          @if (filesFor(v.chain.enquiryId).length) {
+            <h3>Customer design files <small class="muted">(from {{ v.chain.enquiryRef }})</small></h3>
+            <ul class="att-list">
+              @for (a of filesFor(v.chain.enquiryId); track $index) {
+                <li class="att">
+                  @if (isImg(a)) {
+                    <img [src]="a.dataUrl" [alt]="a.name" />
+                  } @else {
+                    <span class="att-ext">{{ ext(a.name) }}</span>
+                  }
+                  <span class="att-text"><strong>{{ a.name }}</strong><small>{{ role(a.role) }} · {{ size(a.size) }}</small></span>
+                  @if (a.type === 'application/pdf') {
+                    <button type="button" class="btn btn-sm" (click)="openFile(a)">Open</button>
+                  }
+                  <button type="button" class="btn btn-sm" (click)="downloadFile(a)">Download</button>
+                </li>
+              }
+            </ul>
+            @if (filesFor(v.chain.enquiryId).length > 1) {
+              <button type="button" class="btn btn-sm" (click)="downloadAll(filesFor(v.chain.enquiryId))">Download all</button>
+            }
           }
         </div>
         <footer>
@@ -852,6 +909,17 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
       dt { color: var(--ui-muted); }
       dd { margin: 0; word-break: break-word; }
       .msg { white-space: pre-wrap; font: inherit; font-size: 0.88rem; margin: 0; background: #faf8f3; border: 1px solid var(--ui-line); border-radius: 8px; padding: 12px; max-height: 260px; overflow: auto; }
+      .att-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+      .att { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--ui-line); border-radius: 10px; background: #fff; }
+      .att img { width: 56px; height: 56px; object-fit: contain; border-radius: 6px; background: repeating-conic-gradient(#f3f1ea 0 25%, #fff 0 50%) 0 / 12px 12px; flex: none; }
+      .att-ext { width: 56px; height: 56px; border-radius: 6px; background: var(--ui-soft); color: var(--ui-primary); display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; font-weight: 800; flex: none; }
+      .att-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .att-text strong { font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .att-text small { font-size: 0.72rem; color: var(--ui-muted); }
+      .cust-files { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 12px; font-size: 0.8rem; }
+      .file-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--ui-line); border-radius: 999px; background: #fff; padding: 3px 10px 3px 4px; font: inherit; font-size: 0.76rem; cursor: pointer; }
+      .file-chip img { width: 22px; height: 22px; object-fit: cover; border-radius: 50%; }
+      .file-chip i { font-style: normal; font-weight: 800; font-size: 0.6rem; background: var(--ui-soft); border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
       .sample { max-width: 100%; max-height: 260px; display: block; margin-bottom: 8px; border: 1px solid var(--ui-line); border-radius: 8px; background: repeating-conic-gradient(#f3f1ea 0 25%, #fff 0 50%) 0 / 16px 16px; object-fit: contain; }
       textarea, .modal input, .modal select { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid var(--ui-line); border-radius: 8px; font: inherit; font-size: 0.88rem; }
       textarea { margin-bottom: 8px; resize: vertical; }
@@ -950,6 +1018,15 @@ export class AdminSalesDeskComponent implements OnInit {
   ];
 
   readonly enquiries = signal<Enquiry[]>([]);
+  /** The files each inquiry holds, read out of the database copy once per load. */
+  private readonly filesByEnquiry = computed(() => {
+    const map = new Map<string, Attachment[]>();
+    for (const e of this.enquiries()) {
+      const list = unpackAttachments(e.sampleName, e.sampleDataUrl);
+      if (list.length) map.set(e.id, list);
+    }
+    return map;
+  });
   readonly loading = signal(false);
   readonly error = signal('');
   readonly note = signal('');
@@ -1415,6 +1492,39 @@ export class AdminSalesDeskComponent implements OnInit {
     return STAGES.findIndex((s) => s.key === stage);
   }
 
+  // ---------- Customer files ----------
+  filesFor(enquiryId: string | null | undefined): Attachment[] {
+    return (enquiryId && this.filesByEnquiry().get(enquiryId)) || [];
+  }
+
+  attLabel(e: Enquiry): string {
+    const n = this.filesFor(e.id).length;
+    return n ? `📎 ${n} file${n === 1 ? '' : 's'}` : '—';
+  }
+
+  isImg(a: Attachment): boolean {
+    return isImageAttachment(a);
+  }
+  ext(name: string): string {
+    return fileExt(name);
+  }
+  role(r: Attachment['role']): string {
+    return roleLabel(r);
+  }
+  size(n: number): string {
+    return sizeLabel(n);
+  }
+  downloadFile(a: Attachment) {
+    downloadAttachment(a);
+  }
+  openFile(a: Attachment) {
+    openAttachment(a);
+  }
+
+  downloadAll(list: Attachment[]) {
+    list.forEach((a, i) => setTimeout(() => downloadAttachment(a), i * 350));
+  }
+
   stageLabel(stage: OrderStage): string {
     return STAGES.find((s) => s.key === stage)?.label || 'Cancelled';
   }
@@ -1496,6 +1606,13 @@ export class AdminSalesDeskComponent implements OnInit {
       number: d.number,
       createdAt: d.createdAt,
       status,
+      files: this.filesFor(d.enquiryId).map((a) => ({
+        name: a.name,
+        role: roleLabel(a.role),
+        type: a.type,
+        size: a.size,
+        dataUrl: isImageAttachment(a) ? a.dataUrl : undefined,
+      })),
       customer: { ...d.customer },
       enquiryRef: d.enquiryRef,
       meta,
@@ -1510,11 +1627,11 @@ export class AdminSalesDeskComponent implements OnInit {
     };
   }
 
-  exportDoc(kind: DocKind, d: Quotation | Invoice | SalesOrder, format: ExportFormat) {
+  async exportDoc(kind: DocKind, d: Quotation | Invoice | SalesOrder, format: ExportFormat) {
     const doc = this.toExportDoc(kind, d);
     const base = safeFileName(`${doc.kind}-${doc.number}`);
     if (format === 'print') this.printHtml(docToHtml(doc, true));
-    else if (format === 'pdf') downloadBlob(base + '.pdf', docToPdf(doc));
+    else if (format === 'pdf') downloadBlob(base + '.pdf', docToPdf(await prepareFilesForPdf(doc)));
     else if (format === 'word') downloadBlob(base + '.doc', docToWord(doc));
     else downloadBlob(base + '.csv', docToCsv(doc));
   }

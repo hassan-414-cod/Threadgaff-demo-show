@@ -3,6 +3,18 @@
  * CSV, Word, PDF or a print-ready page. No libraries: the PDF is written by hand.
  */
 
+/** A customer file (design, logo, sample) that belongs to the document's inquiry. */
+export interface ExportFile {
+  name: string;
+  role: string;
+  type: string;
+  size: number;
+  /** Picture data, kept only for images (shown in print and PDF). */
+  dataUrl?: string;
+  /** The same picture as JPEG bytes, filled in just before a PDF is written. */
+  jpeg?: { bytes: Uint8Array; w: number; h: number };
+}
+
 export interface ExportDoc {
   kind: 'Quotation' | 'Invoice' | 'Order';
   number: string;
@@ -20,6 +32,7 @@ export interface ExportDoc {
   tax: number;
   total: number;
   notes: string;
+  files?: ExportFile[];
 }
 
 export interface ExportTable {
@@ -52,6 +65,10 @@ const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
   );
+
+export function fmtBytes(n: number): string {
+  return n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+}
 
 export function safeFileName(s: string): string {
   return s.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || 'document';
@@ -108,6 +125,9 @@ export function docToCsv(d: ExportDoc): Blob {
     row('Total', '', d.currency, d.total.toFixed(2)),
     '',
     row('Notes', d.notes),
+    ...(d.files?.length
+      ? ['', ...d.files.map((f) => row('Customer file', f.name, f.role, fmtBytes(f.size)))]
+      : []),
   ];
   return csvBlob(lines);
 }
@@ -127,9 +147,20 @@ td{padding:8px;border-bottom:1px solid #e4e0d6} .r{text-align:right}
 .tot{margin-left:auto;width:260px;margin-top:16px} .tot div{display:flex;justify-content:space-between;padding:4px 0}
 .tot .g{border-top:2px solid #3d4b37;font-weight:700;font-size:15px;margin-top:4px;padding-top:8px}
 .notes{margin-top:26px;color:#555;white-space:pre-wrap}
+.files{margin-top:22px} .files ul{margin:6px 0 0;padding-left:18px;color:#444} .files img{max-width:240px;max-height:180px;margin:8px 10px 0 0;border:1px solid #e4e0d6}
 @media print{body{margin:18px}}`;
 
-function docBody(d: ExportDoc): string {
+function filesHtml(d: ExportDoc, withImages: boolean): string {
+  if (!d.files?.length) return '';
+  const imgs = withImages
+    ? d.files.filter((f) => f.dataUrl).map((f) => `<img src="${esc(f.dataUrl)}" alt="${esc(f.name)}">`).join('')
+    : '';
+  return `<div class="files"><b>Customer design files</b><ul>${d.files
+    .map((f) => `<li>${esc(f.name)} (${esc(f.role)}, ${esc(fmtBytes(f.size))})</li>`)
+    .join('')}</ul>${imgs}</div>`;
+}
+
+function docBody(d: ExportDoc, withImages = false): string {
   const c = d.customer;
   const rows = d.items
     .map(
@@ -147,11 +178,11 @@ ${d.meta.map(([k, v]) => `<p>${esc(k)}: <b>${esc(v)}</b></p>`).join('')}
 <div><span>Discount</span><span>− ${money(d.discount, d.currency)}</span></div>
 <div><span>Tax (${d.taxPct}%)</span><span>${money(d.tax, d.currency)}</span></div>
 <div class="g"><span>Total</span><span>${money(d.total, d.currency)}</span></div></div>
-${d.notes ? `<div class="notes"><b>Notes / terms</b><br>${esc(d.notes)}</div>` : ''}`;
+${d.notes ? `<div class="notes"><b>Notes / terms</b><br>${esc(d.notes)}</div>` : ''}${filesHtml(d, withImages)}`;
 }
 
 export function docToHtml(d: ExportDoc, autoPrint: boolean): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.kind)} ${esc(d.number)}</title><style>${DOC_CSS}</style></head><body>${docBody(d)}${
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.kind)} ${esc(d.number)}</title><style>${DOC_CSS}</style></head><body>${docBody(d, true)}${
     autoPrint ? '<script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>' : ''
   }</body></html>`;
 }
@@ -225,6 +256,7 @@ class PdfWriter {
   readonly M = 46;
   private pages: string[] = [];
   private cur: string[] = [];
+  private images: Array<{ w: number; h: number; bytes: Uint8Array }> = [];
   y = 0;
 
   constructor() {
@@ -287,6 +319,16 @@ class PdfWriter {
     this.cur.push(`${rgb} rg ${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`);
   }
 
+  /** Registers a JPEG picture; returns its number for drawImage(). */
+  addImage(img: { w: number; h: number; bytes: Uint8Array }): number {
+    this.images.push(img);
+    return this.images.length;
+  }
+
+  drawImage(n: number, x: number, y: number, w: number, h: number) {
+    this.cur.push(`q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /Im${n} Do Q`);
+  }
+
   hline(x1: number, x2: number, y: number, weight = 0.6, rgb = '0.89 0.88 0.84') {
     this.cur.push(`${weight} w ${rgb} RG ${x1.toFixed(2)} ${y.toFixed(2)} m ${x2.toFixed(2)} ${y.toFixed(2)} l S`);
   }
@@ -294,32 +336,54 @@ class PdfWriter {
   finish(): Blob {
     this.pages.push(this.cur.join('\n'));
     const n = this.pages.length;
+    const k = this.images.length;
+    const first = 5 + k; // objects: 1 catalog, 2 pages, 3-4 fonts, then pictures, then page + content pairs
     const pages = this.pages.map((p, i) => {
       const foot = `BT /F1 8 Tf 0.45 0.45 0.42 rg ${this.M} 28 Td (Threadgaff - page ${i + 1} of ${n}) Tj ET`;
       return p + '\n' + foot;
     });
-    const objs: string[] = [];
-    objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
-    const kids = pages.map((_, i) => `${5 + i * 2} 0 R`).join(' ');
-    objs[2] = `<< /Type /Pages /Kids [${kids}] /Count ${n} >>`;
-    objs[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
-    objs[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
-    pages.forEach((content, i) => {
-      const pageNo = 5 + i * 2;
-      objs[pageNo] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${this.W} ${this.H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${pageNo + 1} 0 R >>`;
-      objs[pageNo + 1] = `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
-    });
-    let out = '%PDF-1.4\n';
+    const parts: Array<string | Uint8Array> = [];
+    let pos = 0;
+    const push = (x: string | Uint8Array) => {
+      parts.push(x);
+      pos += x.length; // strings are pure ASCII, so characters = bytes
+    };
     const offsets: number[] = [];
-    for (let i = 1; i < objs.length; i++) {
-      offsets[i] = out.length;
-      out += `${i} 0 obj\n${objs[i]}\nendobj\n`;
-    }
-    const xref = out.length;
-    out += `xref\n0 ${objs.length}\n0000000000 65535 f \n`;
-    for (let i = 1; i < objs.length; i++) out += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
-    out += `trailer\n<< /Size ${objs.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-    return new Blob([out], { type: 'application/pdf' });
+    const obj = (i: number, ...chunks: Array<string | Uint8Array>) => {
+      offsets[i] = pos;
+      push(`${i} 0 obj\n`);
+      chunks.forEach(push);
+      push('\nendobj\n');
+    };
+    push('%PDF-1.4\n');
+    obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+    obj(2, `<< /Type /Pages /Kids [${pages.map((_, i) => `${first + i * 2} 0 R`).join(' ')}] /Count ${n} >>`);
+    obj(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+    obj(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+    this.images.forEach((im, i) =>
+      obj(
+        5 + i,
+        `<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >>\nstream\n`,
+        im.bytes,
+        '\nendstream',
+      ),
+    );
+    const xobjects = this.images.map((_, i) => `/Im${i + 1} ${5 + i} 0 R`).join(' ');
+    pages.forEach((content, i) => {
+      const pn = first + i * 2;
+      obj(
+        pn,
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${this.W} ${this.H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${k ? ` /XObject << ${xobjects} >>` : ''} >> /Contents ${pn + 1} 0 R >>`,
+      );
+      obj(pn + 1, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+    });
+    const count = first + n * 2; // highest object number + 1
+    const xref = pos;
+    let table = `xref\n0 ${count}\n0000000000 65535 f \n`;
+    for (let i = 1; i < count; i++) table += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+    table += `trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    push(table);
+    return new Blob(parts as BlobPart[], { type: 'application/pdf' });
   }
 }
 
@@ -422,6 +486,30 @@ export function docToPdf(d: ExportDoc): Blob {
       p.y -= 12.5;
     }
   }
+
+  if (d.files?.length) {
+    p.y -= 16;
+    p.ensure(40);
+    p.text('CUSTOMER DESIGN FILES', L, p.y, 8, true, '0.4 0.4 0.38');
+    p.y -= 14;
+    for (const f of d.files) {
+      const caption = `${f.name} (${f.role}, ${fmtBytes(f.size)})`;
+      if (f.jpeg) {
+        const scale = Math.min(230 / f.jpeg.w, 170 / f.jpeg.h, 1);
+        const w = f.jpeg.w * scale;
+        const h = f.jpeg.h * scale;
+        p.ensure(h + 26);
+        p.drawImage(p.addImage(f.jpeg), L, p.y - h, w, h);
+        p.y -= h + 12;
+        p.text(caption, L, p.y, 8.5, false, '0.3 0.3 0.28');
+        p.y -= 16;
+      } else {
+        p.ensure(14);
+        p.text('- ' + caption, L, p.y, 9.5);
+        p.y -= 14;
+      }
+    }
+  }
   return p.finish();
 }
 
@@ -478,4 +566,41 @@ export function tableToPdf(t: ExportTable): Blob {
   }
   if (!t.rows.length) p.text('No records.', L + 3, p.y, 9, false, '0.4 0.4 0.38');
   return p.finish();
+}
+
+/** Turns the pictures of a document's files into JPEG bytes so the PDF can embed them. */
+export async function prepareFilesForPdf(d: ExportDoc): Promise<ExportDoc> {
+  if (!d.files?.some((f) => f.dataUrl)) return d;
+  const files = await Promise.all(
+    d.files.map(async (f) => {
+      if (!f.dataUrl) return f;
+      try {
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const el = new Image();
+          el.onload = () => resolve(el);
+          el.onerror = () => reject(new Error('image'));
+          el.src = f.dataUrl as string;
+        });
+        const scale = Math.min(1, 900 / Math.max(img.width || 1, img.height || 1));
+        const w = Math.max(1, Math.round((img.width || 1) * scale));
+        const h = Math.max(1, Math.round((img.height || 1) * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return f;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        const b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1] || '';
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return { ...f, jpeg: { bytes, w, h } };
+      } catch {
+        return f;
+      }
+    }),
+  );
+  return { ...d, files };
 }
