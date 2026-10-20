@@ -289,11 +289,14 @@ select option:hover {
   object-fit: contain;
   object-position: center;
   display: block;
+  /* --fit-zoom / --fit-origin are set by tgPortraitFit for wide photos */
+  transform: scale(var(--fit-zoom, 1));
+  transform-origin: var(--fit-origin, 50% 50%);
   transition: transform 0.35s ease;
 }
 
 .pc:hover .pc-media img {
-  transform: scale(1.05);
+  transform: scale(calc(var(--fit-zoom, 1) * 1.05));
 }
 
 .pc-badge {

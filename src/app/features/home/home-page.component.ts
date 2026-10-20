@@ -2,7 +2,6 @@ import {
   Component,
   ElementRef,
   OnInit,
-  OnDestroy,
   ViewChild,
   computed,
   inject,
@@ -21,6 +20,7 @@ import { priceLabel as formatProductPrice } from '../../core/utils/price';
 import { cardDescription } from '../../core/utils/description';
 import { customFilterDefinitions, filterOptionLabels } from '../../core/utils/filters';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
+import { PortraitFitDirective } from '../../shared/portrait-fit.directive';
 
 /** The built-in groups, or the attribute code of a filter added on the Filters page. */
 type FilterGroup = string;
@@ -35,7 +35,7 @@ interface ActiveFilterChip {
 @Component({
   selector: 'tg-home-page',
   standalone: true,
-  imports: [RouterLink, NgTemplateOutlet],
+  imports: [RouterLink, NgTemplateOutlet, PortraitFitDirective],
   template: `
     <section class="home-hero" aria-label="Threadgaff">
       <div class="home-hero-copy">
@@ -305,7 +305,7 @@ interface ActiveFilterChip {
                 @if (p.badge) {
                   <span class="pc-badge">{{ p.badge }}</span>
                 }
-                <img [src]="cardSrc(p)" [alt]="p.name" />
+                <img tgPortraitFit [src]="cardSrc(p)" [alt]="p.name" />
               </a>
               <div class="pc-body">
                 <h3 class="pc-name">
@@ -1057,11 +1057,9 @@ interface ActiveFilterChip {
     }
   `,
 })
-export class HomePageComponent implements OnInit, OnDestroy {
+export class HomePageComponent implements OnInit {
   @ViewChild('heroRail') heroRailRef?: ElementRef<HTMLElement>;
 
-  private heroScrollInterval: any;
-  private heroScrollDir = 1;
 
   readonly catalog = inject(CatalogService);
   readonly site = inject(SiteSettingsService);
@@ -1176,35 +1174,6 @@ export class HomePageComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.site.load();
-    const nextScroll = () => {
-      const el = this.heroRailRef?.nativeElement;
-      if (!el || !this.heroCards().length) {
-        this.heroScrollInterval = setTimeout(nextScroll, 1500);
-        return;
-      }
-
-      const maxScroll = el.scrollWidth - el.clientWidth;
-
-      if (this.heroScrollDir === 1 && el.scrollLeft >= maxScroll - 40) {
-        this.heroScrollDir = -1;
-      } else if (this.heroScrollDir === -1 && el.scrollLeft <= 40) {
-        this.heroScrollDir = 1;
-      }
-
-      this.scrollHeroRail(this.heroScrollDir);
-      
-      const card = el.querySelector('.hero-card') as HTMLElement | null;
-      const step = card ? card.offsetWidth + 16 : 200;
-      const predictedScroll = el.scrollLeft + (this.heroScrollDir * step);
-      const nextIsEdge = predictedScroll <= 40 || predictedScroll >= maxScroll - 40;
-
-      this.heroScrollInterval = setTimeout(nextScroll, nextIsEdge ? 2000 : 1500);
-    };
-
-    setTimeout(() => {
-      this.heroScrollInterval = setTimeout(nextScroll, 1500);
-    }, 1000);
-
     this.catalog.getAttributes().subscribe({
       next: (defs) => {
         this.attrDefs.set(defs.filter((d) => d.isActive !== false));
@@ -1254,12 +1223,6 @@ export class HomePageComponent implements OnInit, OnDestroy {
           'Could not load products. Check the API connection.',
         ),
     });
-  }
-
-  ngOnDestroy() {
-    if (this.heroScrollInterval) {
-      clearTimeout(this.heroScrollInterval);
-    }
   }
 
   private defaultHeroCards() {

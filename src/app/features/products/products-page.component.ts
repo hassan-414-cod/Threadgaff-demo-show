@@ -4,6 +4,7 @@ import { forkJoin } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { CatalogService } from '../../core/services/catalog.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
+import { PortraitFitDirective } from '../../shared/portrait-fit.directive';
 import { Category, Product } from '../../core/models/catalog.models';
 import { expandGenderFilter } from '../../core/utils/gender';
 import { hasDisplayHex } from '../../core/utils/hex';
@@ -22,7 +23,7 @@ interface DisplayCard {
 @Component({
   selector: 'tg-products-page',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, PortraitFitDirective],
   template: `
     <div class="products-page">
       <section class="collection-pills-bar" aria-label="Collections">
@@ -152,7 +153,7 @@ interface DisplayCard {
                 @if (card.product.badge) {
                   <span class="pc-badge">{{ card.product.badge }}</span>
                 }
-                <img [src]="cardSrc(card.product, card.colorId)" [alt]="cardTitle(card)" />
+                <img tgPortraitFit [src]="cardSrc(card.product, card.colorId)" [alt]="cardTitle(card)" />
               </a>
               <div class="pc-body">
                 <h3 class="pc-name">
