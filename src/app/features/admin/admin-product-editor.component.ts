@@ -19,7 +19,7 @@ import {
   ProductWritePayload,
 } from '../../core/services/catalog.service';
 import { Category, Product, ProductTag } from '../../core/models/catalog.models';
-import { firstValueFrom, forkJoin, of, timer, throwError, timeout } from 'rxjs';
+import { firstValueFrom, forkJoin, from, of, timer, throwError, timeout } from 'rxjs';
 import { catchError, map, switchMap, retry } from 'rxjs/operators';
 import { AuthService } from '../../core/services/auth.service';
 import {
@@ -3179,6 +3179,54 @@ export class AdminProductEditorComponent implements OnChanges {
     throw last;
   }
 
+  /** Scales a photo down (long side `maxPx`) at the given quality; used only when the server says a file is too big. */
+  private async shrinkImage(file: File, maxPx: number, quality: number): Promise<File> {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const scale = Math.min(1, maxPx / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return file;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const png = file.type === 'image/png';
+      const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, png ? 'image/png' : 'image/jpeg', quality));
+      // Only use the smaller copy if it really is smaller than what we already have.
+      return blob && blob.size < file.size ? new File([blob], file.name, { type: blob.type }) : file;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  /**
+   * Sends the photo exactly as it is. Only if the server answers "too large" (413) is it
+   * scaled down, in steps that keep it sharp (3000 px, 2200 px, 1600 px).
+   */
+  private async uploadAdaptive(
+    productId: string,
+    file: File,
+    meta: { role: string; angle: string; sortOrder: number; productColorId?: string },
+  ): Promise<void> {
+    const steps: Array<[number, number] | null> = [null, [3000, 0.95], [2200, 0.92], [1600, 0.9]];
+    let last: unknown;
+    for (const step of steps) {
+      try {
+        const f = step ? await this.shrinkImage(file, step[0], step[1]) : file;
+        await this.uploadWithRetry(productId, f, meta);
+        return;
+      } catch (err) {
+        last = err;
+        if ((err as { status?: number })?.status !== 413) throw err;
+      }
+    }
+    throw last;
+  }
+
   /** Upload a variant image immediately when the product already exists. */
   private persistColorImageNow(
     colorIndex: number,
@@ -3202,7 +3250,7 @@ export class AdminProductEditorComponent implements OnChanges {
         const priorIds = await this.imageIdsOf(productId);
         const file = this.dataUrlToFile(dataUrl, `${meta.role}-${meta.angle}.jpg`);
         try {
-          await this.uploadWithRetry(productId, file, { ...meta, productColorId: colorId });
+          await this.uploadAdaptive(productId, file, { ...meta, productColorId: colorId });
         } catch (err) {
           if (this.isTransient(err)) throw err;
           // The variant may have been recreated by an earlier save: refresh its id and try once more.
@@ -3210,7 +3258,7 @@ export class AdminProductEditorComponent implements OnChanges {
           const again = idOf();
           if (!again || again === colorId) throw err;
           colorId = again;
-          await this.uploadWithRetry(productId, file, { ...meta, productColorId: colorId });
+          await this.uploadAdaptive(productId, file, { ...meta, productColorId: colorId });
         }
         const fresh = await new Promise<Product | null>((resolve) =>
           this.catalog.getProduct(productId).subscribe({ next: resolve, error: () => resolve(null) }),
@@ -3264,7 +3312,7 @@ export class AdminProductEditorComponent implements OnChanges {
       try {
         const priorIds = await this.imageIdsOf(productId);
         const file = this.dataUrlToFile(dataUrl, `${meta.role}-${meta.angle}.jpg`);
-        await this.uploadWithRetry(productId, file, meta);
+        await this.uploadAdaptive(productId, file, meta);
         const fresh = await new Promise<Product | null>((resolve) =>
           this.catalog.getProduct(productId).subscribe({ next: resolve, error: () => resolve(null) }),
         );
@@ -4149,11 +4197,7 @@ export class AdminProductEditorComponent implements OnChanges {
           dataUrl,
           `${meta.role}-${meta.angle || meta.sortOrder}.jpg`,
         );
-        jobs.push(
-          this.auth.ensureFreshAccessToken().pipe(
-            switchMap(() => this.catalog.uploadProductImage(productId, file, meta)),
-          ),
-        );
+        jobs.push(from(this.uploadAdaptive(productId, file, meta)));
       } catch {
         /* skip bad data URLs */
       }
@@ -4276,6 +4320,8 @@ export class AdminProductEditorComponent implements OnChanges {
   private dataUrlToFile(dataUrl: string, filename: string): File {
     const [header, b64] = dataUrl.split(',');
     const mime = /data:(.*?);/.exec(header)?.[1] || 'image/jpeg';
+    const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg' } as Record<string, string>)[mime] || 'jpg';
+    filename = filename.replace(/\.[a-z0-9]+$/i, '') + '.' + ext;
     const bin = atob(b64);
     const arr = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
@@ -4346,7 +4392,7 @@ export class AdminProductEditorComponent implements OnChanges {
     return fallback;
   }
 
-  private readImage(event: Event, maxPx: number, quality: number): Promise<string> {
+  private readImage(event: Event, _maxPx: number, _quality: number): Promise<string> {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
@@ -4356,31 +4402,30 @@ export class AdminProductEditorComponent implements OnChanges {
       reader.onerror = () => reject();
       reader.onload = () => {
         const img = new Image();
+        // The photo is kept exactly as it was shot: same file bytes, same size, same format,
+        // same background. Only a truly huge file (over 8 MB) is scaled down, and then at high
+        // quality. (If the server later refuses a big file, uploadAdaptive() shrinks it step by step.)
+        const original = String(reader.result || '');
+        if (file.size <= 8 * 1024 * 1024) {
+          resolve(original);
+          return;
+        }
         img.onload = () => {
-          // Every product photo is saved on a white 4:5 canvas with the WHOLE picture inside it
-          // (landscape photos get white bars, transparent areas become white), so the garment is
-          // never cropped or shown tiny in a preview or card.
-          const W = 800;
-          const H = 1000;
+          const scale = Math.min(1, 4096 / Math.max(img.width, img.height));
           const canvas = document.createElement('canvas');
-          canvas.width = W;
-          canvas.height = H;
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            reject();
+            resolve(original);
             return;
           }
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, W, H);
-          const scale = Math.min(W / (img.width || 1), H / (img.height || 1), 2);
-          const w = Math.max(1, Math.round((img.width || 1) * scale));
-          const h = Math.max(1, Math.round((img.height || 1) * scale));
           ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(img, Math.round((W - w) / 2), Math.round((H - h) / 2), w, h);
-          resolve(canvas.toDataURL('image/jpeg', Math.max(quality, 0.82)));
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL(file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.95));
         };
-        img.onerror = () => reject();
-        img.src = String(reader.result || '');
+        img.onerror = () => resolve(original);
+        img.src = original;
       };
       reader.readAsDataURL(file);
     });

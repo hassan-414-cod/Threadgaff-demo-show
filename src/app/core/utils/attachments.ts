@@ -75,12 +75,13 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 /**
- * Shrinks a picture so it fits comfortably in the enquiry (long side 1600 px, then smaller if
- * still large). Small PNGs and SVGs are kept as they are, so logos stay sharp and transparent.
+ * Prepares a picture for the enquiry WITHOUT touching it unless it is large: anything up to
+ * about 1.5 MB (and every SVG) is sent exactly as the customer uploaded it. Only bigger
+ * pictures are scaled down, as little as possible (long side 2600 px at high quality first).
  */
 export async function compressImageFile(file: File): Promise<{ dataUrl: string; type: string; name: string }> {
   const original = await fileToDataUrl(file);
-  if (file.type === 'image/svg+xml' || original.length <= 350_000) {
+  if (file.type === 'image/svg+xml' || original.length <= 2_000_000) {
     return { dataUrl: original, type: file.type || mimeOf(original), name: file.name };
   }
   const img = await loadImage(original);
@@ -95,18 +96,18 @@ export async function compressImageFile(file: File): Promise<{ dataUrl: string; 
   };
   // Keep transparency for PNG when the result is small enough.
   if (file.type === 'image/png') {
-    const { canvas, ctx } = draw(1200);
+    const { canvas, ctx } = draw(2000);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     const png = canvas.toDataURL('image/png');
-    if (png.length <= 700_000) return { dataUrl: png, type: 'image/png', name: file.name };
+    if (png.length <= 2_400_000) return { dataUrl: png, type: 'image/png', name: file.name };
   }
-  for (const [maxPx, q] of [[1600, 0.82], [1300, 0.74], [1000, 0.66]] as const) {
+  for (const [maxPx, q] of [[2600, 0.92], [2200, 0.88], [1800, 0.84], [1400, 0.78]] as const) {
     const { canvas, ctx } = draw(maxPx);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     const jpeg = canvas.toDataURL('image/jpeg', q);
-    if (jpeg.length <= 900_000 || maxPx === 1000) {
+    if (jpeg.length <= 2_400_000 || maxPx === 1400) {
       return { dataUrl: jpeg, type: 'image/jpeg', name: file.name.replace(/\.[a-z0-9]+$/i, '') + '.jpg' };
     }
   }
