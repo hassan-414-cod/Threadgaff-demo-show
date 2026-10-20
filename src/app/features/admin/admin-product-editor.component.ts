@@ -19,7 +19,7 @@ import {
   ProductWritePayload,
 } from '../../core/services/catalog.service';
 import { Category, Product, ProductTag } from '../../core/models/catalog.models';
-import { forkJoin, of, timer, throwError } from 'rxjs';
+import { firstValueFrom, forkJoin, of, timer, throwError, timeout } from 'rxjs';
 import { catchError, map, switchMap, retry } from 'rxjs/operators';
 import { AuthService } from '../../core/services/auth.service';
 import {
@@ -120,6 +120,18 @@ const COLOR_PRESETS: { name: string; hex: string }[] = [
   { name: 'White', hex: '#ffffff' },
 ];
 const DEFAULT_ANGLES = ['Front', 'Back', 'Sleeve', 'Collar'];
+/** The API needs a #RRGGBB for every variant. Neutral grey when the name gives no clue. */
+const NEUTRAL_HEX = '#9ca3af';
+const COLOR_NAME_HEX: Record<string, string> = {
+  black: '#1a1a1a', white: '#ffffff', ivory: '#f6f3e7', cream: '#f2ead3', beige: '#d9c8a9', sand: '#d8c3a0',
+  khaki: '#b5a77a', grey: '#8a8d91', gray: '#8a8d91', charcoal: '#36393d', silver: '#c0c0c0', navy: '#1f2a44',
+  blue: '#2e5a88', royal: '#2f4fb0', sky: '#87b7e0', denim: '#3b5b8a', teal: '#1f7a7a', green: '#3d7a4f',
+  olive: '#6b6b2f', forest: '#2f4a35', sage: '#9caf88', mint: '#a8d8c0', lime: '#a6d13a', yellow: '#e8c94a',
+  mustard: '#d4a72c', gold: '#c9a227', orange: '#e87b1e', rust: '#b5502d', brown: '#6b4a32', tan: '#c19a6b',
+  chocolate: '#4a2f22', cocoa: '#5a3d31', red: '#c0392b', maroon: '#6b1f2a', burgundy: '#6e1f2f', wine: '#722f37',
+  pink: '#e8a0b4', rose: '#d98ca3', fuchsia: '#c2327d', purple: '#6b3fa0', lilac: '#b79fd6', lavender: '#b9a7d9',
+  violet: '#7a4fbf', coral: '#e8725c', peach: '#f2b697', stone: '#b9b2a4', oatmeal: '#d8cdb6',
+};
 const DEFAULT_BRAND_NAMES = [
   'Threadgaff Essentials',
   'Threadgaff Premium',
@@ -806,6 +818,9 @@ const DEFAULT_BRAND_NAMES = [
 
         <div class="product-main" [class.step-off]="step() !== 4">
           <section class="ui-card" id="cardVariants">
+            @if (hexNotice()) {
+              <p class="hex-notice" role="status">{{ hexNotice() }}</p>
+            }
             <div class="ui-card-h">
               <div class="ch-title">
                 <span class="card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></span>
@@ -886,7 +901,7 @@ const DEFAULT_BRAND_NAMES = [
                     <div class="grid-2">
                       <div>
                         <label>Variant name</label>
-                        <input type="text" [(ngModel)]="c.name" [name]="'cname' + c.id" placeholder="Burgundy" />
+                        <input type="text" [(ngModel)]="c.name" (ngModelChange)="onVariantName(c)" [name]="'cname' + c.id" placeholder="Burgundy" />
                       </div>
                       <div>
                         <label>HEX colour</label>
@@ -1059,6 +1074,16 @@ const DEFAULT_BRAND_NAMES = [
                               Delete
                             </button>
                           </div>
+                          @if (uploadInfo(focusedIndex(), 'view', vi + 1); as u) {
+                            <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
+                              @if (u.status === 'uploading') {
+                                Uploading…
+                              } @else {
+                                Upload failed{{ u.message ? ': ' + u.message : '' }}
+                                <button type="button" class="retry" (click)="retrySlot(focusedIndex(), 'view', vi)">Retry</button>
+                              }
+                            </div>
+                          }
                         </div>
                       } @empty {
                         <p class="fn">No angles on this variant yet.</p>
@@ -1138,6 +1163,16 @@ const DEFAULT_BRAND_NAMES = [
                         Clear
                       </button>
                     </div>
+                    @if (uploadInfo(focusedIndex(), 'card', 0); as u) {
+                      <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
+                        @if (u.status === 'uploading') {
+                          Uploading…
+                        } @else {
+                          Upload failed{{ u.message ? ': ' + u.message : '' }}
+                          <button type="button" class="retry" (click)="retrySlot(focusedIndex(), 'card', 0)">Retry</button>
+                        }
+                      </div>
+                    }
                     @if (variantImageOptions().length) {
                       <label>Or use an image from any variant</label>
                       <div class="pick-grid">
@@ -1224,6 +1259,16 @@ const DEFAULT_BRAND_NAMES = [
                         Delete
                       </button>
                     </div>
+                    @if (uploadInfo(-1, 'view', i + 1); as u) {
+                      <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
+                        @if (u.status === 'uploading') {
+                          Uploading…
+                        } @else {
+                          Upload failed{{ u.message ? ': ' + u.message : '' }}
+                          <button type="button" class="retry" (click)="retrySlot(-1, 'view', i)">Retry</button>
+                        }
+                      </div>
+                    }
                   </div>
                 }
               </div>
@@ -1773,7 +1818,7 @@ const DEFAULT_BRAND_NAMES = [
     .variants-list-card { background: #fff; }
     .swatch-card { background: #fff; }
     .swatch-full {
-      width: 100%; border-radius: 10px; background: #eceae4; overflow: hidden; margin-bottom: 10px;
+      width: 100%; border-radius: 10px; background: #fff; border: 1px solid #ece8de; overflow: hidden; margin-bottom: 10px;
       display: flex; align-items: center; justify-content: center;
     }
     .swatch-full img { width: 100%; height: auto; display: block; }
@@ -1787,7 +1832,7 @@ const DEFAULT_BRAND_NAMES = [
       border: 1px solid #e4e0d6; border-radius: 8px; padding: 0; overflow: hidden; background: #fff; cursor: pointer;
     }
     .pick-grid button.is-on { border-color: #3d4b37; box-shadow: 0 0 0 2px rgba(61, 75, 55, 0.25); }
-    .pick-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: #eceae4; }
+    .pick-grid img { width: 100%; aspect-ratio: 1; object-fit: contain; display: block; background: #fff; }
     .variants-empty { min-height: 120px; display: flex; align-items: center; }
 
     .hex-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -1904,7 +1949,7 @@ const DEFAULT_BRAND_NAMES = [
 
     .thumb-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
     .thumb-row img {
-      width: 72px; height: 72px; object-fit: cover; background: #ece8de; border: 1px solid #d4cec0;
+      width: 72px; height: 72px; object-fit: contain; background: #fff; border: 1px solid #d4cec0;
     }
     .thumb-row .btn { margin-right: 4px; }
 
@@ -1920,9 +1965,14 @@ const DEFAULT_BRAND_NAMES = [
       width: 100%; padding: 6px 8px;
     }
     .angle-slot img {
-      width: 100%; aspect-ratio: 1; object-fit: cover; background: #ece8de; display: block; margin-bottom: 6px;
+      width: 100%; aspect-ratio: 4 / 5; object-fit: contain; background: #fff; border: 1px solid #ece8de;
+      border-radius: 6px; display: block; margin-bottom: 6px;
     }
     .slot-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+    .slot-status { margin-top: 6px; font-size: 0.72rem; color: #3d4b37; }
+    .slot-status.is-failed { color: #8b3a2f; }
+    .slot-status .retry { border: 0; background: none; padding: 0; margin-left: 4px; font: inherit; font-weight: 700; color: inherit; text-decoration: underline; cursor: pointer; }
+    .hex-notice { margin: 0 0 12px; padding: 10px 12px; background: #fff7e0; border: 1px solid #f0dca0; border-radius: 8px; font-size: 0.78rem; line-height: 1.45; }
     .slot-actions .btn { padding: 6px 8px; }
 
     @media (max-width: 1100px) {
@@ -1984,6 +2034,11 @@ export class AdminProductEditorComponent implements OnChanges {
   readonly formError = signal('');
   readonly deleteConfirmOpen = signal(false);
   readonly focusedIndex = signal(0);
+  /** Shown when blank / unreadable colour codes were filled in automatically. */
+  readonly hexNotice = signal('');
+  /** Upload progress per image slot ("colourIndex:role:sortOrder"); -1 = product-level images. */
+  readonly uploadState = signal<Record<string, { status: 'uploading' | 'failed'; message?: string }>>({});
+  private uploadQueue: Promise<unknown> = Promise.resolve();
   readonly liveAngleIndex = signal(0);
   readonly showAddCategory = signal(false);
   readonly showAddBrand = signal(false);
@@ -3065,146 +3120,155 @@ export class AdminProductEditorComponent implements OnChanges {
     return (fresh.length ? fresh : list).slice(-1)[0];
   }
 
+  uploadInfo(ci: number, role: string, sortOrder: number) {
+    return this.uploadState()[this.uploadKey(ci, role, sortOrder)] ?? null;
+  }
+
+  private uploadKey(ci: number, role: string, sortOrder: number): string {
+    return `${ci}:${role}:${sortOrder}`;
+  }
+
+  private setUpload(key: string, v: { status: 'uploading' | 'failed'; message?: string } | null) {
+    this.uploadState.update((st) => {
+      const next = { ...st };
+      if (v) next[key] = v;
+      else delete next[key];
+      return next;
+    });
+  }
+
+  /** Uploads run one at a time so several quick picks cannot race each other. */
+  private enqueueUpload<T>(job: () => Promise<T>): Promise<T> {
+    const run = this.uploadQueue.then(job, job);
+    this.uploadQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private isTransient(err: unknown): boolean {
+    const e = err as { status?: number; name?: string };
+    return e?.name === 'TimeoutError' || e?.status === undefined || e.status === 0 || e.status >= 500;
+  }
+
+  private errText(err: unknown): string {
+    if (err instanceof Error && !('status' in err)) return err.message;
+    return this.apiErrorMessage(err, 'Upload failed');
+  }
+
+  /** One upload with a time limit; connection hiccups are retried (up to 3 tries). */
+  private async uploadWithRetry(
+    productId: string,
+    file: File,
+    meta: { role: string; angle: string; sortOrder: number; productColorId?: string },
+  ): Promise<void> {
+    let last: unknown;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await firstValueFrom(
+          this.auth.ensureFreshAccessToken().pipe(
+            switchMap(() => this.catalog.uploadProductImage(productId, file, meta)),
+            timeout(45000),
+          ),
+        );
+        return;
+      } catch (err) {
+        last = err;
+        if (!this.isTransient(err) || attempt === 3) break;
+        await new Promise((r) => setTimeout(r, 900 * attempt));
+      }
+    }
+    throw last;
+  }
+
   /** Upload a variant image immediately when the product already exists. */
-  private async persistColorImageNow(
+  private persistColorImageNow(
     colorIndex: number,
     dataUrl: string,
     meta: { role: string; angle: string; sortOrder: number },
-  ) {
+  ): Promise<void> {
     const productId = this.productId || this.persistedId;
-    const color = this.colors[colorIndex];
-    if (!productId || !color || !dataUrl.startsWith('data:')) return;
-
-    const resolveColorId = async (): Promise<string> => {
-      let colorId = this.isUuid(this.colors[colorIndex]?.id)
-        ? this.colors[colorIndex].id
-        : '';
-      if (!colorId) {
-        await this.ensureColorsPersisted();
-        colorId = this.isUuid(this.colors[colorIndex]?.id)
-          ? this.colors[colorIndex].id
-          : '';
-      }
-      return colorId;
-    };
-
-    const tryUpload = (colorId: string) =>
-      new Promise<boolean>((resolve) => {
-        try {
-          const file = this.dataUrlToFile(
-            dataUrl,
-            `${meta.role}-${meta.angle}.jpg`,
-          );
-          this.auth
-            .ensureFreshAccessToken()
-            .pipe(
-              switchMap(() =>
-                this.catalog.uploadProductImage(productId, file, {
-                  ...meta,
-                  productColorId: colorId,
-                }),
-              ),
-            )
-            .subscribe({
-              next: () => resolve(true),
-              error: () => resolve(false),
-            });
-        } catch {
-          resolve(false);
+    if (!productId || !this.colors[colorIndex] || !dataUrl.startsWith('data:')) return Promise.resolve();
+    const key = this.uploadKey(colorIndex, meta.role, meta.sortOrder);
+    this.setUpload(key, { status: 'uploading' });
+    return this.enqueueUpload(async () => {
+      try {
+        const idOf = () =>
+          this.isUuid(this.colors[colorIndex]?.id) ? this.colors[colorIndex].id : '';
+        let colorId = idOf();
+        if (!colorId) {
+          await this.ensureColorsPersisted();
+          colorId = idOf();
         }
-      });
-
-    try {
-      let colorId = await resolveColorId();
-      if (!colorId) return;
-      const priorIds = await this.imageIdsOf(productId);
-      let uploaded = await tryUpload(colorId);
-      if (!uploaded) {
-        // Color may have been recreated on a prior save — refresh ids and retry once
-        await this.ensureColorsPersisted();
-        colorId = this.isUuid(this.colors[colorIndex]?.id)
-          ? this.colors[colorIndex].id
-          : '';
-        if (!colorId) return;
-        uploaded = await tryUpload(colorId);
-      }
-      if (!uploaded) {
-        this.formError.set(
-          'Angle image preview is set, but upload failed. Hit Save to retry.',
+        if (!colorId) throw new Error('This variant is not saved yet. Press Save, then upload again.');
+        const priorIds = await this.imageIdsOf(productId);
+        const file = this.dataUrlToFile(dataUrl, `${meta.role}-${meta.angle}.jpg`);
+        try {
+          await this.uploadWithRetry(productId, file, { ...meta, productColorId: colorId });
+        } catch (err) {
+          if (this.isTransient(err)) throw err;
+          // The variant may have been recreated by an earlier save: refresh its id and try once more.
+          await this.ensureColorsPersisted();
+          const again = idOf();
+          if (!again || again === colorId) throw err;
+          colorId = again;
+          await this.uploadWithRetry(productId, file, { ...meta, productColorId: colorId });
+        }
+        const fresh = await new Promise<Product | null>((resolve) =>
+          this.catalog.getProduct(productId).subscribe({ next: resolve, error: () => resolve(null) }),
         );
-        return;
+        if (fresh) this.applyUploadedColorImage(fresh, colorIndex, colorId, meta, priorIds);
+        this.setUpload(key, null);
+      } catch (err) {
+        this.setUpload(key, { status: 'failed', message: this.errText(err) });
       }
-      this.formError.set('');
-      this.catalog.getProduct(productId).subscribe({
-        next: (fresh) => {
-          const savedColor =
-            fresh.colors?.find((c) => c.id === colorId) ||
-            fresh.colors?.[colorIndex];
-          if (savedColor?.id && this.colors[colorIndex]) {
-            this.colors[colorIndex].id = savedColor.id;
-          }
-          const imgs = this.dedupeImages([
-            ...(savedColor?.images || []),
-            ...(fresh.images || []).filter(
-              (im) => im.productColorId === (savedColor?.id || colorId),
-            ),
-          ]);
-          if (meta.role === 'card') {
-            const card = this.newestImage(
-              imgs.filter((im) => im.role === 'card'),
-              priorIds,
-            )?.url;
-            if (card && this.colors[colorIndex]) {
-              this.colors[colorIndex].cardImage = card;
-            }
-            return;
-          }
-          const views = imgs.filter((im) => im.role === 'view' || im.role === 'gallery');
-          const match =
-            this.newestImage(
-              views.filter((im) => im.angle === meta.angle && im.sortOrder === meta.sortOrder),
-              priorIds,
-            ) ||
-            this.newestImage(
-              views.filter((im) => im.angle === meta.angle),
-              priorIds,
-            );
-          if (match?.url && this.colors[colorIndex]?.views[meta.sortOrder - 1]) {
-            this.colors[colorIndex].views[meta.sortOrder - 1].src = match.url;
-          }
-        },
-      });
-    } catch {
-      this.formError.set(
-        'Angle image preview is set, but upload failed. Hit Save to retry.',
-      );
+    });
+  }
+
+  private applyUploadedColorImage(
+    fresh: Product,
+    colorIndex: number,
+    colorId: string,
+    meta: { role: string; angle: string; sortOrder: number },
+    priorIds: Set<string>,
+  ) {
+    const savedColor = fresh.colors?.find((c) => c.id === colorId) || fresh.colors?.[colorIndex];
+    if (savedColor?.id && this.colors[colorIndex]) this.colors[colorIndex].id = savedColor.id;
+    const imgs = this.dedupeImages([
+      ...(savedColor?.images || []),
+      ...(fresh.images || []).filter((im) => im.productColorId === (savedColor?.id || colorId)),
+    ]);
+    if (meta.role === 'card') {
+      const card = this.newestImage(imgs.filter((im) => im.role === 'card'), priorIds)?.url;
+      if (card && this.colors[colorIndex]) this.colors[colorIndex].cardImage = card;
+      return;
+    }
+    const views = imgs.filter((im) => im.role === 'view' || im.role === 'gallery');
+    const match =
+      this.newestImage(
+        views.filter((im) => im.angle === meta.angle && im.sortOrder === meta.sortOrder),
+        priorIds,
+      ) || this.newestImage(views.filter((im) => im.angle === meta.angle), priorIds);
+    if (match?.url && this.colors[colorIndex]?.views[meta.sortOrder - 1]) {
+      this.colors[colorIndex].views[meta.sortOrder - 1].src = match.url;
     }
   }
 
-  private async persistProductImageNow(
+  private persistProductImageNow(
     dataUrl: string,
     meta: { role: string; angle: string; sortOrder: number },
-  ) {
+  ): Promise<void> {
     const productId = this.productId || this.persistedId;
-    if (!productId || !dataUrl.startsWith('data:')) return;
-    try {
-      const priorIds = await this.imageIdsOf(productId);
-      const file = this.dataUrlToFile(
-        dataUrl,
-        `${meta.role}-${meta.angle}.jpg`,
-      );
-      await new Promise<void>((resolve, reject) => {
-        this.auth
-          .ensureFreshAccessToken()
-          .pipe(switchMap(() => this.catalog.uploadProductImage(productId, file, meta)))
-          .subscribe({
-            next: () => resolve(),
-            error: () => reject(),
-          });
-      });
-      this.formError.set('');
-      this.catalog.getProduct(productId).subscribe({
-        next: (fresh) => {
+    if (!productId || !dataUrl.startsWith('data:')) return Promise.resolve();
+    const key = this.uploadKey(-1, meta.role, meta.sortOrder);
+    this.setUpload(key, { status: 'uploading' });
+    return this.enqueueUpload(async () => {
+      try {
+        const priorIds = await this.imageIdsOf(productId);
+        const file = this.dataUrlToFile(dataUrl, `${meta.role}-${meta.angle}.jpg`);
+        await this.uploadWithRetry(productId, file, meta);
+        const fresh = await new Promise<Product | null>((resolve) =>
+          this.catalog.getProduct(productId).subscribe({ next: resolve, error: () => resolve(null) }),
+        );
+        if (fresh) {
           if (meta.role === 'card') {
             const card =
               this.newestImage(
@@ -3212,55 +3276,117 @@ export class AdminProductEditorComponent implements OnChanges {
                 priorIds,
               )?.url || this.catalog.cardImageUrl(fresh);
             if (card) this.form.cardImageUrl = card;
-            return;
+          } else {
+            const match = this.newestImage(
+              (fresh.images || []).filter(
+                (im) =>
+                  !im.productColorId &&
+                  (im.role === 'view' || im.role === 'gallery') &&
+                  im.angle === meta.angle,
+              ),
+              priorIds,
+            );
+            if (match?.url && this.defaultAngles[meta.sortOrder - 1]) {
+              this.defaultAngles[meta.sortOrder - 1].src = match.url;
+            }
           }
-          const match = this.newestImage(
-            (fresh.images || []).filter(
-              (im) =>
-                !im.productColorId &&
-                (im.role === 'view' || im.role === 'gallery') &&
-                im.angle === meta.angle,
-            ),
-            priorIds,
-          );
-          if (match?.url && this.defaultAngles[meta.sortOrder - 1]) {
-            this.defaultAngles[meta.sortOrder - 1].src = match.url;
-          }
-        },
+        }
+        this.setUpload(key, null);
+      } catch (err) {
+        this.setUpload(key, { status: 'failed', message: this.errText(err) });
+      }
+    });
+  }
+
+  /** "Retry" button on a slot whose upload failed. */
+  retrySlot(ci: number, role: 'view' | 'card', index: number) {
+    if (ci < 0) {
+      const v = this.defaultAngles[index];
+      if (!v?.src.startsWith('data:')) return this.setUpload(this.uploadKey(-1, 'view', index + 1), null);
+      void this.persistProductImageNow(v.src, {
+        role: 'view',
+        angle: this.toImageAngle(v.label || v.angle),
+        sortOrder: index + 1,
       });
-    } catch {
-      this.formError.set(
-        'Image preview is set, but upload failed. Hit Save to retry.',
-      );
+      return;
     }
+    const row = this.colors[ci];
+    if (!row) return;
+    if (role === 'card') {
+      if (!row.cardImage.startsWith('data:')) return this.setUpload(this.uploadKey(ci, 'card', 0), null);
+      void this.persistColorImageNow(ci, row.cardImage, { role: 'card', angle: 'front', sortOrder: 0 });
+      return;
+    }
+    const v = row.views[index];
+    if (!v?.src.startsWith('data:')) return this.setUpload(this.uploadKey(ci, 'view', index + 1), null);
+    void this.persistColorImageNow(ci, v.src, {
+      role: 'view',
+      angle: this.toImageAngle(v.label || v.angle),
+      sortOrder: index + 1,
+    });
+  }
+
+  // ───── colour codes ─────
+  private guessHex(name: string | null | undefined): string | null {
+    const words = (name || '').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+    for (const w of words) if (COLOR_NAME_HEX[w]) return COLOR_NAME_HEX[w];
+    return null;
+  }
+
+  /** Typing a colour name ("Navy") into a variant with no colour code fills the code in. */
+  onVariantName(c: ColorFormRow) {
+    if (this.normalizeHexInput(c.hex)) return;
+    const g = this.guessHex(c.name);
+    if (g) c.hex = g;
+  }
+
+  /**
+   * The API needs a valid #RRGGBB for every variant. Blank or unreadable codes are filled in
+   * (guessed from the name, else neutral grey) so saving never stops on this, and we say so.
+   */
+  private fixColourCodes() {
+    const notes: string[] = [];
+    this.colors.forEach((c, i) => {
+      const raw = (c.hex || '').trim();
+      const ok = raw ? this.normalizeHexInput(raw) : null;
+      if (ok) {
+        c.hex = ok;
+        return;
+      }
+      const guessed = this.guessHex(raw) || this.guessHex(c.name);
+      c.hex = guessed || NEUTRAL_HEX;
+      const label = c.name.trim() || `Variant ${i + 1}`;
+      notes.push(`“${label}” → ${c.hex}${guessed ? '' : ' (neutral grey: pick the real colour)'}`);
+    });
+    this.hexNotice.set(
+      notes.length
+        ? `A colour code was missing or not valid, so it was filled in: ${notes.join('; ')}. Change it in the HEX colour field if needed.`
+        : '',
+    );
+  }
+
+  /** Turns raw API validation text into something readable. */
+  private friendly(text: string): string {
+    const nameOf = (i: number) => {
+      const n = this.colors[i]?.name?.trim();
+      return n ? ` (“${n}”)` : '';
+    };
+    return text
+      .replace(/colors\.(\d+)\.hex must match[^,]*/g, (_m, n) => `Variant ${Number(n) + 1}${nameOf(Number(n))} needs a colour code like #FF8800`)
+      .replace(/colors\.(\d+)\.name [^,]*/g, (_m, n) => `Variant ${Number(n) + 1} needs a name`);
   }
 
   /** Persist color rows so new variants get server UUIDs before image upload. */
   private ensureColorsPersisted(): Promise<void> {
     const productId = this.productId || this.persistedId;
-    if (!productId) return Promise.reject();
+    if (!productId) return Promise.reject(new Error('Save the product first.'));
     if (this.productLoadInFlight) {
       return Promise.reject(new Error('Product still loading — try again in a moment.'));
     }
     if (!this.colors.length) {
       return Promise.reject(new Error('Add a colour variant before uploading images.'));
     }
-    for (const c of this.colors) {
-      const raw = (c.hex || '').trim();
-      if (!raw) {
-        c.hex = '';
-        continue;
-      }
-      const n = this.normalizeHexInput(raw);
-      if (!n) {
-        return Promise.reject(
-          new Error(
-            `Invalid hex for “${c.name || 'variant'}”. Leave blank or use #RRGGBB.`,
-          ),
-        );
-      }
-      c.hex = n;
-    }
+    this.fixColourCodes();
     const colors = this.buildColorInputs();
     return new Promise((resolve, reject) => {
       this.auth
@@ -3277,7 +3403,7 @@ export class AdminProductEditorComponent implements OnChanges {
               error: () => resolve(),
             });
           },
-          error: () => reject(),
+          error: (err) => reject(new Error(this.apiErrorMessage(err, 'Could not save the variants.'))),
         });
     });
   }
@@ -3299,7 +3425,7 @@ export class AdminProductEditorComponent implements OnChanges {
       });
       return {
         name: c.name.trim() || `Colour ${i + 1}`,
-        hex: this.normalizeHexInput(c.hex) || '',
+        hex: this.normalizeHexInput(c.hex) || this.guessHex(c.name) || NEUTRAL_HEX,
         isDefault: c.isDefault,
         sortOrder: i,
         priceOverride: c.priceOverride !== '' ? Number(c.priceOverride) : undefined,
@@ -3365,22 +3491,7 @@ export class AdminProductEditorComponent implements OnChanges {
       );
       return;
     }
-    for (const c of this.colors) {
-      const raw = (c.hex || '').trim();
-      if (!raw) {
-        // Colour is optional — empty is allowed and hides storefront swatches.
-        c.hex = '';
-        continue;
-      }
-      const n = this.normalizeHexInput(raw);
-      if (!n) {
-        this.formError.set(
-          `Invalid hex for “${c.name || 'variant'}”. Leave blank or use #RRGGBB (e.g. #1a1a1a).`,
-        );
-        return;
-      }
-      c.hex = n;
-    }
+    this.fixColourCodes();
     this.busy.set(true);
     this.formError.set('');
 
@@ -4227,8 +4338,8 @@ export class AdminProductEditorComponent implements OnChanges {
       return 'Server error while saving. Wait a moment and try again.';
     }
     const msg = e?.error?.message ?? e?.message;
-    if (Array.isArray(msg)) return msg.join(', ');
-    if (typeof msg === 'string' && msg.trim()) return msg;
+    if (Array.isArray(msg)) return this.friendly(msg.join(', '));
+    if (typeof msg === 'string' && msg.trim()) return this.friendly(msg);
     if (typeof e?.error?.error === 'string' && e.error.error.trim()) {
       return e.error.error;
     }
@@ -4246,17 +4357,27 @@ export class AdminProductEditorComponent implements OnChanges {
       reader.onload = () => {
         const img = new Image();
         img.onload = () => {
-          const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+          // Every product photo is saved on a white 4:5 canvas with the WHOLE picture inside it
+          // (landscape photos get white bars, transparent areas become white), so the garment is
+          // never cropped or shown tiny in a preview or card.
+          const W = 800;
+          const H = 1000;
           const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, Math.round(img.width * scale));
-          canvas.height = Math.max(1, Math.round(img.height * scale));
+          canvas.width = W;
+          canvas.height = H;
           const ctx = canvas.getContext('2d');
           if (!ctx) {
             reject();
             return;
           }
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, W, H);
+          const scale = Math.min(W / (img.width || 1), H / (img.height || 1), 2);
+          const w = Math.max(1, Math.round((img.width || 1) * scale));
+          const h = Math.max(1, Math.round((img.height || 1) * scale));
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, Math.round((W - w) / 2), Math.round((H - h) / 2), w, h);
+          resolve(canvas.toDataURL('image/jpeg', Math.max(quality, 0.82)));
         };
         img.onerror = () => reject();
         img.src = String(reader.result || '');

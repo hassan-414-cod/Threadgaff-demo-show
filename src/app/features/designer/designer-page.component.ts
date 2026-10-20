@@ -521,10 +521,12 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
     }
     .stage-wrap {
       border: 1px solid var(--line); border-radius: 8px; background: #fff;
-      display: grid; place-items: center; overflow: hidden; min-height: 400px;
+      display: grid; place-items: center; overflow: hidden;
     }
-    .stage { position: relative; width: 88%; height: 88%; display: grid; place-items: center; transition: transform 0.15s ease; }
-    .stage-img { max-width: 100%; max-height: 100%; object-fit: contain; position: relative; z-index: 1; }
+    /* The picture fills a white 4:5 box and is never cropped, so the whole garment is visible
+       (landscape or portrait). */
+    .stage { position: relative; width: 100%; aspect-ratio: 4 / 5; max-height: 660px; background: #fff; transition: transform 0.15s ease; }
+    .stage-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; z-index: 1; }
     .stage-logo {
       position: absolute; top: 28%; left: 50%; transform: translateX(-50%);
       width: 26%; z-index: 3; pointer-events: none;
@@ -1206,6 +1208,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
         notes: this.buyerNotes() || undefined,
         privateLabel: this.privateLabelSummary() || undefined,
         plFile: this.plFile()?.name || undefined,
+        logo: this.logoPreview() ? '1' : undefined,
         plMaterial: this.plMaterial().trim() || undefined,
         plNotes: this.plNotes().trim() || undefined,
         unitPrice: this.configuredUnitPrice() > 0

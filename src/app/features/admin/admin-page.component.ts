@@ -1624,8 +1624,9 @@ interface CategoryTreeListRow {
       width: 56px;
       height: 56px;
       border-radius: 8px;
-      object-fit: cover;
-      background: #ece8de;
+      object-fit: contain;
+      background: #fff;
+      border: 1px solid #ece8de;
       margin-right: 12px;
       flex-shrink: 0;
     }
