@@ -203,19 +203,19 @@ import { SiteSettingsService } from '../core/services/site-settings.service';
     .logo {
       font-family: 'Montserrat', sans-serif;
       font-weight: 800;
-      font-size: 1.05rem;
+      font-size: 1.2rem;
       color: #fff;
       letter-spacing: 0.12em;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       justify-self: start;
       text-transform: uppercase;
     }
 
     .logo-img {
-      width: 50px;
-      height: 50px;
+      width: 62px;
+      height: 62px;
       border-radius: 50%;
       object-fit: cover;
       flex: none;

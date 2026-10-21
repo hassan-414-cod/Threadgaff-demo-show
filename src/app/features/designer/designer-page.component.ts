@@ -681,7 +681,7 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
     .qty-cell input::-webkit-inner-spin-button { -webkit-appearance: none; }
     .review-line { margin: 0; font-size: 0.82rem; color: var(--ink); }
 
-    .summary-col { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 90px; }
+    .summary-col { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 132px; }
     .summary-card { padding: 16px; }
     .summary-top { display: flex; gap: 10px; margin-bottom: 12px; }
     .summary-top img {
