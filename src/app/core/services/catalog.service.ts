@@ -561,16 +561,16 @@ export class CatalogService {
   }
 
   /** Card / front image for a specific colour variant (falls back to product media). */
-  colorCardImageUrl(
+  private pickCardImage(
     product: Product,
     color?: { id?: string; images?: Product['images'] } | null,
-  ): string {
+  ) {
     const colorImages = [...(color?.images || [])];
     const linked = (product.images || []).filter(
       (im) => color?.id && im.productColorId === color.id,
     );
     const all = [...colorImages, ...linked, ...(product.images || [])];
-    const pick =
+    return (
       all.find((i) => i.role === 'card' && i.url?.includes('/uploads/')) ||
       all.find(
         (i) =>
@@ -581,10 +581,29 @@ export class CatalogService {
       all.find((i) => i.url?.includes('/uploads/')) ||
       all.find((i) => i.role === 'card') ||
       all.find((i) => i.role === 'view' || i.role === 'gallery') ||
-      all[0];
+      all[0]
+    );
+  }
+
+  colorCardImageUrl(
+    product: Product,
+    color?: { id?: string; images?: Product['images'] } | null,
+  ): string {
+    const pick = this.pickCardImage(product, color);
     return this.normalizeMediaUrl(
       pick?.url || this.fallbackImageForProduct(product),
     );
+  }
+
+  /**
+   * The photo an admin uploaded for this product, or null when it has none. Unlike
+   * cardImageUrl() this never invents a stand-in picture.
+   */
+  productPhotoUrl(product: Product): string | null {
+    const colors = product.colors || [];
+    const color = colors.find((c) => c.isDefault) || colors[0];
+    const raw = this.pickCardImage(product, color)?.url;
+    return raw ? this.normalizeMediaUrl(raw) : null;
   }
 
   fallbackImageForProduct(product: Product): string {

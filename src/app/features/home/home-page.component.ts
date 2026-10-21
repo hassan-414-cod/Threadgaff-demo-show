@@ -94,21 +94,42 @@ interface ActiveFilterChip {
           #heroRail
           (scroll)="onHeroRailScroll()"
         >
-          @for (card of heroCards(); track card.slug; let i = $index) {
-            <a
-              class="hero-card"
-              [style.animation-delay]="(i * 0.04) + 's'"
-              [routerLink]="['/products']"
-              [queryParams]="{ collection: card.slug }"
-            >
-              <img [src]="card.image" [alt]="card.name" fetchpriority="high" />
-              <div class="hero-card-meta">
-                <div>
-                  <strong>{{ card.name }}</strong>
-                </div>
-                <span class="hero-card-go" aria-hidden="true">→</span>
+          @if (heroLoading()) {
+            @for (n of heroSkeletons; track n) {
+              <div class="hero-card is-loading" role="status" aria-label="Loading">
+                <span class="hero-spinner"></span>
               </div>
-            </a>
+            }
+          } @else {
+            @for (card of heroCards(); track card.slug; let i = $index) {
+              <a
+                class="hero-card"
+                [class.is-pending]="card.image && !heroReady()[card.slug]"
+                [style.animation-delay]="(i * 0.04) + 's'"
+                [routerLink]="['/products']"
+                [queryParams]="{ collection: card.slug }"
+              >
+                @if (card.image) {
+                  <img
+                    [src]="card.image"
+                    [alt]="card.name"
+                    [class.is-ready]="heroReady()[card.slug]"
+                    fetchpriority="high"
+                    (load)="heroImageDone(card.slug)"
+                    (error)="heroImageDone(card.slug)"
+                  />
+                  @if (!heroReady()[card.slug]) {
+                    <span class="hero-spinner" role="status" aria-label="Loading"></span>
+                  }
+                }
+                <div class="hero-card-meta">
+                  <div>
+                    <strong>{{ card.name }}</strong>
+                  </div>
+                  <span class="hero-card-go" aria-hidden="true">→</span>
+                </div>
+              </a>
+            }
           }
         </div>
 
@@ -650,8 +671,29 @@ interface ActiveFilterChip {
       height: 100%;
       object-fit: cover;
       object-position: center;
-      transition: transform 0.45s ease;
+      opacity: 0;
+      transition: transform 0.45s ease, opacity 0.35s ease;
     }
+    .hero-card img.is-ready { opacity: 1; }
+    /* the name appears together with the picture, never before it */
+    .hero-card.is-pending .hero-card-meta { opacity: 0; }
+    .hero-card-meta { transition: opacity 0.35s ease; }
+    .hero-card.is-loading, .hero-card.is-pending { background: #d9d4c7; }
+    .hero-card.is-loading { pointer-events: none; }
+    .hero-spinner {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 34px;
+      height: 34px;
+      margin: -17px 0 0 -17px;
+      border-radius: 50%;
+      border: 3px solid rgba(60, 69, 54, 0.22);
+      border-top-color: #3c4536;
+      animation: heroSpin 0.8s linear infinite;
+      z-index: 2;
+    }
+    @keyframes heroSpin { to { transform: rotate(360deg); } }
     .hero-card:hover img { transform: scale(1.04); }
     .hero-card-meta {
       position: absolute;
@@ -1105,17 +1147,6 @@ export class HomePageComponent implements OnInit {
   );
   readonly selectedCustom = signal<Record<string, Set<string>>>({});
 
-  private readonly heroFallbackImages: Record<string, string> = {
-    hoodies: '/assets/images/prod_hoodie.jpg',
-    't-shirts': '/assets/images/prod_tshirt.jpg',
-    sweatshirts: '/assets/images/prod_sweatshirt.jpg',
-    joggers: '/assets/images/prod_joggers.jpg',
-    'polo-shirts': '/assets/images/prod_polo.jpg',
-    sets: '/assets/images/prod_sets.jpg',
-    tracksuits: '/assets/images/prod_tracksuit.jpg',
-    jackets: '/assets/images/prod_hoodie.jpg',
-  };
-
   private readonly heroPreferredOrder = [
     'hoodies',
     't-shirts',
@@ -1125,16 +1156,37 @@ export class HomePageComponent implements OnInit {
     'sets',
   ];
 
-  readonly heroCards = signal<
-    { slug: string; name: string; image: string; _isCustom?: boolean }[]
-  >([
-    { slug: 'hoodies', name: 'Hoodies', image: '/assets/images/prod_hoodie.jpg' },
-    { slug: 't-shirts', name: 'T-Shirts', image: '/assets/images/prod_tshirt.jpg' },
-    { slug: 'sweatshirts', name: 'Sweatshirts', image: '/assets/images/prod_sweatshirt.jpg' },
-    { slug: 'joggers', name: 'Joggers', image: '/assets/images/prod_joggers.jpg' },
-    { slug: 'polo-shirts', name: 'Polo Shirts', image: '/assets/images/prod_polo.jpg' },
-    { slug: 'sets', name: 'Sets/Co-ords', image: '/assets/images/prod_sets.jpg' },
-  ]);
+  /**
+   * The slider cards. Empty until the categories and products have come back from the
+   * database; there are no built-in pictures. A card without an admin picture has `image: null`.
+   */
+  readonly heroCards = signal<{ slug: string; name: string; image: string | null }[]>([]);
+  /** True until the categories and products have loaded: the slider shows loading boxes. */
+  readonly heroLoading = signal(true);
+  readonly heroSkeletons = [0, 1, 2, 3, 4];
+  /** Cards whose picture has finished loading (or failed): their spinner is gone. */
+  readonly heroReady = signal<Record<string, boolean>>({});
+  private catsLoaded = false;
+  private productsLoaded = false;
+
+  heroImageDone(slug: string) {
+    this.heroReady.update((m) => (m[slug] ? m : { ...m, [slug]: true }));
+  }
+
+  /** Pictures that were already cached can finish before Angular listens: catch those too. */
+  private syncHeroImages() {
+    const mark = () => {
+      const el = this.heroRailRef?.nativeElement;
+      if (!el) return;
+      el.querySelectorAll<HTMLImageElement>('.hero-card img').forEach((img) => {
+        const card = this.heroCards().find((c) => c.image && img.getAttribute('src') === c.image);
+        if (card && img.complete) this.heroImageDone(card.slug);
+      });
+    };
+    setTimeout(mark, 0);
+    setTimeout(mark, 400);
+    setTimeout(mark, 1500);
+  }
 
   heroDotIndexes() {
     return this.heroCards().map((_, i) => i);
@@ -1189,7 +1241,12 @@ export class HomePageComponent implements OnInit {
     this.catalog.getCollectionCategories().subscribe({
       next: (cats) => {
         this.collections.set(cats);
+        this.catsLoaded = true;
         this.refreshHeroCards(cats, this.allProducts());
+      },
+      error: () => {
+        this.catsLoaded = true;
+        this.refreshHeroCards([], this.allProducts());
       },
     });
 
@@ -1200,6 +1257,7 @@ export class HomePageComponent implements OnInit {
           (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
         );
         this.allProducts.set(ordered);
+        this.productsLoaded = true;
         this.refreshHeroCards(this.collections(), ordered);
 
         // Default homepage grid follows admin drag order (sortOrder)
@@ -1218,19 +1276,12 @@ export class HomePageComponent implements OnInit {
           },
         });
       },
-      error: () =>
-        this.error.set(
-          'Could not load products. Check the API connection.',
-        ),
+      error: () => {
+        this.productsLoaded = true;
+        this.refreshHeroCards(this.collections(), []);
+        this.error.set('Could not load products. Check the API connection.');
+      },
     });
-  }
-
-  private defaultHeroCards() {
-    return this.heroPreferredOrder.map((slug) => ({
-      slug,
-      name: this.labelForSlug(slug),
-      image: this.catalog.normalizeMediaUrl(this.heroFallbackImages[slug] || '/assets/images/prod_tshirt.jpg'),
-    }));
   }
 
   private labelForSlug(slug: string) {
@@ -1251,75 +1302,44 @@ export class HomePageComponent implements OnInit {
   }
 
   private refreshHeroCards(cats: Category[], products: Product[]) {
+    // Nothing is shown until both the categories and the products have answered.
+    if (!(this.catsLoaded && this.productsLoaded)) return;
     const bySlug = new Map(cats.map((c) => [c.slug, c]));
-    const images = new Map<string, string>();
+    const photos = new Map<string, string>();
 
     const ranked = [...products].sort((a, b) => {
       const feat = Number(b.isFeatured) - Number(a.isFeatured);
       if (feat) return feat;
       return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
     });
-
+    // a category without its own picture borrows the real photo of its first product
     for (const p of ranked) {
       const slug = p.category?.slug;
-      if (!slug) continue;
-
-      const pImage = this.catalog.cardImageUrl(p);
-      const isCustom = !pImage.includes('/assets/');
-
-      if (!images.has(slug)) {
-        images.set(slug, pImage);
-      } else if (isCustom && images.get(slug)?.includes('/assets/')) {
-        images.set(slug, pImage);
-      }
+      const photo = this.catalog.productPhotoUrl(p);
+      if (slug && photo && !photos.has(slug)) photos.set(slug, photo);
     }
 
     const orderedSlugs = [
-      ...this.heroPreferredOrder.filter((s) => bySlug.has(s) || images.has(s)),
-      ...cats
-        .map((c) => c.slug)
-        .filter((s) => !this.heroPreferredOrder.includes(s)),
+      ...this.heroPreferredOrder.filter((s) => bySlug.has(s) || photos.has(s)),
+      ...cats.map((c) => c.slug).filter((s) => !this.heroPreferredOrder.includes(s)),
     ];
-
     const unique = [...new Set(orderedSlugs)].slice(0, 8);
-    if (!unique.length) {
-      this.heroCards.set(this.defaultHeroCards());
-      this.applyFilters();
-      return;
-    }
 
     const cards = unique.map((slug) => {
       const cat = bySlug.get(slug);
-      const rawImage =
-        cat?.imageUrl ||
-        images.get(slug) ||
-        this.heroFallbackImages[slug] ||
-        '/assets/images/prod_tshirt.jpg';
-      const image = this.catalog.normalizeMediaUrl(rawImage);
+      const raw = cat?.imageUrl || photos.get(slug) || '';
       return {
         slug,
-        name:
-          slug === 'sets'
-            ? 'Sets/Co-ords'
-            : cat?.name || this.labelForSlug(slug),
-        image,
-        _isCustom: !image.includes('/assets/'),
+        name: slug === 'sets' ? 'Sets/Co-ords' : cat?.name || this.labelForSlug(slug),
+        image: raw ? this.catalog.normalizeMediaUrl(raw) : null,
       };
     });
+    // categories that have a picture first, in the usual order
+    cards.sort((a, b) => Number(!!b.image) - Number(!!a.image));
 
-    cards.sort((a, b) => {
-      if (a._isCustom && !b._isCustom) return -1;
-      if (!a._isCustom && b._isCustom) return 1;
-      return 0;
-    });
-
-    this.heroCards.set(
-      cards.map((c) => ({
-        slug: c.slug,
-        name: c.name,
-        image: c.image,
-      }))
-    );
+    this.heroCards.set(cards);
+    this.heroLoading.set(false);
+    this.syncHeroImages();
     // The featured collection follows these categories.
     this.applyFilters();
   }
