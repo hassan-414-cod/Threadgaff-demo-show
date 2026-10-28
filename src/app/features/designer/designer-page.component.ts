@@ -44,7 +44,15 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
   imports: [RouterLink, FormsModule],
   template: `
     <div class="des-page" [class.is-picking]="!product()">
-      @if (!product()) {
+      @if (!product() && loadingProduct()) {
+        <section class="des-pick des-loading" role="status" aria-live="polite">
+          <div class="des-pick-panel">
+            <p class="des-pick-kicker">Custom Designer</p>
+            <h2>Opening your garment…</h2>
+            <span class="des-spinner" aria-hidden="true"></span>
+          </div>
+        </section>
+      } @else if (!product()) {
         <section class="des-pick">
           <div class="des-pick-panel">
             <p class="des-pick-kicker">Custom Designer</p>
@@ -731,6 +739,10 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
     .des-pick { max-width: 1200px; margin: 0 auto; padding: 40px 0; }
     .des-pick-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 40px; }
+    .des-loading .des-pick-panel { min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; animation: desFade 0.3s ease both; }
+    .des-spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid #d9d4c7; border-top-color: #3c4536; animation: desSpin 0.8s linear infinite; }
+    @keyframes desSpin { to { transform: rotate(360deg); } }
+    @keyframes desFade { from { opacity: 0; } to { opacity: 1; } }
     .des-pick-kicker { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
     .des-pick-panel h2 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: clamp(2rem, 4vw, 3rem); font-weight: 600; text-transform: none; margin: 0 0 14px; }
     .des-pick-lede { color: var(--muted); font-size: 1.1rem; margin: 0 0 30px; max-width: 65ch; line-height: 1.5; }
@@ -772,6 +784,8 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
 
   readonly product = signal<Product | null>(null);
   readonly pickList = signal<Product[]>([]);
+  /** True while the garment named in the address is being fetched. */
+  readonly loadingProduct = signal(false);
   readonly error = signal('');
   readonly garment = signal<Garment>('tee');
   readonly sleeveValues = signal<string[]>([]);
@@ -1015,29 +1029,47 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
       },
     });
 
-    this.catalog.getProducts({ limit: 48, isActive: true }).subscribe({
-      next: (res) => this.pickList.set((res.items || []).filter((p) => p.isActive !== false)),
-      error: () =>
-        this.error.set('Could not load catalogue. Is the Nest API running?'),
-    });
-
     this.route.queryParamMap.subscribe((params) => {
       const id = params.get('product');
       if (!id) {
+        this.loadingProduct.set(false);
         this.product.set(null);
+        this.loadPickList();
         return;
       }
+      // The chosen garment comes first: it is what the page is waiting for.
+      this.loadingProduct.set(true);
       this.catalog.getProduct(id).subscribe({
         next: (p) => {
+          this.loadingProduct.set(false);
           if (p.isActive === false) {
             this.product.set(null);
             this.error.set('This product is not currently available.');
+            this.loadPickList();
             return;
           }
           this.applyProduct(p, params.get('color'));
         },
-        error: () => this.error.set('Product could not be loaded from the API.'),
+        error: () => {
+          this.loadingProduct.set(false);
+          this.error.set('Product could not be loaded from the API.');
+          this.loadPickList();
+        },
       });
+    });
+  }
+
+  /** The garment picker's list is only needed when no garment is chosen (or the chosen one is missing). */
+  private pickListLoaded = false;
+  private loadPickList() {
+    if (this.pickListLoaded) return;
+    this.pickListLoaded = true;
+    this.catalog.getProducts({ limit: 48, isActive: true }).subscribe({
+      next: (res) => this.pickList.set((res.items || []).filter((p) => p.isActive !== false)),
+      error: () => {
+        this.pickListLoaded = false;
+        this.error.set('Could not load catalogue. Is the Nest API running?');
+      },
     });
   }
 

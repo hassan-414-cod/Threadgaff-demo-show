@@ -11,12 +11,23 @@ import { AfterViewInit, Directive, ElementRef, HostListener, inject } from '@ang
 export class PortraitFitDirective implements AfterViewInit {
   private readonly el = inject<ElementRef<HTMLImageElement>>(ElementRef).nativeElement;
 
+  constructor() {
+    // Until the photo has arrived the window shows a soft placeholder; the photo then fades in.
+    this.el.classList.add('tg-pending');
+  }
+
   ngAfterViewInit() {
     if (this.el.complete) this.apply();
   }
 
+  @HostListener('error')
+  failed() {
+    this.el.classList.remove('tg-pending');
+  }
+
   @HostListener('load')
   apply() {
+    this.el.classList.remove('tg-pending');
     const w = this.el.naturalWidth;
     const h = this.el.naturalHeight;
     if (!w || !h) return;

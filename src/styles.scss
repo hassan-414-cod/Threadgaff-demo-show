@@ -292,7 +292,40 @@ select option:hover {
   /* --fit-zoom / --fit-origin are set by tgPortraitFit for wide photos */
   transform: scale(var(--fit-zoom, 1));
   transform-origin: var(--fit-origin, 50% 50%);
-  transition: transform 0.35s ease;
+  transition: transform 0.35s ease, opacity 0.4s ease;
+}
+
+/* A photo that is still coming in: a soft placeholder, then it fades in (set by tgPortraitFit). */
+.pc-media img.tg-pending {
+  opacity: 0;
+}
+
+.pc-media:has(img.tg-pending) {
+  background: linear-gradient(100deg, #f3efe6 30%, #faf8f3 50%, #f3efe6 70%) 0 0 / 220% 100%;
+  animation: tgShimmer 1.4s linear infinite;
+}
+
+@keyframes tgShimmer {
+  to {
+    background-position: -120% 0;
+  }
+}
+
+/* Page changes cross-fade quickly instead of jumping. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.22s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-media:has(img.tg-pending) {
+    animation: none;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }
 
 .pc:hover .pc-media img {

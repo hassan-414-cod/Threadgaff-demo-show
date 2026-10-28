@@ -2,7 +2,9 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpEvent, HttpParams } from '@angular/common/http';
 import {
   Observable,
+  from,
   map,
+  mergeMap,
   of,
   forkJoin,
   catchError,
@@ -340,9 +342,12 @@ export class CatalogService {
    * storefront swatches can swap card photos.
    */
   enrichWithColorMedia(products: Product[]): Observable<Product[]> {
+    // The list already carries every image (product.images, tagged with the colour they belong
+    // to), so a product is only fetched on its own when the list gave no image information.
     const need = products.filter(
       (p) =>
         !!p.colors?.length &&
+        !Array.isArray(p.images) &&
         !(p.colors || []).some((c) => (c.images || []).length > 0),
     );
     if (!need.length) return of(products);
@@ -355,6 +360,26 @@ export class CatalogService {
       }),
     );
   }
+
+  /**
+   * Fetches the full record (attributes, sizes…) of each product, a few at a time so the
+   * browser's connections stay free for pictures. Emits each product as it arrives.
+   */
+  hydrateProducts(products: Product[], concurrency = 3): Observable<Product> {
+    return from(products).pipe(
+      mergeMap((p) => this.getProduct(p.id).pipe(catchError(() => of(p))), concurrency),
+    );
+  }
+
+  /** Starts loading a product ahead of a click (shared with the page that opens next). */
+  prefetchProduct(id: string) {
+    const last = this.prefetched.get(id);
+    if (!id || (last && Date.now() - last < 90_000)) return;
+    this.prefetched.set(id, Date.now());
+    this.getProduct(id).subscribe({ error: () => this.prefetched.delete(id) });
+  }
+
+  private readonly prefetched = new Map<string, number>();
 
   getProductBySlug(slug: string): Observable<Product> {
     return this.http.get<Product>(`${this.base}/products/slug/${slug}`);

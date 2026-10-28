@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   ElementRef,
   OnInit,
   ViewChild,
@@ -7,6 +8,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
 import {
@@ -320,17 +322,23 @@ interface ActiveFilterChip {
             <article class="pc">
               <a
                 class="pc-media"
-                [routerLink]="['/products']"
-                [queryParams]="exploreParams(p)"
+                [routerLink]="['/designer']"
+                [queryParams]="designerParams(p)"
+                (pointerenter)="catalog.prefetchProduct(p.id)"
+                (touchstart)="catalog.prefetchProduct(p.id)"
               >
                 @if (p.badge) {
                   <span class="pc-badge">{{ p.badge }}</span>
                 }
-                <img tgPortraitFit [src]="cardSrc(p)" [alt]="p.name" />
+                <img tgPortraitFit [src]="cardSrc(p)" [alt]="p.name" loading="lazy" decoding="async" />
               </a>
               <div class="pc-body">
                 <h3 class="pc-name">
-                  <a [routerLink]="['/products']" [queryParams]="exploreParams(p)">
+                  <a
+                    [routerLink]="['/designer']"
+                    [queryParams]="designerParams(p)"
+                    (pointerenter)="catalog.prefetchProduct(p.id)"
+                  >
                     {{ p.name }}
                   </a>
                 </h3>
@@ -370,11 +378,8 @@ interface ActiveFilterChip {
                     <a
                       class="pc-mini pc-mini-fill"
                       [routerLink]="['/designer']"
-                      [queryParams]="{
-                        product: p.id,
-                        name: p.name,
-                        color: selectedColorId(p),
-                      }"
+                      [queryParams]="designerParams(p)"
+                      (pointerenter)="catalog.prefetchProduct(p.id)"
                     >
                       Design
                     </a>
@@ -1104,6 +1109,8 @@ export class HomePageComponent implements OnInit {
 
 
   readonly catalog = inject(CatalogService);
+  private readonly destroyRef = inject(DestroyRef);
+  private hydrateTimer: ReturnType<typeof setTimeout> | null = null;
   readonly site = inject(SiteSettingsService);
   readonly featured = signal<Product[]>([]);
   readonly collections = signal<Category[]>([]);
@@ -1264,17 +1271,9 @@ export class HomePageComponent implements OnInit {
         this.featured.set(ordered);
         this.applyFilters();
 
-        this.catalog.enrichWithColorMedia(ordered).subscribe({
-          next: (full) => {
-            const live = full
-              .filter((p) => p.isActive !== false)
-              .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-            this.allProducts.set(live);
-            this.refreshHeroCards(this.collections(), live);
-            this.featured.set(live);
-            this.applyFilters();
-          },
-        });
+        // The cards are complete already. The filters also need each product's attributes: fetch
+        // those quietly afterwards, a few at a time, so the pictures are not held up.
+        this.enrichWithColorMediaLater(ordered);
       },
       error: () => {
         this.productsLoaded = true;
@@ -1282,6 +1281,35 @@ export class HomePageComponent implements OnInit {
         this.error.set('Could not load products. Check the API connection.');
       },
     });
+  }
+
+  private enrichWithColorMediaLater(ordered: Product[]) {
+    if (this.hydrateTimer) clearTimeout(this.hydrateTimer);
+    this.hydrateTimer = setTimeout(() => {
+      const byId = new Map<string, Product>();
+      let n = 0;
+      this.catalog
+        .hydrateProducts(ordered, 3)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (full) => {
+            byId.set(full.id, full);
+            if (++n % 3 === 0) this.applyHydrated(byId);
+          },
+          complete: () => this.applyHydrated(byId),
+        });
+    }, 1500);
+    this.destroyRef.onDestroy(() => this.hydrateTimer && clearTimeout(this.hydrateTimer));
+  }
+
+  private applyHydrated(byId: Map<string, Product>) {
+    const live = this.allProducts()
+      .map((p) => (byId.has(p.id) ? { ...p, ...byId.get(p.id)!, sortOrder: p.sortOrder ?? byId.get(p.id)!.sortOrder } : p))
+      .filter((p) => p.isActive !== false)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    this.allProducts.set(live);
+    this.featured.set(live);
+    this.applyFilters();
   }
 
   private labelForSlug(slug: string) {
@@ -1545,6 +1573,11 @@ export class HomePageComponent implements OnInit {
 
   descriptionFor(p: Product): string {
     return cardDescription(p, this.selectedColorId(p));
+  }
+
+  /** Opens the Custom Designer on this garment, in the colour currently shown on the card. */
+  designerParams(p: Product): Record<string, string> {
+    return { product: p.id, name: p.name, category: p.template || '', color: this.selectedColorId(p) };
   }
 
   exploreParams(p: Product): Record<string, string> {

@@ -140,6 +140,8 @@ interface DisplayCard {
               }
               <a
                 class="pc-media"
+                (pointerenter)="catalog.prefetchProduct(card.product.id)"
+                (touchstart)="catalog.prefetchProduct(card.product.id)"
                 [routerLink]="['/designer']"
                 [queryParams]="{
                   product: card.product.id,
@@ -151,7 +153,7 @@ interface DisplayCard {
                 @if (card.product.badge) {
                   <span class="pc-badge">{{ card.product.badge }}</span>
                 }
-                <img tgPortraitFit [src]="shownSrc(card)" [alt]="cardTitle(card)" />
+                <img tgPortraitFit [src]="shownSrc(card)" [alt]="cardTitle(card)" loading="lazy" decoding="async" />
               </a>
               <div class="pc-body">
                 <h3 class="pc-name">
