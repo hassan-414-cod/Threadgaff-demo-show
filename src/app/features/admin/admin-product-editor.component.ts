@@ -19,8 +19,10 @@ import {
   ProductWritePayload,
 } from '../../core/services/catalog.service';
 import { Category, Product, ProductTag } from '../../core/models/catalog.models';
+import { HttpEventType, HttpResponse } from '@angular/common/http';
 import { firstValueFrom, forkJoin, from, of, timer, throwError, timeout } from 'rxjs';
-import { catchError, map, switchMap, retry } from 'rxjs/operators';
+import { catchError, filter, map, switchMap, retry, tap } from 'rxjs/operators';
+import { UploadGate } from '../../core/utils/upload-gate';
 import { AuthService } from '../../core/services/auth.service';
 import {
   BUILTIN_FILTERS,
@@ -29,6 +31,15 @@ import {
   isCustomFilterCode,
 } from '../../core/utils/filters';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
+
+/** An image slot's upload: `progress` is 0–100 of the bytes sent. */
+interface UploadSlotState {
+  status: 'uploading' | 'failed';
+  message?: string;
+  progress?: number;
+}
+
+type ImageRow = NonNullable<Product['images']>[number];
 
 interface PickerGroup {
   code: string;
@@ -181,7 +192,7 @@ const DEFAULT_BRAND_NAMES = [
             (click)="save()"
             [disabled]="busy() || !form.name.trim()"
           >
-            {{ busy() ? (form.name.trim() ? 'Saving…' : 'Loading…') : 'Save changes' }}
+            {{ saveLabel() }}
           </button>
         </div>
       </div>
@@ -596,7 +607,7 @@ const DEFAULT_BRAND_NAMES = [
               </div>
               <div class="preview-img-wrap" [class.is-empty]="!previewUrl()">
                 @if (previewUrl()) {
-                  <img [src]="catalog.normalizeMediaUrl(previewUrl())" [alt]="form.name || 'Preview'" />
+                  <img [src]="shown(previewUrl())" [alt]="form.name || 'Preview'" loading="lazy" decoding="async" />
                 } @else {
                   <span class="preview-empty">Add a variant or set default media to generate preview</span>
                 }
@@ -777,7 +788,7 @@ const DEFAULT_BRAND_NAMES = [
               </div>
               <div class="lp-stage" [class.is-empty]="!livePreviewSrc()">
                 @if (livePreviewSrc()) {
-                  <img [src]="catalog.normalizeMediaUrl(livePreviewSrc())" alt="Variant preview" />
+                  <img [src]="shown(livePreviewSrc())" alt="Variant preview" loading="lazy" decoding="async" />
                 } @else {
                   <span class="preview-empty">Preview appears when a variant image or default media is set</span>
                 }
@@ -802,7 +813,7 @@ const DEFAULT_BRAND_NAMES = [
                       (click)="liveAngleIndex.set(i)"
                     >
                       @if (slotSrc(focusedColor(), i, v)) {
-                        <img [src]="catalog.normalizeMediaUrl(slotSrc(focusedColor(), i, v))" [alt]="v.label" />
+                        <img [src]="shown(slotSrc(focusedColor(), i, v))" [alt]="v.label" loading="lazy" decoding="async" />
                       } @else {
                         <span class="thumb-empty">No image</span>
                       }
@@ -1055,7 +1066,7 @@ const DEFAULT_BRAND_NAMES = [
                             placeholder="Angle name"
                           />
                           @if (slotSrc(c, vi, v)) {
-                            <img [src]="catalog.normalizeMediaUrl(slotSrc(c, vi, v))" alt="" />
+                            <img [src]="shown(slotSrc(c, vi, v))" alt="" loading="lazy" decoding="async" />
                           } @else {
                             <div class="thumb-placeholder tall">Upload an angle image</div>
                           }
@@ -1077,7 +1088,8 @@ const DEFAULT_BRAND_NAMES = [
                           @if (uploadInfo(focusedIndex(), 'view', vi + 1); as u) {
                             <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
                               @if (u.status === 'uploading') {
-                                Uploading…
+                                {{ u.progress && u.progress < 100 ? 'Uploading ' + u.progress + '%' : u.progress === 100 ? 'Saving the photo…' : 'Uploading…' }}
+                                <span class="slot-bar"><i [style.width.%]="u.progress || 4"></i></span>
                               } @else {
                                 Upload failed{{ u.message ? ': ' + u.message : '' }}
                                 <button type="button" class="retry" (click)="retrySlot(focusedIndex(), 'view', vi)">Retry</button>
@@ -1144,7 +1156,7 @@ const DEFAULT_BRAND_NAMES = [
                     </div>
                     <div class="swatch-full" [class.is-empty]="!fc.cardImage">
                       @if (fc.cardImage) {
-                        <img [src]="catalog.normalizeMediaUrl(fc.cardImage)" [alt]="(fc.name || 'Variant') + ' card image'" />
+                        <img [src]="shown(fc.cardImage)" [alt]="(fc.name || 'Variant') + ' card image'" loading="lazy" decoding="async" />
                       } @else {
                         <span>No card image yet</span>
                       }
@@ -1166,7 +1178,8 @@ const DEFAULT_BRAND_NAMES = [
                     @if (uploadInfo(focusedIndex(), 'card', 0); as u) {
                       <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
                         @if (u.status === 'uploading') {
-                          Uploading…
+                          {{ u.progress && u.progress < 100 ? 'Uploading ' + u.progress + '%' : u.progress === 100 ? 'Saving the photo…' : 'Uploading…' }}
+                          <span class="slot-bar"><i [style.width.%]="u.progress || 4"></i></span>
                         } @else {
                           Upload failed{{ u.message ? ': ' + u.message : '' }}
                           <button type="button" class="retry" (click)="retrySlot(focusedIndex(), 'card', 0)">Retry</button>
@@ -1184,7 +1197,7 @@ const DEFAULT_BRAND_NAMES = [
                             [attr.aria-label]="'Use ' + o.label"
                             (click)="pickVariantImage(o.url)"
                           >
-                            <img [src]="catalog.normalizeMediaUrl(o.url)" [alt]="o.label" />
+                            <img [src]="shown(o.url)" [alt]="o.label" loading="lazy" decoding="async" />
                           </button>
                         }
                       </div>
@@ -1206,7 +1219,7 @@ const DEFAULT_BRAND_NAMES = [
               <label>Default card image</label>
               <div class="thumb-row">
                 @if (form.cardImageUrl.trim()) {
-                  <img [src]="catalog.normalizeMediaUrl(form.cardImageUrl)" alt="" />
+                  <img [src]="shown(form.cardImageUrl)" alt="" loading="lazy" decoding="async" />
                 } @else {
                   <div class="thumb-placeholder">No default image</div>
                 }
@@ -1240,7 +1253,7 @@ const DEFAULT_BRAND_NAMES = [
                       [name]="'dang' + i"
                     />
                     @if (v.src) {
-                      <img [src]="catalog.normalizeMediaUrl(v.src)" alt="" />
+                      <img [src]="shown(v.src)" alt="" loading="lazy" decoding="async" />
                     } @else {
                       <div class="thumb-placeholder tall">Upload an angle image</div>
                     }
@@ -1262,7 +1275,8 @@ const DEFAULT_BRAND_NAMES = [
                     @if (uploadInfo(-1, 'view', i + 1); as u) {
                       <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
                         @if (u.status === 'uploading') {
-                          Uploading…
+                          {{ u.progress && u.progress < 100 ? 'Uploading ' + u.progress + '%' : u.progress === 100 ? 'Saving the photo…' : 'Uploading…' }}
+                          <span class="slot-bar"><i [style.width.%]="u.progress || 4"></i></span>
                         } @else {
                           Upload failed{{ u.message ? ': ' + u.message : '' }}
                           <button type="button" class="retry" (click)="retrySlot(-1, 'view', i)">Retry</button>
@@ -1282,7 +1296,7 @@ const DEFAULT_BRAND_NAMES = [
         <span class="step-count">Step {{ step() }} of {{ steps.length }}</span>
         @if (step() === steps.length) {
           <button type="button" class="btn btn-gold" (click)="save()" [disabled]="busy() || !form.name.trim()">
-            {{ busy() ? 'Saving…' : 'Save changes' }}
+            {{ saveLabel() }}
           </button>
         } @else {
           <button type="button" class="btn btn-gold" (click)="nextStep()">Next: {{ nextStepLabel() }} →</button>
@@ -1971,6 +1985,8 @@ const DEFAULT_BRAND_NAMES = [
     .slot-actions { display: flex; gap: 4px; flex-wrap: wrap; }
     .slot-status { margin-top: 6px; font-size: 0.72rem; color: #3d4b37; }
     .slot-status.is-failed { color: #8b3a2f; }
+    .slot-status .slot-bar { display: block; height: 3px; margin-top: 4px; border-radius: 3px; background: #dfe4d8; overflow: hidden; }
+    .slot-status .slot-bar i { display: block; height: 100%; background: #3d4b37; border-radius: 3px; transition: width 0.25s ease; }
     .slot-status .retry { border: 0; background: none; padding: 0; margin-left: 4px; font: inherit; font-weight: 700; color: inherit; text-decoration: underline; cursor: pointer; }
     .hex-notice { margin: 0 0 12px; padding: 10px 12px; background: #fff7e0; border: 1px solid #f0dca0; border-radius: 8px; font-size: 0.78rem; line-height: 1.45; }
     .slot-actions .btn { padding: 6px 8px; }
@@ -2037,8 +2053,16 @@ export class AdminProductEditorComponent implements OnChanges {
   /** Shown when blank / unreadable colour codes were filled in automatically. */
   readonly hexNotice = signal('');
   /** Upload progress per image slot ("colourIndex:role:sortOrder"); -1 = product-level images. */
-  readonly uploadState = signal<Record<string, { status: 'uploading' | 'failed'; message?: string }>>({});
-  private uploadQueue: Promise<unknown> = Promise.resolve();
+  readonly uploadState = signal<Record<string, UploadSlotState>>({});
+  /** Up to three uploads at a time; the same slot is never sent twice at once. */
+  private readonly gate = new UploadGate(3);
+  private readonly slotJobs = new Map<string, Promise<void>>();
+  /** What the Save button says while it works ("" = plain "Saving…"). */
+  readonly saveNote = signal('');
+  /** Ids of the images the product has on the server, so a new upload can be told apart without asking again. */
+  private knownImageIds = new Set<string>();
+  /** Photos just uploaded from this computer, by their new server URL: shown instead of downloading them again. */
+  private readonly localPreview = new Map<string, string>();
   readonly liveAngleIndex = signal(0);
   readonly showAddCategory = signal(false);
   readonly showAddBrand = signal(false);
@@ -3094,20 +3118,17 @@ export class AdminProductEditorComponent implements OnChanges {
     });
   }
 
-  /** Ids of every image the product has on the server right now. */
-  private imageIdsOf(productId: string): Promise<Set<string>> {
+  /** Remembers which images the product has on the server. */
+  private rememberImageIds(p: Product | null | undefined) {
+    if (!p) return;
+    for (const im of [...(p.images || []), ...(p.colors || []).flatMap((c) => c.images || [])]) {
+      if (im?.id) this.knownImageIds.add(im.id);
+    }
+  }
+
+  private fetchProduct(productId: string): Promise<Product | null> {
     return new Promise((resolve) =>
-      this.catalog.getProduct(productId).subscribe({
-        next: (p) =>
-          resolve(
-            new Set(
-              [...(p.images || []), ...(p.colors || []).flatMap((c) => c.images || [])].map(
-                (im) => im.id,
-              ),
-            ),
-          ),
-        error: () => resolve(new Set<string>()),
-      }),
+      this.catalog.getProduct(productId).subscribe({ next: resolve, error: () => resolve(null) }),
     );
   }
 
@@ -3128,7 +3149,7 @@ export class AdminProductEditorComponent implements OnChanges {
     return `${ci}:${role}:${sortOrder}`;
   }
 
-  private setUpload(key: string, v: { status: 'uploading' | 'failed'; message?: string } | null) {
+  private setUpload(key: string, v: UploadSlotState | null) {
     this.uploadState.update((st) => {
       const next = { ...st };
       if (v) next[key] = v;
@@ -3137,11 +3158,94 @@ export class AdminProductEditorComponent implements OnChanges {
     });
   }
 
-  /** Uploads run one at a time so several quick picks cannot race each other. */
-  private enqueueUpload<T>(job: () => Promise<T>): Promise<T> {
-    const run = this.uploadQueue.then(job, job);
-    this.uploadQueue = run.catch(() => undefined);
+  /** Whole-percent progress only, so a fast upload does not redraw the page hundreds of times. */
+  private setProgress(key: string, progress: number) {
+    const cur = this.uploadState()[key];
+    if (!cur || cur.status !== 'uploading' || cur.progress === progress) return;
+    this.setUpload(key, { status: 'uploading', progress });
+  }
+
+  /**
+   * Uploads for different slots run side by side (up to three); the same slot stays in order, so
+   * two quick picks cannot race each other. `exclusive` is for a job that first has to save the
+   * variants, which must not overlap other uploads.
+   */
+  private enqueueUpload<T>(key: string, job: () => Promise<T>, exclusive = false): Promise<T> {
+    const prev = this.slotJobs.get(key) ?? Promise.resolve();
+    const run = prev.then(() => this.gate.run(job, exclusive));
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.slotJobs.set(key, tail);
+    void tail.then(() => {
+      if (this.slotJobs.get(key) === tail) this.slotJobs.delete(key);
+    });
     return run;
+  }
+
+  /** True while the slot still shows the local photo that is being uploaded (not replaced, cleared or removed). */
+  private slotHolds(ci: number, role: string, sortOrder: number, dataUrl: string): boolean {
+    if (ci < 0) {
+      return role === 'card'
+        ? this.form.cardImageUrl === dataUrl
+        : this.defaultAngles[sortOrder - 1]?.src === dataUrl;
+    }
+    const row = this.colors[ci];
+    return role === 'card' ? row?.cardImage === dataUrl : row?.views[sortOrder - 1]?.src === dataUrl;
+  }
+
+  /** Swaps the local photo in a slot for the server copy, unless the slot was changed meanwhile. */
+  private putUploadedUrl(
+    ci: number,
+    meta: { role: string; sortOrder: number },
+    url: string | undefined,
+    dataUrl: string,
+  ): boolean {
+    if (!url) return false;
+    this.rememberPreview(url, dataUrl);
+    if (!this.slotHolds(ci, meta.role, meta.sortOrder, dataUrl)) return true;
+    if (ci < 0) {
+      if (meta.role === 'card') this.form.cardImageUrl = url;
+      else this.defaultAngles[meta.sortOrder - 1].src = url;
+    } else if (meta.role === 'card') {
+      this.colors[ci].cardImage = url;
+    } else {
+      this.colors[ci].views[meta.sortOrder - 1].src = url;
+    }
+    return true;
+  }
+
+  private rememberPreview(url: string, dataUrl: string) {
+    this.localPreview.delete(url);
+    this.localPreview.set(url, dataUrl);
+    // Keep only the latest few, and no more than ~40 MB of them, so a long session stays light.
+    let total = 0;
+    for (const v of this.localPreview.values()) total += v.length;
+    while (this.localPreview.size > 1 && (this.localPreview.size > 24 || total > 40_000_000)) {
+      const oldest = this.localPreview.keys().next().value as string;
+      total -= this.localPreview.get(oldest)?.length ?? 0;
+      this.localPreview.delete(oldest);
+    }
+  }
+
+  /** What an image shows for a stored URL: the photo just uploaded from this computer, else the server copy. */
+  shown(url: string): string {
+    return this.localPreview.get(url) ?? this.catalog.normalizeMediaUrl(url);
+  }
+
+  /** What the upload endpoint answered: the new image, the whole product, or nothing we can read. */
+  private readUploadAnswer(body: unknown): { image: ImageRow | null; product: Product | null } {
+    const b = body as Record<string, unknown> | null;
+    if (!b || typeof b !== 'object') return { image: null, product: null };
+    if (Array.isArray(b['colors']) || Array.isArray(b['images'])) {
+      return { image: null, product: b as unknown as Product };
+    }
+    const img = (typeof b['url'] === 'string' ? b : b['image']) as Record<string, unknown> | undefined;
+    if (img && typeof img['url'] === 'string' && typeof img['id'] === 'string') {
+      return { image: img as unknown as ImageRow, product: null };
+    }
+    return { image: null, product: null };
   }
 
   private isTransient(err: unknown): boolean {
@@ -3154,25 +3258,36 @@ export class AdminProductEditorComponent implements OnChanges {
     return this.apiErrorMessage(err, 'Upload failed');
   }
 
-  /** One upload with a time limit; connection hiccups are retried (up to 3 tries). */
+  /**
+   * One upload. It is only given up on when no data moves for 45 s, so a big photo on a slow
+   * line is never cut off while it is still going out. Connection hiccups are retried (3 tries).
+   */
   private async uploadWithRetry(
     productId: string,
     file: File,
     meta: { role: string; angle: string; sortOrder: number; productColorId?: string },
-  ): Promise<void> {
+    onProgress?: (percent: number) => void,
+  ): Promise<unknown> {
     let last: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        await firstValueFrom(
+        return await firstValueFrom(
           this.auth.ensureFreshAccessToken().pipe(
-            switchMap(() => this.catalog.uploadProductImage(productId, file, meta)),
-            timeout(45000),
+            switchMap(() => this.catalog.uploadProductImageEvents(productId, file, meta)),
+            tap((ev) => {
+              if (ev.type === HttpEventType.UploadProgress && ev.total) {
+                onProgress?.(Math.min(100, Math.round((ev.loaded / ev.total) * 100)));
+              }
+            }),
+            timeout({ each: 45000 }),
+            filter((ev): ev is HttpResponse<unknown> => ev.type === HttpEventType.Response),
+            map((ev) => ev.body),
           ),
         );
-        return;
       } catch (err) {
         last = err;
         if (!this.isTransient(err) || attempt === 3) break;
+        onProgress?.(0);
         await new Promise((r) => setTimeout(r, 900 * attempt));
       }
     }
@@ -3211,14 +3326,14 @@ export class AdminProductEditorComponent implements OnChanges {
     productId: string,
     file: File,
     meta: { role: string; angle: string; sortOrder: number; productColorId?: string },
-  ): Promise<void> {
+    onProgress?: (percent: number) => void,
+  ): Promise<unknown> {
     const steps: Array<[number, number] | null> = [null, [3000, 0.95], [2200, 0.92], [1600, 0.9]];
     let last: unknown;
     for (const step of steps) {
       try {
         const f = step ? await this.shrinkImage(file, step[0], step[1]) : file;
-        await this.uploadWithRetry(productId, f, meta);
-        return;
+        return await this.uploadWithRetry(productId, f, meta, onProgress);
       } catch (err) {
         last = err;
         if ((err as { status?: number })?.status !== 413) throw err;
@@ -3236,39 +3351,78 @@ export class AdminProductEditorComponent implements OnChanges {
     const productId = this.productId || this.persistedId;
     if (!productId || !this.colors[colorIndex] || !dataUrl.startsWith('data:')) return Promise.resolve();
     const key = this.uploadKey(colorIndex, meta.role, meta.sortOrder);
-    this.setUpload(key, { status: 'uploading' });
-    return this.enqueueUpload(async () => {
-      try {
-        const idOf = () =>
-          this.isUuid(this.colors[colorIndex]?.id) ? this.colors[colorIndex].id : '';
-        let colorId = idOf();
-        if (!colorId) {
-          await this.ensureColorsPersisted();
-          colorId = idOf();
-        }
-        if (!colorId) throw new Error('This variant is not saved yet. Press Save, then upload again.');
-        const priorIds = await this.imageIdsOf(productId);
-        const file = this.dataUrlToFile(dataUrl, `${meta.role}-${meta.angle}.jpg`);
+    this.setUpload(key, { status: 'uploading', progress: 0 });
+    const idOf = () =>
+      this.isUuid(this.colors[colorIndex]?.id) ? this.colors[colorIndex].id : '';
+    // A variant that is not saved yet has to be saved first, and that must not overlap other uploads.
+    return this.enqueueUpload(
+      key,
+      async () => {
         try {
-          await this.uploadAdaptive(productId, file, { ...meta, productColorId: colorId });
+          // Replaced or cleared again before its turn: there is nothing left to send.
+          if (!this.slotHolds(colorIndex, meta.role, meta.sortOrder, dataUrl)) {
+            this.setUpload(key, null);
+            return;
+          }
+          let colorId = idOf();
+          if (!colorId) {
+            await this.ensureColorsPersisted();
+            colorId = idOf();
+          }
+          if (!colorId) throw new Error('This variant is not saved yet. Press Save, then upload again.');
+          const prior = new Set(this.knownImageIds);
+          const file = this.dataUrlToFile(dataUrl, `${meta.role}-${meta.angle}.jpg`);
+          const progress = (p: number) => this.setProgress(key, p);
+          let body: unknown;
+          try {
+            body = await this.uploadAdaptive(productId, file, { ...meta, productColorId: colorId }, progress);
+          } catch (err) {
+            if (this.isTransient(err)) throw err;
+            // The variant may have been recreated by an earlier save: refresh its id and try once more.
+            await this.ensureColorsPersisted();
+            const again = idOf();
+            if (!again || again === colorId) throw err;
+            colorId = again;
+            body = await this.uploadAdaptive(productId, file, { ...meta, productColorId: colorId }, progress);
+          }
+          this.setProgress(key, 100);
+          await this.applyColorUpload(productId, body, colorIndex, colorId, meta, prior, dataUrl);
+          this.setUpload(key, null);
         } catch (err) {
-          if (this.isTransient(err)) throw err;
-          // The variant may have been recreated by an earlier save: refresh its id and try once more.
-          await this.ensureColorsPersisted();
-          const again = idOf();
-          if (!again || again === colorId) throw err;
-          colorId = again;
-          await this.uploadAdaptive(productId, file, { ...meta, productColorId: colorId });
+          this.setUpload(key, { status: 'failed', message: this.errText(err) });
         }
-        const fresh = await new Promise<Product | null>((resolve) =>
-          this.catalog.getProduct(productId).subscribe({ next: resolve, error: () => resolve(null) }),
-        );
-        if (fresh) this.applyUploadedColorImage(fresh, colorIndex, colorId, meta, priorIds);
-        this.setUpload(key, null);
-      } catch (err) {
-        this.setUpload(key, { status: 'failed', message: this.errText(err) });
-      }
-    });
+      },
+      !idOf(),
+    );
+  }
+
+  /**
+   * Puts the new server copy into the slot. Normally the upload answer already says which image
+   * it is; only when it does not is the product fetched once to find out.
+   */
+  private async applyColorUpload(
+    productId: string,
+    body: unknown,
+    colorIndex: number,
+    colorId: string,
+    meta: { role: string; angle: string; sortOrder: number },
+    prior: Set<string>,
+    dataUrl: string,
+  ) {
+    const answer = this.readUploadAnswer(body);
+    let done = false;
+    if (answer.image) {
+      this.knownImageIds.add(answer.image.id);
+      done = this.putUploadedUrl(colorIndex, meta, answer.image.url, dataUrl);
+    } else if (answer.product) {
+      done = this.applyUploadedColorImage(answer.product, colorIndex, colorId, meta, prior, dataUrl);
+      this.rememberImageIds(answer.product);
+    }
+    if (done) return;
+    const fresh = await this.fetchProduct(productId);
+    if (!fresh) return;
+    this.applyUploadedColorImage(fresh, colorIndex, colorId, meta, prior, dataUrl);
+    this.rememberImageIds(fresh);
   }
 
   private applyUploadedColorImage(
@@ -3277,7 +3431,8 @@ export class AdminProductEditorComponent implements OnChanges {
     colorId: string,
     meta: { role: string; angle: string; sortOrder: number },
     priorIds: Set<string>,
-  ) {
+    dataUrl: string,
+  ): boolean {
     const savedColor = fresh.colors?.find((c) => c.id === colorId) || fresh.colors?.[colorIndex];
     if (savedColor?.id && this.colors[colorIndex]) this.colors[colorIndex].id = savedColor.id;
     const imgs = this.dedupeImages([
@@ -3286,8 +3441,7 @@ export class AdminProductEditorComponent implements OnChanges {
     ]);
     if (meta.role === 'card') {
       const card = this.newestImage(imgs.filter((im) => im.role === 'card'), priorIds)?.url;
-      if (card && this.colors[colorIndex]) this.colors[colorIndex].cardImage = card;
-      return;
+      return this.putUploadedUrl(colorIndex, meta, card, dataUrl);
     }
     const views = imgs.filter((im) => im.role === 'view' || im.role === 'gallery');
     const match =
@@ -3295,9 +3449,7 @@ export class AdminProductEditorComponent implements OnChanges {
         views.filter((im) => im.angle === meta.angle && im.sortOrder === meta.sortOrder),
         priorIds,
       ) || this.newestImage(views.filter((im) => im.angle === meta.angle), priorIds);
-    if (match?.url && this.colors[colorIndex]?.views[meta.sortOrder - 1]) {
-      this.colors[colorIndex].views[meta.sortOrder - 1].src = match.url;
-    }
+    return this.putUploadedUrl(colorIndex, meta, match?.url, dataUrl);
   }
 
   private persistProductImageNow(
@@ -3307,36 +3459,31 @@ export class AdminProductEditorComponent implements OnChanges {
     const productId = this.productId || this.persistedId;
     if (!productId || !dataUrl.startsWith('data:')) return Promise.resolve();
     const key = this.uploadKey(-1, meta.role, meta.sortOrder);
-    this.setUpload(key, { status: 'uploading' });
-    return this.enqueueUpload(async () => {
+    this.setUpload(key, { status: 'uploading', progress: 0 });
+    return this.enqueueUpload(key, async () => {
       try {
-        const priorIds = await this.imageIdsOf(productId);
+        if (!this.slotHolds(-1, meta.role, meta.sortOrder, dataUrl)) {
+          this.setUpload(key, null);
+          return;
+        }
+        const prior = new Set(this.knownImageIds);
         const file = this.dataUrlToFile(dataUrl, `${meta.role}-${meta.angle}.jpg`);
-        await this.uploadAdaptive(productId, file, meta);
-        const fresh = await new Promise<Product | null>((resolve) =>
-          this.catalog.getProduct(productId).subscribe({ next: resolve, error: () => resolve(null) }),
-        );
-        if (fresh) {
-          if (meta.role === 'card') {
-            const card =
-              this.newestImage(
-                (fresh.images || []).filter((im) => im.role === 'card' && !im.productColorId),
-                priorIds,
-              )?.url || this.catalog.cardImageUrl(fresh);
-            if (card) this.form.cardImageUrl = card;
-          } else {
-            const match = this.newestImage(
-              (fresh.images || []).filter(
-                (im) =>
-                  !im.productColorId &&
-                  (im.role === 'view' || im.role === 'gallery') &&
-                  im.angle === meta.angle,
-              ),
-              priorIds,
-            );
-            if (match?.url && this.defaultAngles[meta.sortOrder - 1]) {
-              this.defaultAngles[meta.sortOrder - 1].src = match.url;
-            }
+        const body = await this.uploadAdaptive(productId, file, meta, (p) => this.setProgress(key, p));
+        this.setProgress(key, 100);
+        const answer = this.readUploadAnswer(body);
+        let done = false;
+        if (answer.image) {
+          this.knownImageIds.add(answer.image.id);
+          done = this.putUploadedUrl(-1, meta, answer.image.url, dataUrl);
+        } else if (answer.product) {
+          done = this.applyUploadedProductImage(answer.product, meta, prior, dataUrl);
+          this.rememberImageIds(answer.product);
+        }
+        if (!done) {
+          const fresh = await this.fetchProduct(productId);
+          if (fresh) {
+            this.applyUploadedProductImage(fresh, meta, prior, dataUrl);
+            this.rememberImageIds(fresh);
           }
         }
         this.setUpload(key, null);
@@ -3344,6 +3491,32 @@ export class AdminProductEditorComponent implements OnChanges {
         this.setUpload(key, { status: 'failed', message: this.errText(err) });
       }
     });
+  }
+
+  private applyUploadedProductImage(
+    fresh: Product,
+    meta: { role: string; angle: string; sortOrder: number },
+    priorIds: Set<string>,
+    dataUrl: string,
+  ): boolean {
+    if (meta.role === 'card') {
+      const card =
+        this.newestImage(
+          (fresh.images || []).filter((im) => im.role === 'card' && !im.productColorId),
+          priorIds,
+        )?.url || this.catalog.cardImageUrl(fresh);
+      return this.putUploadedUrl(-1, meta, card, dataUrl);
+    }
+    const match = this.newestImage(
+      (fresh.images || []).filter(
+        (im) =>
+          !im.productColorId &&
+          (im.role === 'view' || im.role === 'gallery') &&
+          im.angle === meta.angle,
+      ),
+      priorIds,
+    );
+    return this.putUploadedUrl(-1, meta, match?.url, dataUrl);
   }
 
   /** "Retry" button on a slot whose upload failed. */
@@ -3443,6 +3616,11 @@ export class AdminProductEditorComponent implements OnChanges {
         .subscribe({
           next: (saved) => {
             this.syncLocalColorIds(saved);
+            // The save already answered with every variant's id: no second look-up needed.
+            if (this.colors.every((c) => this.isUuid(c.id))) {
+              resolve();
+              return;
+            }
             this.catalog.getProduct(productId).subscribe({
               next: (fresh) => {
                 this.syncLocalColorIds(fresh);
@@ -3671,22 +3849,34 @@ export class AdminProductEditorComponent implements OnChanges {
         });
     };
 
-    if (!this.attrDefs().length) {
-      this.attrsLoaded = false;
-      this.catalog.getAttributes().subscribe({
-        next: (defs) => {
-          this.attrsLoaded = true;
-          this.attrDefs.set(defs.filter((d) => d.isActive !== false));
-          runSave();
-        },
-        error: () => {
-          this.attrsLoaded = false;
-          runSave();
-        },
-      });
-      return;
-    }
-    runSave();
+    const start = () => {
+      this.saveNote.set('');
+      if (!this.attrDefs().length) {
+        this.attrsLoaded = false;
+        this.catalog.getAttributes().subscribe({
+          next: (defs) => {
+            this.attrsLoaded = true;
+            this.attrDefs.set(defs.filter((d) => d.isActive !== false));
+            runSave();
+          },
+          error: () => {
+            this.attrsLoaded = false;
+            runSave();
+          },
+        });
+        return;
+      }
+      runSave();
+    };
+    // Photos still going up are let finish first, so they are neither lost nor sent twice.
+    this.saveNote.set('Finishing uploads…');
+    void this.gate.idle().then(start);
+  }
+
+  /** Text of the Save button: says what it is doing (finishing uploads, uploading images…). */
+  saveLabel(): string {
+    if (!this.busy()) return 'Save changes';
+    return this.form.name.trim() ? this.saveNote() || 'Saving…' : 'Loading…';
   }
 
   onDelete() {
@@ -3814,6 +4004,8 @@ export class AdminProductEditorComponent implements OnChanges {
 
   private applyProduct(p: Product, asClone: boolean) {
     this.pendingAttrProduct = p;
+    this.knownImageIds = new Set();
+    this.rememberImageIds(p);
     const fromAttrs = this.merchFromAttributes(p);
     const merch = this.parseMerch(p.shortDescription || '');
     this.form = {
@@ -4169,7 +4361,19 @@ export class AdminProductEditorComponent implements OnChanges {
     );
   }
 
+  /** True when any photo is still only on this computer (picked but not uploaded yet). */
+  private hasPendingImages(): boolean {
+    const local = (s: string | undefined) => !!s && s.startsWith('data:');
+    return (
+      local(this.form.cardImageUrl) ||
+      this.defaultAngles.some((v) => local(v.src)) ||
+      this.colors.some((c) => local(c.cardImage) || c.views.some((v) => local(v.src)))
+    );
+  }
+
   private uploadPendingImages(productId: string, saved: Product) {
+    // Nothing waiting to go up: no need to look the product up again here.
+    if (!this.hasPendingImages()) return of(true);
     // Refetch so we always have real color UUIDs after create/replace
     return this.catalog.getProduct(productId).pipe(
       catchError(() => of(saved)),
@@ -4189,6 +4393,7 @@ export class AdminProductEditorComponent implements OnChanges {
     };
     const jobs: import('rxjs').Observable<unknown>[] = [];
     let missingColorLink = false;
+    let sent = 0;
 
     const queue = (dataUrl: string, meta: UploadMeta) => {
       if (!dataUrl?.startsWith('data:')) return;
@@ -4197,7 +4402,13 @@ export class AdminProductEditorComponent implements OnChanges {
           dataUrl,
           `${meta.role}-${meta.angle || meta.sortOrder}.jpg`,
         );
-        jobs.push(from(this.uploadAdaptive(productId, file, meta)));
+        jobs.push(
+          from(
+            this.gate
+              .run(() => this.uploadAdaptive(productId, file, meta))
+              .finally(() => this.saveNote.set(`Uploading images ${++sent} of ${jobs.length}…`)),
+          ),
+        );
       } catch {
         /* skip bad data URLs */
       }
@@ -4280,6 +4491,7 @@ export class AdminProductEditorComponent implements OnChanges {
       return of(false);
     }
     if (!jobs.length) return of(true);
+    this.saveNote.set(`Uploading images 0 of ${jobs.length}…`);
     return forkJoin(jobs).pipe(
       map(() => !missingColorLink),
       catchError(() => of(false)),

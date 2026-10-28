@@ -2379,10 +2379,19 @@ export class AdminPageComponent implements OnInit {
     this.syncAdminUrl();
   }
 
+  /** The list shows the product as just saved right away; the reload below only confirms it. */
+  private showSavedProduct(p: Product) {
+    const merge = (list: Product[]) =>
+      list.map((x) => (x.id === p.id ? { ...x, ...p, sortOrder: x.sortOrder ?? p.sortOrder } : x));
+    this.products.update((list) => (list.some((x) => x.id === p.id) ? merge(list) : [...list, p]));
+    this.drillProductList.update(merge);
+  }
+
   onProductSaved(p: Product) {
     this.toast(`Saved “${p.name}” — live on the storefront`);
     this.editor.set(null);
     this.syncAdminUrl();
+    this.showSavedProduct(p);
     this.loadCatalog();
     if (this.drill()) this.reloadDrill();
   }

@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpEvent, HttpParams } from '@angular/common/http';
 import {
   Observable,
   map,
@@ -434,6 +434,31 @@ export class CatalogService {
       productColorId?: string;
     } = {},
   ): Observable<unknown> {
+    return this.http.post(`${this.base}/products/${productId}/images/upload`, this.imageForm(file, meta));
+  }
+
+  /** The same upload, but also reports how many bytes have gone out (HttpEventType.UploadProgress). */
+  uploadProductImageEvents(
+    productId: string,
+    file: File,
+    meta: {
+      role?: string;
+      angle?: string;
+      altText?: string;
+      sortOrder?: number;
+      productColorId?: string;
+    } = {},
+  ): Observable<HttpEvent<unknown>> {
+    return this.http.post(`${this.base}/products/${productId}/images/upload`, this.imageForm(file, meta), {
+      reportProgress: true,
+      observe: 'events',
+    });
+  }
+
+  private imageForm(
+    file: File,
+    meta: { role?: string; angle?: string; altText?: string; sortOrder?: number; productColorId?: string },
+  ): FormData {
     const form = new FormData();
     form.append('file', file);
     if (meta.role) form.append('role', meta.role);
@@ -441,7 +466,7 @@ export class CatalogService {
     if (meta.altText) form.append('altText', meta.altText);
     if (meta.sortOrder != null) form.append('sortOrder', String(meta.sortOrder));
     if (meta.productColorId) form.append('productColorId', meta.productColorId);
-    return this.http.post(`${this.base}/products/${productId}/images/upload`, form);
+    return form;
   }
 
   getCollectionCategories(activeOnly = true): Observable<Category[]> {
