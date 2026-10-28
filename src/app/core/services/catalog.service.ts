@@ -585,28 +585,56 @@ export class CatalogService {
     return this.colorCardImageUrl(product, color);
   }
 
-  /** Card / front image for a specific colour variant (falls back to product media). */
+  /**
+   * The picture for a product card (shop and home): the colour's card image, else its main
+   * window image (its first angle). Angles added after that are never picked while a card or
+   * main image exists anywhere; they are only a last resort so a product never shows blank.
+   */
   private pickCardImage(
     product: Product,
     color?: { id?: string; images?: Product['images'] } | null,
   ) {
-    const colorImages = [...(color?.images || [])];
-    const linked = (product.images || []).filter(
-      (im) => color?.id && im.productColorId === color.id,
-    );
-    const all = [...colorImages, ...linked, ...(product.images || [])];
+    type Img = NonNullable<Product['images']>[number];
+    const all = product.images || [];
+    const own = [
+      ...(color?.images || []),
+      ...all.filter((im) => color?.id && im.productColorId === color.id),
+    ];
+    const ownIds = new Set(own.map((im) => im.id).filter(Boolean));
+    const productLevel = all.filter((im) => !im.productColorId && !ownIds.has(im.id));
+    const others = all.filter((im) => !!im.productColorId && !ownIds.has(im.id));
+    const uploaded = (i: Img) => !!i.url?.includes('/uploads/');
+    const card = (list: Img[]) =>
+      list.find((i) => i.role === 'card' && uploaded(i)) || list.find((i) => i.role === 'card');
+    // The main window image is the first angle slot (sort order 0 or 1).
+    const main = (list: Img[]) => {
+      const first = list.filter(
+        (i) => (i.role === 'view' || i.role === 'gallery') && !!i.url && (i.sortOrder ?? 1) <= 1,
+      );
+      const isFront = (i: Img) => !i.angle || i.angle === 'front';
+      return (
+        first.find((i) => isFront(i) && uploaded(i)) ||
+        first.find(uploaded) ||
+        first.find(isFront) ||
+        first[0]
+      );
+    };
+    const anyView = (list: Img[]) =>
+      list
+        .filter((i) => (i.role === 'view' || i.role === 'gallery') && !!i.url)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))[0];
     return (
-      all.find((i) => i.role === 'card' && i.url?.includes('/uploads/')) ||
-      all.find(
-        (i) =>
-          (i.role === 'view' || i.role === 'gallery') &&
-          (i.angle === 'front' || !i.angle) &&
-          i.url?.includes('/uploads/'),
-      ) ||
-      all.find((i) => i.url?.includes('/uploads/')) ||
-      all.find((i) => i.role === 'card') ||
-      all.find((i) => i.role === 'view' || i.role === 'gallery') ||
-      all[0]
+      card(own) ||
+      main(own) ||
+      card(productLevel) ||
+      main(productLevel) ||
+      card(others) ||
+      main(others) ||
+      // Nothing set as card or main anywhere: show the lowest angle rather than a blank.
+      anyView(own) ||
+      anyView(productLevel) ||
+      anyView(others) ||
+      [...own, ...productLevel, ...others].find((i) => !!i.url)
     );
   }
 

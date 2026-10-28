@@ -1055,9 +1055,16 @@ const DEFAULT_BRAND_NAMES = [
                     <div class="ui-card-h tight angles-head">
                       <h2 class="side-h">Angles ({{ c.views.length }})</h2>
                     </div>
+                    <p class="fn angles-note">
+                      The first angle is the <strong>main window</strong> image. Angles you add after it are
+                      extra views only and never change the main window or the card.
+                    </p>
                     <div class="angle-grid">
                       @for (v of c.views; track $index; let vi = $index) {
-                        <div class="angle-slot">
+                        <div class="angle-slot" [class.is-main]="vi === 0">
+                          @if (vi === 0) {
+                            <span class="slot-tag">Main window</span>
+                          }
                           <input
                             class="angle-label"
                             type="text"
@@ -1151,14 +1158,15 @@ const DEFAULT_BRAND_NAMES = [
                 @if (focusedColor(); as fc) {
                   <div class="ui-card nested swatch-card">
                     <div class="ui-card-h tight">
-                      <h2 class="side-h">Swatch / card image</h2>
+                      <h2 class="side-h">Card image</h2>
                       <span class="meta-soft">{{ fc.name || 'Untitled' }}</span>
                     </div>
+                    <p class="fn">Shown on the shop and home product cards.</p>
                     <div class="swatch-full" [class.is-empty]="!fc.cardImage">
                       @if (fc.cardImage) {
                         <img [src]="shown(fc.cardImage)" [alt]="(fc.name || 'Variant') + ' card image'" loading="lazy" decoding="async" />
                       } @else {
-                        <span>No card image yet</span>
+                        <span>No card image yet. The cards use the main window image.</span>
                       }
                     </div>
                     <div class="swatch-actions">
@@ -1973,6 +1981,13 @@ const DEFAULT_BRAND_NAMES = [
     .angle-slot {
       border: 1px dashed #d4cec0; padding: 8px; background: #faf9f6; border-radius: 10px; min-height: 140px;
     }
+    .angle-slot.is-main { border-style: solid; border-color: #3d4b37; }
+    .angle-slot .slot-tag {
+      display: inline-block; margin: 0 0 6px; padding: 2px 8px; border-radius: 999px;
+      background: #3d4b37; color: #fff; font: 700 0.58rem Montserrat, sans-serif;
+      letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .angles-note { margin: 0 0 8px; }
     .angle-slot .angle-label {
       font-size: 0.62rem; margin: 0 0 6px; font-family: Montserrat, sans-serif;
       letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700;
@@ -2317,34 +2332,44 @@ export class AdminProductEditorComponent implements OnChanges {
     return this.colors.filter((c) => c.selected).length;
   }
 
-  /** Display-only: the variant's card image stands in for an empty Front slot. */
+  /**
+   * Display-only: the first slot is the main window. Until it has a photo of its own it shows
+   * the variant's card image. (Nothing is saved for it: card and main window stay separate.)
+   */
   slotSrc(c: ColorFormRow | undefined | null, index: number, v: AngleSlot): string {
     const own = v.src?.trim();
     if (own) return own;
-    if (index === 0 && c && !c.views.some((x) => x.src?.trim())) {
-      return c.cardImage?.trim() || '';
-    }
-    return '';
+    return index === 0 && c ? c.cardImage?.trim() || '' : '';
   }
 
+  /** The variant's main window image: its first angle, else its card image. */
+  private mainWindowSrc(c: ColorFormRow | null | undefined): string {
+    return c?.views[0]?.src?.trim() || c?.cardImage?.trim() || '';
+  }
+
+  /** The product card (shop and home): the card image, else the main window image. */
   previewUrl(): string {
     const c = this.focusedColor();
-    const fromVariant =
-      c?.cardImage?.trim() || c?.views.find((v) => v.src?.trim())?.src || '';
+    const fromVariant = c?.cardImage?.trim() || c?.views[0]?.src?.trim() || '';
     if (fromVariant) return fromVariant;
     const def = this.form.cardImageUrl.trim();
     if (def) return def;
-    const fromDefaultAngle = this.defaultAngles.find((v) => v.src?.trim())?.src;
-    return fromDefaultAngle || '';
+    const fromDefaultAngle = this.defaultAngles[0]?.src?.trim() || '';
+    if (fromDefaultAngle) return fromDefaultAngle;
+    // Only an added angle is left: better than a blank, but never ahead of a card or main image.
+    return (
+      c?.views.find((v) => v.src?.trim())?.src ||
+      this.defaultAngles.find((v) => v.src?.trim())?.src ||
+      ''
+    );
   }
 
+  /** The main window: the chosen angle's photo; an angle with none shows the main window image. */
   livePreviewSrc(): string {
     const views = this.focusedViews();
-    const i = this.liveAngleIndex();
-    if (views[i]?.src?.trim()) return views[i].src;
-    const anyView = views.find((v) => v.src?.trim())?.src;
-    if (anyView) return anyView;
-    return this.previewUrl();
+    const own = views[this.liveAngleIndex()]?.src?.trim();
+    if (own) return own;
+    return this.mainWindowSrc(this.focusedColor()) || this.previewUrl();
   }
 
   attrOptionLabels(code: string): string[] {
@@ -4075,18 +4100,9 @@ export class AdminProductEditorComponent implements OnChanges {
         (im) => im.productColorId && im.productColorId === c.id,
       );
       const merged = this.dedupeImages([...(c.images || []), ...fromProduct]);
-      const card =
-        merged.find((im) => im.role === 'card')?.url ||
-        merged.find((im) => im.url)?.url ||
-        '';
-      const views = merged
-        .filter((im) => im.role === 'view' || im.role === 'gallery')
-        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-        .map((im) => ({
-          label: this.prettyAngleLabel(im.angle),
-          angle: im.angle || 'front',
-          src: im.url,
-        }));
+      // The card image is only ever the one saved as the card: an angle photo is never taken for it.
+      const card = merged.find((im) => im.role === 'card')?.url || '';
+      const views = this.slotsFromImages(merged);
       return {
         id: c.id || this.uid(),
         name: c.name,
@@ -4117,10 +4133,31 @@ export class AdminProductEditorComponent implements OnChanges {
     return t.includes('hood');
   }
 
-  private hydrateDefaultAngles(p: Product) {
-    const productLevel = (p.images || [])
-      .filter((im) => !im.productColorId && (im.role === 'view' || im.role === 'gallery'))
+  /**
+   * Angle slots from the stored views. Each photo goes back to the slot it was saved in (its
+   * sort order), so an empty first slot stays empty and a later angle never moves up into the
+   * main window slot. Nothing is dropped: photos that share a slot simply follow each other.
+   */
+  private slotsFromImages(images: NonNullable<Product['images']>): AngleSlot[] {
+    const views = images
+      .filter((im) => im.role === 'view' || im.role === 'gallery')
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const slots: AngleSlot[] = [];
+    for (const im of views) {
+      const at = Math.max(slots.length, (im.sortOrder ?? 1) - 1);
+      while (slots.length < at) {
+        const label = DEFAULT_ANGLES[slots.length] ?? `Angle ${slots.length + 1}`;
+        slots.push({ label, angle: label.toLowerCase(), src: '' });
+      }
+      slots.push({ label: this.prettyAngleLabel(im.angle), angle: im.angle || 'front', src: im.url });
+    }
+    return slots;
+  }
+
+  private hydrateDefaultAngles(p: Product) {
+    const productLevel = this.slotsFromImages(
+      (p.images || []).filter((im) => !im.productColorId),
+    );
     if (!productLevel.length) {
       if (!this.colors.length) {
         this.defaultAngles = DEFAULT_ANGLES.map((label) => ({
@@ -4131,11 +4168,7 @@ export class AdminProductEditorComponent implements OnChanges {
       }
       return;
     }
-    this.defaultAngles = productLevel.map((im) => ({
-      label: this.prettyAngleLabel(im.angle),
-      angle: im.angle || 'front',
-      src: im.url,
-    }));
+    this.defaultAngles = productLevel;
   }
 
   private parseMerch(text: string) {
