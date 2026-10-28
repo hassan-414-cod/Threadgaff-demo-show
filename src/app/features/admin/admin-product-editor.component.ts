@@ -64,6 +64,10 @@ interface ColorFormRow {
   description: string;
   isDefault: boolean;
   cardImage: string;
+  /** Shown only once the product is expanded on the shop (stored as the variant's gallery image). */
+  expandedImage: string;
+  /** Further gallery photos already saved on the variant: kept and sent back untouched. */
+  moreGallery: Array<{ url: string; angle: string; sortOrder: number }>;
   views: AngleSlot[];
   selected: boolean;
 }
@@ -1053,17 +1057,18 @@ const DEFAULT_BRAND_NAMES = [
                     </div>
 
                     <div class="ui-card-h tight angles-head">
-                      <h2 class="side-h">Angles ({{ c.views.length }})</h2>
+                      <h2 class="side-h">Designer preview images ({{ c.views.length }})</h2>
                     </div>
                     <p class="fn angles-note">
-                      The first angle is the <strong>main window</strong> image. Angles you add after it are
-                      extra views only and never change the main window or the card.
+                      These are the angles customers see in the <strong>Custom Designer preview</strong>, separate
+                      from the card image and the expanded view image. The first angle is shown first; angles you add
+                      after it are extra views only.
                     </p>
                     <div class="angle-grid">
                       @for (v of c.views; track $index; let vi = $index) {
                         <div class="angle-slot" [class.is-main]="vi === 0">
                           @if (vi === 0) {
-                            <span class="slot-tag">Main window</span>
+                            <span class="slot-tag">Shown first</span>
                           }
                           <input
                             class="angle-label"
@@ -1161,12 +1166,12 @@ const DEFAULT_BRAND_NAMES = [
                       <h2 class="side-h">Card image</h2>
                       <span class="meta-soft">{{ fc.name || 'Untitled' }}</span>
                     </div>
-                    <p class="fn">Shown on the shop and home product cards.</p>
+                    <p class="fn">Shown on the shop and home product cards, before expanding.</p>
                     <div class="swatch-full" [class.is-empty]="!fc.cardImage">
                       @if (fc.cardImage) {
                         <img [src]="shown(fc.cardImage)" [alt]="(fc.name || 'Variant') + ' card image'" loading="lazy" decoding="async" />
                       } @else {
-                        <span>No card image yet. The cards use the main window image.</span>
+                        <span>No card image yet. The cards use the first designer angle.</span>
                       }
                     </div>
                     <div class="swatch-actions">
@@ -1207,6 +1212,49 @@ const DEFAULT_BRAND_NAMES = [
                           >
                             <img [src]="shown(o.url)" [alt]="o.label" loading="lazy" decoding="async" />
                           </button>
+                        }
+                      </div>
+                    }
+                  </div>
+
+                  <div class="ui-card nested swatch-card expanded-card">
+                    <div class="ui-card-h tight">
+                      <h2 class="side-h">Expanded view image</h2>
+                      <span class="meta-soft">{{ fc.name || 'Untitled' }}</span>
+                    </div>
+                    <p class="fn">
+                      Shown only after a customer clicks <strong>expand</strong> on the shop. Leave it empty to
+                      use the card image.
+                    </p>
+                    <div class="swatch-full" [class.is-empty]="!fc.expandedImage">
+                      @if (fc.expandedImage) {
+                        <img [src]="shown(fc.expandedImage)" [alt]="(fc.name || 'Variant') + ' expanded view image'" loading="lazy" decoding="async" />
+                      } @else {
+                        <span>No expanded image yet. The card image is used.</span>
+                      }
+                    </div>
+                    <div class="swatch-actions">
+                      <label class="btn btn-ghost file-btn">
+                        Upload image
+                        <input
+                          type="file"
+                          accept="image/*"
+                          hidden
+                          (change)="onColorExpandedImage($event, focusedIndex())"
+                        />
+                      </label>
+                      <button type="button" class="btn btn-ghost" [disabled]="!fc.expandedImage" (click)="fc.expandedImage = ''">
+                        Clear
+                      </button>
+                    </div>
+                    @if (uploadInfo(focusedIndex(), 'gallery', 1); as u) {
+                      <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
+                        @if (u.status === 'uploading') {
+                          {{ u.progress && u.progress < 100 ? 'Uploading ' + u.progress + '%' : u.progress === 100 ? 'Saving the photo…' : 'Uploading…' }}
+                          <span class="slot-bar"><i [style.width.%]="u.progress || 4"></i></span>
+                        } @else {
+                          Upload failed{{ u.message ? ': ' + u.message : '' }}
+                          <button type="button" class="retry" (click)="retrySlot(focusedIndex(), 'gallery', 0)">Retry</button>
                         }
                       </div>
                     }
@@ -1988,6 +2036,7 @@ const DEFAULT_BRAND_NAMES = [
       letter-spacing: 0.08em; text-transform: uppercase;
     }
     .angles-note { margin: 0 0 8px; }
+    .expanded-card { margin-top: 12px; }
     .angle-slot .angle-label {
       font-size: 0.62rem; margin: 0 0 6px; font-family: Montserrat, sans-serif;
       letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700;
@@ -2996,6 +3045,8 @@ export class AdminProductEditorComponent implements OnChanges {
       description: '',
       isDefault: this.colors.length === 0,
       cardImage: '',
+      expandedImage: '',
+      moreGallery: [],
       views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
       selected: false,
     });
@@ -3026,6 +3077,7 @@ export class AdminProductEditorComponent implements OnChanges {
     dest.priceOverride = src.priceOverride;
     dest.description = src.description;
     dest.cardImage = src.cardImage;
+    dest.expandedImage = src.expandedImage;
     dest.views = src.views.map((v) => ({ ...v }));
   }
 
@@ -3098,6 +3150,14 @@ export class AdminProductEditorComponent implements OnChanges {
         angle: 'front',
         sortOrder: 0,
       });
+    });
+  }
+
+  onColorExpandedImage(event: Event, i: number) {
+    this.readImage(event, 640, 0.62).then((src) => {
+      if (!this.colors[i]) return;
+      this.colors[i].expandedImage = src;
+      void this.persistColorImageNow(i, src, { role: 'gallery', angle: 'front', sortOrder: 1 });
     });
   }
 
@@ -3217,7 +3277,9 @@ export class AdminProductEditorComponent implements OnChanges {
         : this.defaultAngles[sortOrder - 1]?.src === dataUrl;
     }
     const row = this.colors[ci];
-    return role === 'card' ? row?.cardImage === dataUrl : row?.views[sortOrder - 1]?.src === dataUrl;
+    if (role === 'card') return row?.cardImage === dataUrl;
+    if (role === 'gallery') return row?.expandedImage === dataUrl;
+    return row?.views[sortOrder - 1]?.src === dataUrl;
   }
 
   /** Swaps the local photo in a slot for the server copy, unless the slot was changed meanwhile. */
@@ -3235,6 +3297,8 @@ export class AdminProductEditorComponent implements OnChanges {
       else this.defaultAngles[meta.sortOrder - 1].src = url;
     } else if (meta.role === 'card') {
       this.colors[ci].cardImage = url;
+    } else if (meta.role === 'gallery') {
+      this.colors[ci].expandedImage = url;
     } else {
       this.colors[ci].views[meta.sortOrder - 1].src = url;
     }
@@ -3468,7 +3532,11 @@ export class AdminProductEditorComponent implements OnChanges {
       const card = this.newestImage(imgs.filter((im) => im.role === 'card'), priorIds)?.url;
       return this.putUploadedUrl(colorIndex, meta, card, dataUrl);
     }
-    const views = imgs.filter((im) => im.role === 'view' || im.role === 'gallery');
+    if (meta.role === 'gallery') {
+      const gallery = this.newestImage(imgs.filter((im) => im.role === 'gallery'), priorIds)?.url;
+      return this.putUploadedUrl(colorIndex, meta, gallery, dataUrl);
+    }
+    const views = imgs.filter((im) => im.role === 'view');
     const match =
       this.newestImage(
         views.filter((im) => im.angle === meta.angle && im.sortOrder === meta.sortOrder),
@@ -3545,7 +3613,7 @@ export class AdminProductEditorComponent implements OnChanges {
   }
 
   /** "Retry" button on a slot whose upload failed. */
-  retrySlot(ci: number, role: 'view' | 'card', index: number) {
+  retrySlot(ci: number, role: 'view' | 'card' | 'gallery', index: number) {
     if (ci < 0) {
       const v = this.defaultAngles[index];
       if (!v?.src.startsWith('data:')) return this.setUpload(this.uploadKey(-1, 'view', index + 1), null);
@@ -3561,6 +3629,11 @@ export class AdminProductEditorComponent implements OnChanges {
     if (role === 'card') {
       if (!row.cardImage.startsWith('data:')) return this.setUpload(this.uploadKey(ci, 'card', 0), null);
       void this.persistColorImageNow(ci, row.cardImage, { role: 'card', angle: 'front', sortOrder: 0 });
+      return;
+    }
+    if (role === 'gallery') {
+      if (!row.expandedImage.startsWith('data:')) return this.setUpload(this.uploadKey(ci, 'gallery', 1), null);
+      void this.persistColorImageNow(ci, row.expandedImage, { role: 'gallery', angle: 'front', sortOrder: 1 });
       return;
     }
     const v = row.views[index];
@@ -3664,6 +3737,12 @@ export class AdminProductEditorComponent implements OnChanges {
       const images: NonNullable<ProductColorInput['images']> = [];
       if (c.cardImage && !c.cardImage.startsWith('data:')) {
         images.push({ url: c.cardImage, role: 'card', angle: 'front', sortOrder: 0 });
+      }
+      if (c.expandedImage && !c.expandedImage.startsWith('data:')) {
+        images.push({ url: c.expandedImage, role: 'gallery', angle: 'front', sortOrder: 1 });
+      }
+      for (const g of c.moreGallery) {
+        images.push({ url: g.url, role: 'gallery', angle: this.toImageAngle(g.angle), sortOrder: g.sortOrder });
       }
       c.views.forEach((v, vi) => {
         if (!v.src || v.src.startsWith('data:')) return;
@@ -3987,6 +4066,8 @@ export class AdminProductEditorComponent implements OnChanges {
         description: '',
         isDefault: true,
         cardImage: '',
+        expandedImage: '',
+        moreGallery: [],
         views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
         selected: false,
       },
@@ -4103,6 +4184,7 @@ export class AdminProductEditorComponent implements OnChanges {
       // The card image is only ever the one saved as the card: an angle photo is never taken for it.
       const card = merged.find((im) => im.role === 'card')?.url || '';
       const views = this.slotsFromImages(merged);
+      const galleries = merged.filter((im) => im.role === 'gallery' && !!im.url);
       return {
         id: c.id || this.uid(),
         name: c.name,
@@ -4111,6 +4193,8 @@ export class AdminProductEditorComponent implements OnChanges {
         description: (c.description || '').trim(),
         isDefault: !!c.isDefault,
         cardImage: card,
+        expandedImage: galleries[0]?.url || '',
+        moreGallery: galleries.slice(1).map((g) => ({ url: g.url, angle: g.angle || 'front', sortOrder: g.sortOrder ?? 1 })),
         views: views.length
           ? views
           : DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
@@ -4140,7 +4224,7 @@ export class AdminProductEditorComponent implements OnChanges {
    */
   private slotsFromImages(images: NonNullable<Product['images']>): AngleSlot[] {
     const views = images
-      .filter((im) => im.role === 'view' || im.role === 'gallery')
+      .filter((im) => im.role === 'view')
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     const slots: AngleSlot[] = [];
     for (const im of views) {
@@ -4400,7 +4484,7 @@ export class AdminProductEditorComponent implements OnChanges {
     return (
       local(this.form.cardImageUrl) ||
       this.defaultAngles.some((v) => local(v.src)) ||
-      this.colors.some((c) => local(c.cardImage) || c.views.some((v) => local(v.src)))
+      this.colors.some((c) => local(c.cardImage) || local(c.expandedImage) || c.views.some((v) => local(v.src)))
     );
   }
 
@@ -4495,6 +4579,7 @@ export class AdminProductEditorComponent implements OnChanges {
       }
       const hasPending =
         c.cardImage.startsWith('data:') ||
+        c.expandedImage.startsWith('data:') ||
         c.views.some((v) => v.src.startsWith('data:'));
       if (hasPending && !productColorId) {
         missingColorLink = true;
@@ -4507,6 +4592,9 @@ export class AdminProductEditorComponent implements OnChanges {
           sortOrder: 0,
           productColorId,
         });
+      }
+      if (c.expandedImage.startsWith('data:')) {
+        queue(c.expandedImage, { role: 'gallery', angle: 'front', sortOrder: 1, productColorId });
       }
       c.views.forEach((v, vi) => {
         if (v.src.startsWith('data:')) {

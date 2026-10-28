@@ -607,9 +607,10 @@ export class CatalogService {
     const card = (list: Img[]) =>
       list.find((i) => i.role === 'card' && uploaded(i)) || list.find((i) => i.role === 'card');
     // The main window image is the first angle slot (sort order 0 or 1).
+    // (A "gallery" image is the picture shown after expanding, so it is never a card or angle.)
     const main = (list: Img[]) => {
       const first = list.filter(
-        (i) => (i.role === 'view' || i.role === 'gallery') && !!i.url && (i.sortOrder ?? 1) <= 1,
+        (i) => i.role === 'view' && !!i.url && (i.sortOrder ?? 1) <= 1,
       );
       const isFront = (i: Img) => !i.angle || i.angle === 'front';
       return (
@@ -621,7 +622,7 @@ export class CatalogService {
     };
     const anyView = (list: Img[]) =>
       list
-        .filter((i) => (i.role === 'view' || i.role === 'gallery') && !!i.url)
+        .filter((i) => i.role === 'view' && !!i.url)
         .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))[0];
     return (
       card(own) ||
@@ -636,6 +637,24 @@ export class CatalogService {
       anyView(others) ||
       [...own, ...productLevel, ...others].find((i) => !!i.url)
     );
+  }
+
+  /**
+   * The picture on a colour's own card once the product is expanded on the shop: the image
+   * uploaded for that, else the colour's normal card image.
+   */
+  expandedImageUrl(product: Product, colorId?: string | null): string {
+    const colors = product.colors || [];
+    const color =
+      (colorId ? colors.find((c) => c.id === colorId) : null) ||
+      colors.find((c) => c.isDefault) ||
+      colors[0];
+    const own = [
+      ...(color?.images || []),
+      ...(product.images || []).filter((im) => color?.id && im.productColorId === color.id),
+    ].filter((im) => im.role === 'gallery' && !!im.url);
+    const pick = own.find((im) => im.url.includes('/uploads/')) || own[0];
+    return pick ? this.normalizeMediaUrl(pick.url) : this.colorCardImageUrl(product, color);
   }
 
   colorCardImageUrl(

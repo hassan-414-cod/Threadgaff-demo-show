@@ -929,7 +929,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     ];
   });
 
-  /** All admin-uploaded variant shots for Outlook (card + every angle). */
+  /** The designer preview pictures: the angles uploaded for it (the card is only the fallback). */
   readonly outlookViews = computed((): OutlookView[] => {
     const p = this.product();
     const color = this.selectedColor();
@@ -948,22 +948,14 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
       );
     }
 
-    const roleRank = (role: string) =>
-      role === 'card' ? 0 : role === 'view' ? 1 : role === 'gallery' ? 2 : 3;
-
+    // The designer preview has its own pictures: the angles uploaded for it. The shop card image
+    // and the image shown after expanding are separate settings and are not listed here.
     const views = merged
-      .filter((im) => !!im.url && (im.role === 'view' || im.role === 'gallery' || im.role === 'card'))
-      .sort((a, b) => {
-        const roleDiff = roleRank(a.role) - roleRank(b.role);
-        if (roleDiff !== 0) return roleDiff;
-        return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
-      })
+      .filter((im) => !!im.url && im.role === 'view')
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
       .map((im, i) => ({
         key: im.id || `${im.role}-${im.angle}-${i}`,
-        label:
-          im.role === 'card'
-            ? 'Card'
-            : this.prettyAngle(im.angle),
+        label: this.prettyAngle(im.angle),
         url: this.catalog.normalizeMediaUrl(im.url),
         angle: im.angle || 'front',
       }))

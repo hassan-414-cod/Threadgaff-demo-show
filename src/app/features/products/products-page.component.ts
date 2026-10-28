@@ -131,13 +131,11 @@ interface DisplayCard {
                 <button
                   type="button"
                   class="pc-expand"
+                  [attr.aria-label]="card.expanded ? 'Back' : 'Expand'"
+                  [attr.title]="card.expanded ? 'Back' : 'Expand'"
                   (click)="toggleExpand(card, $event)"
                 >
-                  @if (card.expanded) {
-                    <span class="pc-expand-arrow">←</span> back
-                  } @else {
-                    expand <span class="pc-expand-arrow">→</span>
-                  }
+                  <span class="pc-expand-arrow" aria-hidden="true">{{ card.expanded ? '←' : '→' }}</span>
                 </button>
               }
               <a
@@ -153,7 +151,7 @@ interface DisplayCard {
                 @if (card.product.badge) {
                   <span class="pc-badge">{{ card.product.badge }}</span>
                 }
-                <img tgPortraitFit [src]="cardSrc(card.product, card.colorId)" [alt]="cardTitle(card)" />
+                <img tgPortraitFit [src]="shownSrc(card)" [alt]="cardTitle(card)" />
               </a>
               <div class="pc-body">
                 <h3 class="pc-name">
@@ -698,6 +696,13 @@ export class ProductsPageComponent implements OnInit {
 
   cardSrc(p: Product, colorId?: string | null): string {
     return this.catalog.cardImageUrl(p, colorId ?? this.selectedColorId(p));
+  }
+
+  /** A collapsed card shows the card image; once expanded, each colour shows its own expanded image. */
+  shownSrc(card: DisplayCard): string {
+    return card.expanded
+      ? this.catalog.expandedImageUrl(card.product, card.colorId)
+      : this.cardSrc(card.product, card.colorId);
   }
 
   cardTitle(card: DisplayCard): string {

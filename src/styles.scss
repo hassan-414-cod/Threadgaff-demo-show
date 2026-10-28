@@ -501,8 +501,10 @@ select option:hover {
   border: 0;
 }
 
+/* Only the arrow is shown (the words are kept as the button's accessible name). */
 .pc-expand-arrow {
-  font-size: 0.62rem;
+  font-size: 1.05rem;
+  font-weight: 700;
   line-height: 1;
 }
 
