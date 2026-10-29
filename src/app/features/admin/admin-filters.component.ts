@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, Input, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AttributeDefinition, CatalogService } from '../../core/services/catalog.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
@@ -20,7 +20,7 @@ interface FilterRow {
 }
 
 /**
- * Admin → Products → Filters. Each filter is a heading with a checklist. These are the only
+ * Admin → Home page → Filters. Each filter is a heading with a checklist. These are the only
  * filters (and checklist items) that can be ticked in the product editor, and they are the
  * ones shown in the shop's filter sidebar.
  */
@@ -29,16 +29,18 @@ interface FilterRow {
   standalone: true,
   imports: [FormsModule],
   template: `
-    <div class="head">
-      <div>
-        <p class="kicker">Products / Filters</p>
-        <h1>Filters</h1>
-        <p class="lede">
-          Add or remove the filters shoppers use to browse. Each filter has a heading and a checklist.
-          Only the filters listed here can be ticked when adding or editing a product.
-        </p>
+    @if (!embedded) {
+      <div class="head">
+        <div>
+          <p class="kicker">Home page / Filters</p>
+          <h1>Filters</h1>
+          <p class="lede">
+            Add or remove the filters shoppers use to browse. Each filter has a heading and a checklist.
+            Only the filters listed here can be ticked when adding or editing a product.
+          </p>
+        </div>
       </div>
-    </div>
+    }
 
     @if (msg()) {
       <div class="note" [class.err]="msgErr()" role="status">{{ msg() }}</div>
@@ -223,6 +225,8 @@ interface FilterRow {
   `,
 })
 export class AdminFiltersComponent implements OnInit {
+  /** True when shown inside the Home page tabs, which have their own heading. */
+  @Input() embedded = false;
   private readonly catalog = inject(CatalogService);
   private readonly site = inject(SiteSettingsService);
 

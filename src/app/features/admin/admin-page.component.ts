@@ -14,9 +14,7 @@ import {
 } from '../../core/services/catalog.service';
 import { AuthService } from '../../core/services/auth.service';
 import { AdminProductEditorComponent } from './admin-product-editor.component';
-import { AdminFiltersComponent } from './admin-filters.component';
-import { AdminSiteOutlookComponent } from './admin-site-outlook.component';
-import { AdminHomeComponent } from './admin-home.component';
+import { AdminHomeComponent, HomeSection } from './admin-home.component';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
 
 type AdminView =
@@ -26,16 +24,14 @@ type AdminView =
   | 'brands'
   | 'categories'
   | 'attributes'
-  | 'filters'
   | 'home'
-  | 'outlook'
   | 'orders'
   | 'enquiries'
   | 'quotations'
   | 'invoices'
   | 'settings';
 type CatalogMode = 'collections' | 'extras';
-type ProductNav = 'all' | 'add' | 'brands' | 'categories' | 'attributes' | 'filters';
+type ProductNav = 'all' | 'add' | 'brands' | 'categories' | 'attributes';
 
 interface ProductEditorState {
   productId: string | null;
@@ -61,8 +57,6 @@ interface CategoryTreeListRow {
     RouterLink,
     AdminProductEditorComponent,
     AdminSalesDeskComponent,
-    AdminFiltersComponent,
-    AdminSiteOutlookComponent,
     AdminHomeComponent,
   ],
   template: `
@@ -72,6 +66,14 @@ interface CategoryTreeListRow {
           THREADGAFF
           <span>Admin console</span>
         </div>
+        <button
+          type="button"
+          class="nav-btn"
+          [class.active]="view() === 'home' && !editor()"
+          (click)="setView('home')"
+        >
+          Home page
+        </button>
         <button
           type="button"
           class="nav-btn"
@@ -133,14 +135,6 @@ interface CategoryTreeListRow {
               >
                 Attributes
               </button>
-              <button
-                type="button"
-                class="nav-sub-btn"
-                [class.active]="view() === 'filters'"
-                (click)="goProducts('filters')"
-              >
-                Filters
-              </button>
             </div>
           }
         </div>
@@ -193,22 +187,6 @@ interface CategoryTreeListRow {
         <button
           type="button"
           class="nav-btn"
-          [class.active]="view() === 'home'"
-          (click)="setView('home')"
-        >
-          Home page
-        </button>
-        <button
-          type="button"
-          class="nav-btn"
-          [class.active]="view() === 'outlook'"
-          (click)="setView('outlook')"
-        >
-          Site Outlook
-        </button>
-        <button
-          type="button"
-          class="nav-btn"
           [class.active]="view() === 'settings'"
           (click)="setView('settings')"
         >
@@ -241,14 +219,8 @@ interface CategoryTreeListRow {
             (openFilters)="goFiltersFromEditor()"
           />
         } @else {
-          @if (view() === 'filters') {
-            <tg-admin-filters />
-          }
           @if (view() === 'home') {
-            <tg-admin-home />
-          }
-          @if (view() === 'outlook') {
-            <tg-admin-site-outlook />
+            <tg-admin-home [tab]="homeTab()" (tabChange)="onHomeTab($event)" />
           }
           @if (view() === 'overview') {
           <div class="topbar">
@@ -2044,6 +2016,8 @@ export class AdminPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
 
   readonly view = signal<AdminView>('overview');
+  /** Which tab of the Home page is open (catalogues, slider, texts, filters). */
+  readonly homeTab = signal<HomeSection>('catalogues');
   readonly catalogMode = signal<CatalogMode>('collections');
   readonly productsNavOpen = signal(true);
   readonly products = signal<Product[]>([]);
@@ -2278,14 +2252,27 @@ export class AdminPageComponent implements OnInit {
       v === 'brands' ||
       v === 'categories' ||
       v === 'attributes' ||
-      v === 'filters' ||
       v === 'collections'
     );
   }
 
-  /** From the product editor's "Edit filters" button. */
+  /** From the product editor's "Edit filters" button: the filters live on the Home page. */
   goFiltersFromEditor() {
-    this.goProducts('filters');
+    this.openHome('filters');
+  }
+
+  openHome(tab: HomeSection) {
+    this.homeTab.set(tab);
+    this.view.set('home');
+    this.drill.set(null);
+    this.prodSearch.set('');
+    this.editor.set(null);
+    this.syncAdminUrl();
+  }
+
+  onHomeTab(tab: HomeSection) {
+    this.homeTab.set(tab);
+    this.syncAdminUrl();
   }
 
   toggleProductsNav() {
@@ -2313,8 +2300,6 @@ export class AdminPageComponent implements OnInit {
     } else if (tab === 'attributes') {
       this.view.set('attributes');
       this.loadAttributes();
-    } else if (tab === 'filters') {
-      this.view.set('filters');
     }
     this.syncAdminUrl();
   }
@@ -3413,6 +3398,7 @@ export class AdminPageComponent implements OnInit {
     const drill = this.drill();
     const queryParams: Record<string, string | null> = {
       view: this.view(),
+      tab: this.view() === 'home' ? this.homeTab() : null,
       mode:
         this.view() === 'collections' && this.catalogMode() === 'extras'
           ? 'extras'
@@ -3438,21 +3424,25 @@ export class AdminPageComponent implements OnInit {
       'brands',
       'categories',
       'attributes',
-      'filters',
       'home',
-      'outlook',
       'orders',
       'enquiries',
       'quotations',
       'invoices',
       'settings',
     ];
-    const viewParam = params.get('view') as AdminView | null;
+    // Older links: the Filters and Site Outlook pages are tabs of the Home page now.
+    const legacy: Record<string, HomeSection> = { filters: 'filters', outlook: 'texts' };
+    const rawView = params.get('view');
+    const viewParam = (rawView && rawView in legacy ? 'home' : rawView) as AdminView | null;
+    const tabs: HomeSection[] = ['catalogues', 'slider', 'texts', 'filters'];
+    const rawTab = (rawView && rawView in legacy ? legacy[rawView] : params.get('tab')) as HomeSection | null;
     const view = viewParam && allowed.includes(viewParam) ? viewParam : 'overview';
 
     this.syncingFromUrl = true;
     try {
       this.view.set(view);
+      if (view === 'home') this.homeTab.set(rawTab && tabs.includes(rawTab) ? rawTab : 'catalogues');
       if (this.isProductsSectionView(view)) this.productsNavOpen.set(true);
 
       if (view === 'collections') {
@@ -3522,5 +3512,7 @@ export class AdminPageComponent implements OnInit {
     } finally {
       this.syncingFromUrl = false;
     }
+    // An older Filters / Site Outlook link: show the new address so bookmarks and reloads follow it.
+    if (rawView && rawView in legacy) this.syncAdminUrl();
   }
 }

@@ -532,7 +532,7 @@ export class SiteHeaderComponent {
   readonly cartOpen = signal(false);
 
   constructor() {
-    // Banner text and other site texts are set on the admin Site Outlook page.
+    // Banner text and other site texts are set in the admin Home page → Texts.
     this.site.load();
   }
 

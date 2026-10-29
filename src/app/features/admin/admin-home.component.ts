@@ -1,11 +1,15 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { CatalogService } from '../../core/services/catalog.service';
 import { HomeMediaService, MEDIA_URL_MAX } from '../../core/services/home-media.service';
 import { HomeCatalogue, HomeSlide, SiteSettingsService } from '../../core/services/site-settings.service';
+import { AdminFiltersComponent } from './admin-filters.component';
+import { AdminSiteOutlookComponent } from './admin-site-outlook.component';
 
-type Section = 'catalogues' | 'slider';
+export type HomeSection = 'catalogues' | 'slider' | 'texts' | 'filters';
+type Section = HomeSection;
+const SECTIONS: Section[] = ['catalogues', 'slider', 'texts', 'filters'];
 
 /** One editable card (a catalogue card or a slide share the same shape here). */
 interface Row {
@@ -25,24 +29,41 @@ interface Row {
 const MAX_CARDS = 24;
 
 /**
- * Admin → Home page. The big catalogue cards and the slider on the home page: change their
- * pictures, add and remove cards. Taking a card off only removes it from the home page; the
+ * Admin → Home page. Everything on the storefront that can be edited lives here: the catalogue
+ * cards and the slider (pictures, add and remove), the site texts (banner, headings, footer
+ * email) and the shop filters. Taking a card off only removes it from the home page; the
  * collection it points to and every product in it stay exactly as they are.
  */
 @Component({
   selector: 'tg-admin-home',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, AdminSiteOutlookComponent, AdminFiltersComponent],
   template: `
     <div class="head">
       <p class="kicker">Site / Home page</p>
       <h1>Home page</h1>
       <p class="lede">
-        Choose the pictures on the home page. Customers click a catalogue card to see all of its variants on the
-        products page. Changes go live for everyone when you save.
+        Everything on the storefront that you can change is here: the catalogue cards and slider, the site texts and
+        the shop filters. Changes go live for everyone when you save.
       </p>
     </div>
 
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" class="tab" [class.on]="section() === 'catalogues'" [attr.aria-selected]="section() === 'catalogues'" (click)="choose('catalogues')">
+        Catalogues <span>{{ catalogues().length }}</span>
+      </button>
+      <button type="button" role="tab" class="tab" [class.on]="section() === 'slider'" [attr.aria-selected]="section() === 'slider'" (click)="choose('slider')">
+        Slider <span>{{ slides().length }}</span>
+      </button>
+      <button type="button" role="tab" class="tab" [class.on]="section() === 'texts'" [attr.aria-selected]="section() === 'texts'" (click)="choose('texts')">
+        Texts
+      </button>
+      <button type="button" role="tab" class="tab" [class.on]="section() === 'filters'" [attr.aria-selected]="section() === 'filters'" (click)="choose('filters')">
+        Filters
+      </button>
+    </div>
+
+    @if (isCards()) {
     @if (msg()) {
       <div class="note" [class.err]="msgErr()" role="status">{{ msg() }}</div>
     }
@@ -50,15 +71,6 @@ const MAX_CARDS = 24;
     @if (loading()) {
       <p class="lede">Loading…</p>
     } @else {
-      <div class="tabs" role="tablist">
-        <button type="button" role="tab" class="tab" [class.on]="section() === 'catalogues'" [attr.aria-selected]="section() === 'catalogues'" (click)="section.set('catalogues')">
-          Catalogues <span>{{ catalogues().length }}</span>
-        </button>
-        <button type="button" role="tab" class="tab" [class.on]="section() === 'slider'" [attr.aria-selected]="section() === 'slider'" (click)="section.set('slider')">
-          Slider <span>{{ slides().length }}</span>
-        </button>
-      </div>
-
       <section class="card">
         <header>
           <div>
@@ -163,9 +175,19 @@ const MAX_CARDS = 24;
         }
       </div>
     }
+    }
+
+    <!-- Texts and Filters keep what you typed while you look at another tab -->
+    @if (visited().has('texts')) {
+      <div [hidden]="section() !== 'texts'"><tg-admin-site-outlook [embedded]="true" /></div>
+    }
+    @if (visited().has('filters')) {
+      <div [hidden]="section() !== 'filters'"><tg-admin-filters [embedded]="true" /></div>
+    }
   `,
   styles: `
     :host { display: block; color: var(--ink, #1c1f1b); max-width: 900px; }
+    [hidden] { display: none !important; }
     .head { margin-bottom: 20px; }
     .kicker { margin: 0 0 8px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted, #6b6f63); }
     h1 { margin: 0; font-size: 1.75rem; letter-spacing: -0.02em; }
@@ -224,6 +246,25 @@ export class AdminHomeComponent implements OnInit {
   readonly max = MAX_CARDS;
   readonly loading = signal(true);
   readonly section = signal<Section>('catalogues');
+  /** Tabs that have been opened: Texts and Filters are created on first use, then kept. */
+  readonly visited = signal<Set<Section>>(new Set<Section>(['catalogues']));
+  readonly isCards = computed(() => this.section() === 'catalogues' || this.section() === 'slider');
+
+  /** The tab to open (from the address or from the product editor's "Edit filters" button). */
+  @Input() set tab(v: string | null | undefined) {
+    if (v && (SECTIONS as string[]).includes(v) && v !== this.section()) this.show(v as Section);
+  }
+  @Output() readonly tabChange = new EventEmitter<Section>();
+
+  private show(s: Section) {
+    this.section.set(s);
+    this.visited.update((set) => (set.has(s) ? set : new Set([...set, s])));
+  }
+
+  choose(s: Section) {
+    this.show(s);
+    this.tabChange.emit(s);
+  }
   readonly saving = signal(false);
   readonly msg = signal('');
   readonly msgErr = signal(false);
@@ -362,7 +403,7 @@ export class AdminHomeComponent implements OnInit {
     const catalogues = this.catalogues();
     const slides = this.slides();
     if (!this.catalogueAuto() && catalogues.some((r) => !r.label.trim())) {
-      this.section.set('catalogues');
+      this.choose('catalogues');
       return this.say('Every catalogue card needs a name.', true);
     }
     if ([...catalogues, ...slides].some((r) => r.imageUrl.length > MEDIA_URL_MAX)) {

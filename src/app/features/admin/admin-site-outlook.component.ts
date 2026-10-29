@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, Input, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   DEFAULT_SITE_SETTINGS,
@@ -7,7 +7,7 @@ import {
 } from '../../core/services/site-settings.service';
 
 /**
- * Admin → Site Outlook. The few site-wide texts that can be changed without a code change:
+ * Admin → Home page → Texts. The few site-wide texts that can be changed without a code change:
  * the top banner, the home page headings and the contact email in the footer.
  */
 @Component({
@@ -15,11 +15,13 @@ import {
   standalone: true,
   imports: [FormsModule],
   template: `
-    <div class="head">
-      <p class="kicker">Site / Outlook</p>
-      <h1>Site Outlook</h1>
-      <p class="lede">Change the texts customers see across the site. Changes go live for everyone as soon as you save.</p>
-    </div>
+    @if (!embedded) {
+      <div class="head">
+        <p class="kicker">Home page / Texts</p>
+        <h1>Site texts</h1>
+        <p class="lede">Change the texts customers see across the site. Changes go live for everyone as soon as you save.</p>
+      </div>
+    }
 
     @if (msg()) {
       <div class="note" [class.err]="msgErr()" role="status">{{ msg() }}</div>
@@ -113,6 +115,8 @@ import {
   `,
 })
 export class AdminSiteOutlookComponent implements OnInit {
+  /** True when shown inside the Home page tabs, which have their own heading. */
+  @Input() embedded = false;
   private readonly site = inject(SiteSettingsService);
 
   form: SiteSettings = { ...DEFAULT_SITE_SETTINGS };

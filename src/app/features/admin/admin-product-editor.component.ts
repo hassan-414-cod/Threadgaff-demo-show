@@ -1345,7 +1345,7 @@ const DEFAULT_BRAND_NAMES = [
           </header>
           <div class="body fp-body">
             <p class="fp-note">
-              Only the filters set on the Filters page can be selected here. To add, remove or rename them, go to the Filters page.
+              Only the filters set on the Filters page can be selected here. To add, remove or rename them, go to Home page → Filters.
               <button type="button" class="mini-link" (click)="goFilters()">Edit filters →</button>
             </p>
             <div class="fp-grid">
@@ -2060,7 +2060,7 @@ export class AdminProductEditorComponent implements OnChanges {
   @Output() saved = new EventEmitter<Product>();
   @Output() deleted = new EventEmitter<void>();
   @Output() categoriesChanged = new EventEmitter<void>();
-  /** Asks the admin shell to open the Filters page. */
+  /** Asks the admin shell to open Home page → Filters. */
   @Output() openFilters = new EventEmitter<void>();
 
   /** Set after first successful create so retries update instead of duplicating. */
@@ -2494,9 +2494,9 @@ export class AdminProductEditorComponent implements OnChanges {
     else this.toggleCheck((d.custom[g.code] ||= []), option, event);
   }
 
-  /** Mini button in the filter popup: open the Filters page. */
+  /** Mini button in the filter popup: open Home page → Filters. */
   goFilters() {
-    if (this.form.name.trim() && !confirm('Open the Filters page? Unsaved changes to this product will be lost.')) {
+    if (this.form.name.trim() && !confirm('Open Home page → Filters? Unsaved changes to this product will be lost.')) {
       return;
     }
     this.filterPickerOpen.set(false);
