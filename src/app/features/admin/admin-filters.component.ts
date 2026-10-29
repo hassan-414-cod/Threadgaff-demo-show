@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AttributeDefinition, CatalogService } from '../../core/services/catalog.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
@@ -29,7 +29,7 @@ interface FilterRow {
   standalone: true,
   imports: [FormsModule],
   template: `
-    @if (!embedded) {
+    @if (!embedded()) {
       <div class="head">
         <div>
           <p class="kicker">Home page / Filters</p>
@@ -226,7 +226,7 @@ interface FilterRow {
 })
 export class AdminFiltersComponent implements OnInit {
   /** True when shown inside the Home page tabs, which have their own heading. */
-  @Input() embedded = false;
+  readonly embedded = input(false);
   private readonly catalog = inject(CatalogService);
   private readonly site = inject(SiteSettingsService);
 

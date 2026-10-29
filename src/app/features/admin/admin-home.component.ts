@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, Output, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { CatalogService } from '../../core/services/catalog.service';
@@ -250,11 +250,20 @@ export class AdminHomeComponent implements OnInit {
   readonly visited = signal<Set<Section>>(new Set<Section>(['catalogues']));
   readonly isCards = computed(() => this.section() === 'catalogues' || this.section() === 'slider');
 
-  /** The tab to open (from the address or from the product editor's "Edit filters" button). */
-  @Input() set tab(v: string | null | undefined) {
-    if (v && (SECTIONS as string[]).includes(v) && v !== this.section()) this.show(v as Section);
+  /** The tab to open (from the address, or the product editor's "Edit filters" button). */
+  readonly tab = input<string | null | undefined>(null);
+  readonly tabChange = output<Section>();
+
+  constructor() {
+    effect(() => {
+      const wanted = this.tab();
+      if (wanted && (SECTIONS as string[]).includes(wanted)) {
+        untracked(() => {
+          if (wanted !== this.section()) this.show(wanted as Section);
+        });
+      }
+    });
   }
-  @Output() readonly tabChange = new EventEmitter<Section>();
 
   private show(s: Section) {
     this.section.set(s);

@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   DEFAULT_SITE_SETTINGS,
@@ -15,7 +15,7 @@ import {
   standalone: true,
   imports: [FormsModule],
   template: `
-    @if (!embedded) {
+    @if (!embedded()) {
       <div class="head">
         <p class="kicker">Home page / Texts</p>
         <h1>Site texts</h1>
@@ -115,8 +115,8 @@ import {
   `,
 })
 export class AdminSiteOutlookComponent implements OnInit {
-  /** True when shown inside the Home page tabs, which have their own heading. */
-  @Input() embedded = false;
+  /** True when shown inside the Home page tabs, which already have a heading. */
+  readonly embedded = input(false);
   private readonly site = inject(SiteSettingsService);
 
   form: SiteSettings = { ...DEFAULT_SITE_SETTINGS };

@@ -2016,7 +2016,7 @@ export class AdminPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
 
   readonly view = signal<AdminView>('overview');
-  /** Which tab of the Home page is open (catalogues, slider, texts, filters). */
+  /** Which tab of the Home page is open: catalogues, slider, texts or filters. */
   readonly homeTab = signal<HomeSection>('catalogues');
   readonly catalogMode = signal<CatalogMode>('collections');
   readonly productsNavOpen = signal(true);
