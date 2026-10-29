@@ -504,27 +504,6 @@ select option:hover {
   color: #fff;
 }
 
-/* Products page: always 5 equal columns, full-width within padded section */
-#productGrid.shop-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  justify-content: stretch;
-  width: 100%;
-  gap: 26px 16px;
-}
-
-#productGrid .pc {
-  width: 100%;
-  max-width: none;
-  min-width: 0;
-}
-
-#productGrid .pc-media {
-  width: 100%;
-  max-width: none;
-  height: auto;
-  aspect-ratio: 4 / 5;
-}
-
 @media (max-width: 960px) {
   .shop-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;

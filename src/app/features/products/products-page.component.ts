@@ -1,778 +1,884 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  HostListener,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
-import { map } from 'rxjs/operators';
-import { CatalogService } from '../../core/services/catalog.service';
+import { AttributeDefinition, CatalogService } from '../../core/services/catalog.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
 import { PortraitFitDirective } from '../../shared/portrait-fit.directive';
-import { Category, Product } from '../../core/models/catalog.models';
-import { expandGenderFilter } from '../../core/utils/gender';
-import { hasDisplayHex } from '../../core/utils/hex';
+import { FadeInDirective } from '../../shared/fade-in.directive';
+import { Category, Product, ProductColor } from '../../core/models/catalog.models';
+import { genderMatchesFilter } from '../../core/utils/gender';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
 import { cardDescription } from '../../core/utils/description';
+import { BUILTIN_FILTERS, customFilterDefinitions, filterOptionLabels } from '../../core/utils/filters';
 
-interface DisplayCard {
-  key: string;
-  product: Product;
-  colorId: string;
-  colorName: string;
-  /** True for a colour variant's own card (the products page lists variants, not the main card). */
-  variant: boolean;
+/** One checklist in the filter panel. */
+interface FilterGroup {
+  code: string;
+  title: string;
+  options: string[];
 }
 
+interface FilterChip {
+  code: string;
+  title: string;
+  value: string;
+}
+
+/** The extra built-in checklists the shop has always had besides the three managed filters. */
+const EXTRA_FILTERS = [
+  { code: 'fit', title: 'Fit' },
+  { code: 'sleeve', title: 'Sleeve' },
+  { code: 'style', title: 'Style' },
+];
+
+/** How many cards fit on one row (the grid and the expand panel both follow this). */
+function columnsFor(width: number): number {
+  if (width >= 1500) return 5;
+  if (width >= 1200) return 4;
+  if (width >= 900) return 3;
+  if (width >= 600) return 2;
+  return 1;
+}
+
+/**
+ * The shop. Home sends a customer here by catalogue; this page lists that catalogue's variants
+ * (each with its own main image), and a variant expands to show its colours and models.
+ * Everything needed to narrow the list (catalogue tabs, filters, sort) is on this one page.
+ */
 @Component({
   selector: 'tg-products-page',
   standalone: true,
-  imports: [RouterLink, PortraitFitDirective],
+  imports: [RouterLink, PortraitFitDirective, FadeInDirective],
   template: `
-    <div class="products-page">
-      <section class="collection-pills-bar" aria-label="Collections">
-        <div class="pills-row">
-          <div class="collection-row">
+    <div class="shop">
+      <nav class="shop-tabs" aria-label="Catalogues">
+        <div class="shop-tabs-inner">
+          <div class="tab-row" role="tablist">
             <button
               type="button"
-              class="filter-btn"
-              [class.active]="!selectedSlug()"
+              role="tab"
+              class="tab"
+              [class.on]="!selectedSlug()"
+              [attr.aria-selected]="!selectedSlug()"
               (click)="selectCollection(null)"
             >
-              All collections
+              All
             </button>
             @for (c of collections(); track c.id) {
               <button
                 type="button"
-                class="filter-btn"
-                [class.active]="selectedSlug() === c.slug"
+                role="tab"
+                class="tab"
+                [class.on]="selectedSlug() === c.slug"
+                [attr.aria-selected]="selectedSlug() === c.slug"
                 (click)="selectCollection(c)"
               >
                 {{ c.name }}
               </button>
             }
           </div>
-          <div class="extra-filters">
-            <span class="filter-label">FILTER BY:</span>
-            <select
-              aria-label="Fit"
-              [value]="fitFilter()"
-              (change)="setFit(($any($event.target)).value)"
-            >
-              <option value="">Fit</option>
-              @for (o of fitOptions(); track o) {
-                <option [value]="o">Fit · {{ o }}</option>
-              }
-            </select>
-            @if (!site.isFilterHidden('material')) {
-            <select
-              aria-label="Fabric"
-              [value]="materialFilter()"
-              (change)="setMaterial(($any($event.target)).value)"
-            >
-              <option value="">Fabric</option>
-              @for (o of materialOptions(); track o) {
-                <option [value]="o">Fabric · {{ o }}</option>
-              }
-            </select>
+          <button
+            type="button"
+            class="tab tab-filter"
+            [class.on]="filtersOpen()"
+            [attr.aria-expanded]="filtersOpen()"
+            aria-controls="shopFilters"
+            (click)="toggleFilters()"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+            Filters
+            @if (chips().length) {
+              <span class="tab-count">{{ chips().length }}</span>
             }
-            @if (!site.isFilterHidden('gender')) {
-            <select
-              aria-label="Gender"
-              [value]="genderFilter()"
-              (change)="setGender(($any($event.target)).value)"
-            >
-              <option value="">Gender</option>
-              @for (o of genderOptions(); track o) {
-                <option [value]="o">Gender · {{ o }}</option>
-              }
-            </select>
-            }
-            <select
-              aria-label="Sleeve"
-              [value]="sleeveFilter()"
-              (change)="setSleeve(($any($event.target)).value)"
-            >
-              <option value="">Sleeve</option>
-              @for (o of sleeveOptions(); track o) {
-                <option [value]="o">Sleeve · {{ o }}</option>
-              }
-            </select>
-            <select
-              aria-label="Style"
-              [value]="styleFilter()"
-              (change)="setStyle(($any($event.target)).value)"
-            >
-              <option value="">Style</option>
-              @for (o of styleOptions(); track o) {
-                <option [value]="o">Style · {{ o }}</option>
-              }
-            </select>
-            @if (fitFilter() || materialFilter() || genderFilter() || sleeveFilter() || styleFilter()) {
-              <button type="button" class="filter-reset" (click)="resetFilters()">Reset</button>
+          </button>
+        </div>
+      </nav>
+
+      @if (filtersOpen()) {
+        <section id="shopFilters" class="shop-filters" aria-label="Filters">
+          <div class="shop-filters-inner">
+            @for (g of groups(); track g.code) {
+              <fieldset class="fgroup">
+                <legend>{{ g.title }}</legend>
+                <div class="fopts">
+                  @for (opt of g.options; track opt) {
+                    <label class="fopt" [class.on]="isPicked(g.code, opt)">
+                      <input type="checkbox" [checked]="isPicked(g.code, opt)" (change)="toggleOption(g.code, opt, $event)" />
+                      <span>{{ opt }}</span>
+                    </label>
+                  }
+                </div>
+              </fieldset>
+            } @empty {
+              <p class="fnote">No filters have been set up yet.</p>
             }
           </div>
-        </div>
-      </section>
+        </section>
+      }
 
-      <section class="range-header">
+      <header class="shop-head">
         <span class="kicker">Wholesale apparel manufacturing</span>
         <h1>{{ rangeTitle() }}</h1>
-        <p class="lede">
-          Detailed size dimensions (chest, length, sleeves) are provided for each garment
-          inside the Custom Designer.
-        </p>
-      </section>
+        <p class="lede">Open a variant to see its colours and models, then take it into the Custom Designer.</p>
+      </header>
 
-      <section class="grid-section">
+      <section class="shop-body">
+        <div class="shop-toolbar">
+          <span class="count" aria-live="polite">
+            @if (loading()) {
+              Loading variants…
+            } @else {
+              {{ filtered().length }} {{ filtered().length === 1 ? 'variant' : 'variants' }}
+              @if (chips().length && filtered().length !== products().length) {
+                <span class="of">of {{ products().length }}</span>
+              }
+            }
+            @if (attrPending() && chips().length) {
+              <span class="of">· loading filter details…</span>
+            }
+          </span>
+          <label class="sort"
+            >Sort by
+            <select [value]="sort()" (change)="onSort($event)">
+              <option value="featured">Default order</option>
+              <option value="price-asc">Price: low to high</option>
+              <option value="price-desc">Price: high to low</option>
+              <option value="name">Name A–Z</option>
+            </select>
+          </label>
+        </div>
+
+        @if (chips().length) {
+          <div class="chips" aria-label="Active filters">
+            @for (chip of chips(); track chip.code + chip.value) {
+              <button type="button" class="chip" (click)="removeChip(chip)" [attr.title]="'Remove ' + chip.title + ': ' + chip.value">
+                <span class="chip-type">{{ chip.title }}</span>
+                <span class="chip-val">{{ chip.value }}</span>
+                <span aria-hidden="true">×</span>
+              </button>
+            }
+            <button type="button" class="chip-reset" (click)="resetFilters()">Reset all</button>
+          </div>
+        }
+
         @if (error()) {
           <div class="alert alert-error">{{ error() }}</div>
         }
-        <div id="productGrid" class="shop-grid">
-          @for (card of displayCards(); track card.key) {
-            <article class="pc" [class.is-variant]="card.variant">
-              <a
-                class="pc-media"
-                (pointerenter)="catalog.prefetchProduct(card.product.id)"
-                (touchstart)="catalog.prefetchProduct(card.product.id)"
-                [routerLink]="['/designer']"
-                [queryParams]="{
-                  product: card.product.id,
-                  name: card.product.name,
-                  category: card.product.template,
-                  color: card.colorId,
-                }"
+
+        @if (!loading() && !filtered().length && !error()) {
+          <p class="empty">
+            @if (chips().length) {
+              No variants match these filters.
+              <button type="button" class="link" (click)="resetFilters()">Reset filters</button>
+            } @else {
+              No variants in this catalogue yet.
+            }
+          </p>
+        }
+
+        <div class="vgrid" [style.--cols]="cols()">
+          @for (p of filtered(); track p.id; let i = $index) {
+            <article class="pc vc" [class.is-open]="openId() === p.id">
+              <button
+                type="button"
+                class="pc-media vc-media"
+                [attr.aria-expanded]="openId() === p.id"
+                [attr.aria-label]="(openId() === p.id ? 'Close ' : 'Open ') + p.name"
+                (click)="toggle(p)"
+                (pointerenter)="catalog.prefetchProduct(p.id)"
+                (touchstart)="catalog.prefetchProduct(p.id)"
               >
-                @if (card.product.badge) {
-                  <span class="pc-badge">{{ card.product.badge }}</span>
+                @if (p.badge) {
+                  <span class="pc-badge">{{ p.badge }}</span>
                 }
-                <img tgPortraitFit [src]="shownSrc(card)" [alt]="cardTitle(card)" loading="lazy" decoding="async" />
-              </a>
+                <img tgPortraitFit [src]="catalog.mainImageUrl(p)" [alt]="p.name" loading="lazy" decoding="async" />
+              </button>
               <div class="pc-body">
-                <h3 class="pc-name">
-                  <a
-                    [routerLink]="['/designer']"
-                    [queryParams]="{
-                      product: card.product.id,
-                      name: card.product.name,
-                      color: card.colorId,
-                    }"
-                  >
-                    {{ card.product.name }}
-                  </a>
-                </h3>
-                @if (card.colorName) {
-                  <div class="pc-variant-name">{{ card.colorName }}</div>
-                }
-                <div class="pc-price">{{ priceLabel(card.product, card.colorId) }}</div>
-                @if (card.product.sku) {
-                  <div class="pc-sku">{{ card.product.sku }}</div>
-                }
-                @if (!card.variant && colorSwatches(card.product).length) {
-                  <div class="pc-swatches">
-                    @for (c of colorSwatches(card.product).slice(0, 8); track c.id) {
-                      <button
-                        type="button"
-                        class="pc-swatch"
-                        [style.background]="c.hex"
-                        [class.is-on]="card.colorId === c.id"
-                        [attr.title]="c.name"
-                        [attr.aria-label]="c.name"
-                        (click)="selectCardColor(card.product.id, c.id, $event)"
-                      ></button>
-                    }
-                  </div>
+                <h3 class="pc-name">{{ p.name }}</h3>
+                <div class="pc-price">{{ priceLabel(p) }}</div>
+                @if (p.sku) {
+                  <div class="pc-sku">{{ p.sku }}</div>
                 }
                 <div class="pc-foot">
-                  @if (descriptionFor(card.product, card.colorId)) {
-                    <p class="pc-desc">{{ descriptionFor(card.product, card.colorId) }}</p>
+                  @if (descriptionFor(p)) {
+                    <p class="pc-desc">{{ descriptionFor(p) }}</p>
                   } @else {
                     <span class="pc-desc" aria-hidden="true"></span>
                   }
-                  <a
-                    class="pc-quote"
-                    [routerLink]="['/designer']"
-                    [queryParams]="{
-                      product: card.product.id,
-                      name: card.product.name,
-                      category: card.product.template,
-                      color: card.colorId,
-                    }"
-                  >
-                    Customise →
-                  </a>
+                  <div class="pc-actions">
+                    <button type="button" class="pc-mini" (click)="toggle(p)" [attr.aria-expanded]="openId() === p.id">
+                      {{ openId() === p.id ? 'Close' : 'Expand' }}
+                    </button>
+                    <a
+                      class="pc-mini pc-mini-fill"
+                      [routerLink]="['/designer']"
+                      [queryParams]="designerParams(p)"
+                      (pointerenter)="catalog.prefetchProduct(p.id)"
+                    >
+                      Customise
+                    </a>
+                  </div>
                 </div>
               </div>
             </article>
-          }
-        </div>
-      </section>
 
-      <section class="bottom-cta">
-        <div class="cta-inner">
-          <div class="cta-copy">
-            <span class="kicker">Let's build together</span>
-            <h2>Start your range</h2>
-            <p>
-              From concept to collection, we help bring your vision to life with premium
-              quality and dependable manufacturing.
-            </p>
-            <div class="cta-actions">
-              <a routerLink="/quote" class="cta-solid">Request bulk order →</a>
-              <a routerLink="/about" class="cta-outline">Speak to our team →</a>
-            </div>
-          </div>
-          <div class="cta-features">
-            <div class="cta-feature">
-              <div class="cta-icon" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-              </div>
-              <div>
-                <h4>Customisation<br />Options</h4>
-                <p>Fits, fabrics, labels &amp; more</p>
-              </div>
-            </div>
-            <div class="cta-feature">
-              <div class="cta-icon" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-              </div>
-              <div>
-                <h4>Consistent<br />Quality</h4>
-                <p>Built for long-term partnerships</p>
-              </div>
-            </div>
-            <div class="cta-feature">
-              <div class="cta-icon" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-              </div>
-              <div>
-                <h4>B2B<br />Support</h4>
-                <p>Dedicated wholesale guidance</p>
-              </div>
-            </div>
-          </div>
+            @if (panelAfter(i); as open) {
+              <section class="vx" [attr.aria-label]="open.name + ' colours and models'">
+                <div class="vx-stage">
+                  <img tgFadeIn [src]="stageUrl()" [alt]="open.name" decoding="async" />
+                </div>
+                <div class="vx-side">
+                  <header class="vx-head">
+                    <div>
+                      <h2>{{ open.name }}</h2>
+                      <p>{{ priceLabel(open) }}</p>
+                    </div>
+                    <button type="button" class="vx-close" (click)="close()" aria-label="Close">×</button>
+                  </header>
+
+                  <div class="vx-tabs" role="tablist">
+                    <button type="button" role="tab" class="vx-tab" [class.on]="openTab() === 'colours'" [attr.aria-selected]="openTab() === 'colours'" (click)="openTab.set('colours')">
+                      Colours <span>{{ open.colors?.length || 0 }}</span>
+                    </button>
+                    <button type="button" role="tab" class="vx-tab" [class.on]="openTab() === 'models'" [attr.aria-selected]="openTab() === 'models'" (click)="openTab.set('models')">
+                      Models <span>{{ models().length }}</span>
+                    </button>
+                  </div>
+
+                  @if (openTab() === 'colours') {
+                    <div class="vx-grid">
+                      @for (c of open.colors || []; track c.id) {
+                        <button type="button" class="vx-item" [class.on]="openColor() === c.id" (click)="pickColour(open, c)">
+                          <span class="vx-thumb">
+                            <img tgFadeIn [src]="catalog.colourImageUrl(open, c.id)" [alt]="c.name" loading="lazy" decoding="async" />
+                          </span>
+                          <span class="vx-label">
+                            <span class="vx-dot" [style.background]="c.hex"></span>
+                            {{ c.name }}
+                          </span>
+                        </button>
+                      } @empty {
+                        <p class="vx-empty">No colours have been added to this variant yet.</p>
+                      }
+                    </div>
+                  } @else {
+                    <div class="vx-grid">
+                      @for (m of models(); track m.url) {
+                        <button type="button" class="vx-item" [class.on]="stageUrl() === m.url" (click)="stageUrl.set(m.url)">
+                          <span class="vx-thumb">
+                            <img tgFadeIn [src]="m.url" [alt]="m.label" loading="lazy" decoding="async" />
+                          </span>
+                          <span class="vx-label">{{ m.label }}</span>
+                        </button>
+                      } @empty {
+                        <p class="vx-empty">No model photos have been added for this colour yet.</p>
+                      }
+                    </div>
+                  }
+
+                  <footer class="vx-foot">
+                    <a class="pc-mini pc-mini-fill vx-go" [routerLink]="['/designer']" [queryParams]="designerParams(open, openColor())">
+                      Customise in the designer →
+                    </a>
+                  </footer>
+                </div>
+              </section>
+            }
+          }
         </div>
       </section>
     </div>
   `,
   styles: `
-    .products-page {
-      --page-inline: 32px;
-      background: #efebe4;
-      min-height: 60vh;
-    }
+    .shop { background: var(--paper); min-height: 60vh; }
 
-    .collection-pills-bar {
-      padding: 20px var(--page-inline) 12px;
-      background: #efebe4;
-      border-bottom: 1px solid #dcd7ce;
+    /* tab bar: jump between catalogues, switch the filters on and off */
+    .shop-tabs {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: color-mix(in srgb, var(--paper) 94%, transparent);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--line);
     }
-
-    .pills-row {
+    .shop-tabs-inner {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 10px 28px;
       display: flex;
+      align-items: center;
       justify-content: space-between;
+      gap: 14px;
+    }
+    .tab-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; padding: 2px 0; }
+    .tab-row::-webkit-scrollbar { display: none; }
+    .tab {
+      flex: none;
+      display: inline-flex;
       align-items: center;
-      flex-wrap: wrap;
-      gap: 16px;
-    }
-
-    .collection-row {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .filter-btn {
-      padding: 10px 20px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      font-weight: 600;
+      gap: 7px;
+      border: 1px solid var(--line);
+      background: var(--panel);
       color: var(--ink);
-      background: transparent;
-      border: 1px solid #dcd7ce;
-      cursor: pointer;
-      font-family: inherit;
-    }
-
-    .filter-btn.active {
-      background: #4a5441;
-      color: #fff;
-      border-color: #4a5441;
-    }
-
-    .extra-filters {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-
-    .filter-label {
+      border-radius: 999px;
+      padding: 8px 16px;
       font-family: 'Montserrat', sans-serif;
-      font-size: 0.75rem;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      color: var(--ink);
-    }
-
-    .extra-filters select {
-      background: transparent;
-      border: 1px solid #dcd7ce;
-      padding: 10px 32px 10px 16px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      color: var(--ink);
-      appearance: none;
-      background-image: url("data:image/svg+xml;utf8,<svg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'><path d='M1 1.5L6 6.5L11 1.5' stroke='%23333' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-      background-repeat: no-repeat;
-      background-position: right 12px center;
-    }
-
-    .range-header {
-      padding: 28px var(--page-inline) 20px;
-    }
-
-    .kicker {
-      font-family: 'Montserrat', sans-serif;
-      font-size: 0.7rem;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      margin-bottom: 8px;
-      display: block;
-      color: var(--ink);
-      font-weight: 700;
-    }
-
-    .range-header h1 {
-      font-size: clamp(1.5rem, 2.5vw, 2rem);
-      font-family: 'Montserrat', sans-serif;
-      font-weight: 900;
-      line-height: 1;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.02em;
-      color: var(--ink);
-    }
-
-    .lede {
-      font-size: 0.95rem;
-      line-height: 1.5;
-      color: var(--muted);
-      max-width: 550px;
-      margin: 0;
-    }
-
-    .grid-section {
-      padding: 0 var(--page-inline) 80px;
-    }
-
-    .filter-reset {
-      background: none;
-      border: none;
-      color: var(--muted);
       font-size: 0.68rem;
-      cursor: pointer;
-      text-decoration: underline;
-      padding: 0;
-      margin-left: 10px;
-    }
-
-    .pc-variant-name {
-      margin: -4px 0 0;
-      font-size: 0.72rem;
-      font-weight: 600;
-      color: var(--muted);
-    }
-
-
-    .bottom-cta {
-      background: #e8e6df;
-      padding: 60px var(--page-inline);
-      border-top: 1px solid #dcd7ce;
-    }
-
-    .cta-inner {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      flex-wrap: wrap;
-      gap: 40px;
-    }
-
-    .cta-copy {
-      max-width: 600px;
-    }
-
-    .cta-features {
-      display: flex;
-      gap: 40px;
-      align-items: center;
-      position: relative;
-      padding-left: 20px;
-      border-left: 1px solid #dcd7ce;
-    }
-
-    .cta-feature {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .cta-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      border: 1px solid var(--ink);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .cta-feature h4 {
-      font-size: 0.7rem;
-      font-family: 'Montserrat', sans-serif;
-      font-weight: 800;
-      margin: 0 0 4px;
-      letter-spacing: 0.05em;
-      color: var(--ink);
+      font-weight: 700;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      line-height: 1.25;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
     }
+    .tab:hover { border-color: var(--forest); }
+    .tab.on { background: var(--forest); border-color: var(--forest); color: #fff; }
+    .tab-filter { flex: none; }
+    .tab-count {
+      background: #fff;
+      color: var(--forest);
+      border-radius: 999px;
+      min-width: 18px;
+      padding: 1px 6px;
+      font-size: 0.62rem;
+      text-align: center;
+    }
+    .tab:not(.on) .tab-count { background: var(--forest); color: #fff; }
 
-    .cta-feature p {
-      font-size: 0.65rem;
-      color: var(--muted);
-      margin: 0;
-      max-width: none;
+    /* filter panel */
+    .shop-filters { background: var(--forest-tint); border-bottom: 1px solid var(--line); animation: shopOpen 0.25s ease both; }
+    @keyframes shopOpen { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+    .shop-filters-inner {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 18px 28px 22px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px 28px;
     }
+    .fgroup { border: 0; margin: 0; padding: 0; min-width: 0; }
+    .fgroup legend {
+      padding: 0 0 9px;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.64rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+    .fopts { display: flex; flex-wrap: wrap; gap: 7px; }
+    .fopt {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.74rem;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .fopt input { position: absolute; opacity: 0; pointer-events: none; }
+    .fopt:hover { border-color: var(--forest); }
+    .fopt.on { background: var(--forest); border-color: var(--forest); color: #fff; }
+    .fopt:has(input:focus-visible) { outline: 2px solid var(--forest); outline-offset: 2px; }
+    .fnote { margin: 0; color: var(--muted); font-size: 0.8rem; }
+
+    .shop-head { max-width: 1360px; margin: 0 auto; padding: 34px 28px 8px; }
+    .kicker {
+      display: block;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    .shop-head h1 {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-weight: 600;
+      font-size: clamp(2.2rem, 4.2vw, 3.6rem);
+      letter-spacing: -0.02em;
+      text-transform: none;
+      line-height: 1.04;
+      margin: 0 0 10px;
+    }
+    .lede { margin: 0; color: var(--muted); font-size: 0.88rem; max-width: 60ch; }
+
+    .shop-body { max-width: 1360px; margin: 0 auto; padding: 14px 28px 64px; }
+    .shop-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 6px 0 14px; }
+    .count { font-size: 0.74rem; color: var(--muted); }
+    .count .of { margin-left: 4px; }
+    .sort { display: inline-flex; align-items: center; gap: 10px; font-size: 0.72rem; color: var(--muted); }
+    .sort select {
+      font: inherit;
+      color: var(--ink);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 6px 10px;
+    }
+    .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 16px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font: inherit;
+      font-size: 0.72rem;
+      cursor: pointer;
+    }
+    .chip:hover { border-color: var(--forest); }
+    .chip-type { font-weight: 700; font-size: 0.6rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+    .chip-val { font-weight: 600; }
+    .chip-reset, .link { background: none; border: 0; padding: 0; font: inherit; font-size: 0.72rem; color: var(--muted); text-decoration: underline; cursor: pointer; }
+    .empty { color: var(--muted); font-size: 0.9rem; margin: 28px 0; }
+
+    /* variants */
+    .vgrid { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: 26px 16px; }
+    .vc-media { padding: 0; border: 0; cursor: pointer; font: inherit; text-align: inherit; }
+    .vc.is-open { outline: 2px solid var(--forest); outline-offset: -1px; }
+    .pc-actions { flex: none; }
+
+    /* expanded variant: colours and models, across the full row */
+    .vx {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      animation: shopOpen 0.28s ease both;
+    }
+    .vx-stage { position: relative; background: #fff; min-height: 360px; display: grid; place-items: center; padding: 16px; }
+    .vx-stage img { max-width: 100%; max-height: 520px; object-fit: contain; transition: opacity 0.3s ease; }
+    .vx-stage img.tg-pending { opacity: 0; }
+    .vx-side { padding: 22px 24px 20px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .vx-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .vx-head h2 { margin: 0; font-family: 'Cormorant Garamond', Georgia, serif; font-size: 1.9rem; font-weight: 600; text-transform: none; letter-spacing: -0.01em; line-height: 1.05; }
+    .vx-head p { margin: 4px 0 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; font-weight: 600; }
+    .vx-close {
+      flex: none;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      font-size: 1.3rem;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--ink);
+    }
+    .vx-close:hover { border-color: var(--forest); }
+    .vx-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
+    .vx-tab {
+      background: none;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      padding: 8px 14px;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .vx-tab span { margin-left: 4px; font-weight: 600; opacity: 0.8; }
+    .vx-tab.on { color: var(--ink); border-bottom-color: var(--forest); }
+    .vx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; align-content: start; min-height: 150px; }
+    .vx-item { display: flex; flex-direction: column; gap: 7px; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; text-align: left; min-width: 0; }
+    .vx-thumb {
+      display: block;
+      aspect-ratio: 4 / 5;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .vx-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; transition: opacity 0.3s ease; }
+    .vx-thumb img.tg-pending { opacity: 0; }
+    .vx-item:hover .vx-thumb { border-color: var(--forest); }
+    .vx-item.on .vx-thumb { border-color: var(--forest); box-shadow: 0 0 0 2px color-mix(in srgb, var(--forest) 35%, transparent); }
+    .vx-label { display: flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 600; color: var(--ink); min-width: 0; }
+    .vx-dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(53, 57, 54, 0.25); flex: none; }
+    .vx-empty { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 0.82rem; }
+    .vx-foot { margin-top: auto; padding-top: 6px; }
+    .vx-go { padding: 11px 18px; font-size: 0.66rem; }
 
     @media (max-width: 900px) {
-      .cta-features {
-        border-left: none;
-        padding-left: 0;
-        flex-wrap: wrap;
-      }
+      .shop-tabs-inner, .shop-head, .shop-body, .shop-filters-inner { padding-left: 18px; padding-right: 18px; }
+      .vx { grid-template-columns: 1fr; }
+      .vx-stage { min-height: 280px; }
     }
-
-    @media (max-width: 768px) {
-      .products-page {
-        --page-inline: 18px;
-      }
-    }
-
-    .cta-copy h2 {
-      font-size: clamp(2rem, 3vw, 3rem);
-      font-family: 'Montserrat', sans-serif;
-      font-weight: 900;
-      line-height: 1;
-      margin-bottom: 16px;
-      text-transform: uppercase;
-      letter-spacing: 0.02em;
-      color: var(--ink);
-    }
-
-    .cta-copy p {
-      font-size: 1.1rem;
-      line-height: 1.5;
-      color: var(--muted);
-      max-width: 500px;
-      margin-bottom: 32px;
-    }
-
-    .cta-actions {
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-
-    .cta-solid {
-      background: #4a5441;
-      color: #fff;
-      padding: 14px 28px;
-      font-size: 0.85rem;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      font-family: 'Montserrat', sans-serif;
-    }
-
-    .cta-outline {
-      background: transparent;
-      color: var(--ink);
-      border: 1px solid #4a5441;
-      padding: 14px 28px;
-      font-size: 0.85rem;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      font-family: 'Montserrat', sans-serif;
-    }
-
-    @media (max-width: 768px) {
-      .extra-filters {
-        display: none;
-      }
+    @media (prefers-reduced-motion: reduce) {
+      .shop-filters, .vx { animation: none; }
     }
   `,
 })
 export class ProductsPageComponent implements OnInit {
-  readonly catalog = inject(CatalogService);
-  readonly site = inject(SiteSettingsService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  readonly catalog = inject(CatalogService);
+  readonly site = inject(SiteSettingsService);
 
   readonly collections = signal<Category[]>([]);
-  readonly products = signal<Product[]>([]);
   readonly selectedSlug = signal<string | null>(null);
+  readonly products = signal<Product[]>([]);
+  readonly loading = signal(true);
   readonly error = signal('');
-  readonly rangeTitle = signal('Our product range');
-  readonly fitFilter = signal('');
-  readonly materialFilter = signal('');
-  readonly genderFilter = signal('');
-  readonly sleeveFilter = signal('');
-  readonly styleFilter = signal('');
-  readonly fitOptions = signal<string[]>([]);
-  readonly materialOptions = signal<string[]>([]);
-  readonly genderOptions = signal<string[]>([]);
-  readonly sleeveOptions = signal<string[]>([]);
-  readonly styleOptions = signal<string[]>([]);
-  /** productId → selected colour id for card preview */
-  readonly cardColorIds = signal<Record<string, string>>({});
-  /**
-   * The products page lists variants: each colour of a product is its own card, with that
-   * colour's picture. (The main card window is only for the home page.) A product with no
-   * colours is shown as one plain card.
-   */
-  readonly displayCards = computed((): DisplayCard[] => {
-    const cards: DisplayCard[] = [];
-    for (const p of this.products()) {
-      const colors = p.colors || [];
-      if (!colors.length) {
-        cards.push({ key: p.id, product: p, colorId: '', colorName: '', variant: false });
-        continue;
-      }
-      for (const c of colors) {
-        cards.push({
-          key: `${p.id}:${c.id}`,
-          product: p,
-          colorId: c.id,
-          colorName: colors.length > 1 ? c.name || '' : '',
-          variant: true,
-        });
-      }
-    }
-    return cards;
+  readonly attrDefs = signal<AttributeDefinition[]>([]);
+  readonly filtersOpen = signal(false);
+  readonly sort = signal('featured');
+  /** Ticked checklist items, by filter code. */
+  readonly picked = signal<Record<string, Set<string>>>({});
+  /** True while the attribute details the filters need are still being fetched. */
+  readonly attrPending = signal(false);
+
+  readonly openId = signal<string | null>(null);
+  readonly openColor = signal('');
+  readonly openTab = signal<'colours' | 'models'>('colours');
+  readonly stageUrl = signal('');
+  readonly cols = signal(columnsFor(typeof window === 'undefined' ? 1280 : window.innerWidth));
+
+  /** The products whose full record (attributes) has been fetched. */
+  private readonly detailed = new Map<string, Product>();
+  private loadedSlug: string | null | undefined;
+  private wantedProduct: string | null = null;
+  private hydrateTimer: ReturnType<typeof setTimeout> | null = null;
+  private hydrating = false;
+
+  readonly rangeTitle = computed(() => {
+    const slug = this.selectedSlug();
+    const cat = slug ? this.collections().find((c) => c.slug === slug) : null;
+    return cat ? cat.name : 'Our product range';
   });
 
-  ngOnInit() {
-    this.catalog.getAttributes().subscribe({
-      next: (defs) => {
-        const labels = (code: string) =>
-          defs
-            .find((d) => d.code === code)
-            ?.options?.map((o) => o.label)
-            .filter(Boolean) || [];
-        this.fitOptions.set(labels('fit'));
-        this.materialOptions.set(labels('material'));
-        this.genderOptions.set(labels('gender'));
-        this.sleeveOptions.set(labels('sleeve'));
-        this.styleOptions.set(labels('style'));
-      },
-    });
+  /** The checklists: the managed filters (unless hidden), fit / sleeve / style, and added ones. */
+  readonly groups = computed<FilterGroup[]>(() => {
+    const defs = this.attrDefs();
+    const labels = (code: string) => filterOptionLabels(defs.find((d) => d.code === code));
+    const out: FilterGroup[] = [];
+    for (const b of BUILTIN_FILTERS) {
+      if (this.site.isFilterHidden(b.code)) continue;
+      const options = labels(b.code);
+      if (options.length) out.push({ code: b.code, title: b.title, options });
+    }
+    for (const e of EXTRA_FILTERS) {
+      const options = labels(e.code);
+      if (options.length) out.push({ code: e.code, title: e.title, options });
+    }
+    for (const d of customFilterDefinitions(defs)) {
+      if (this.site.isFilterHidden(d.code)) continue;
+      const options = filterOptionLabels(d);
+      if (options.length) out.push({ code: d.code, title: d.name, options });
+    }
+    return out;
+  });
 
+  readonly chips = computed<FilterChip[]>(() => {
+    const out: FilterChip[] = [];
+    for (const g of this.groups()) {
+      for (const value of this.picked()[g.code] || []) out.push({ code: g.code, title: g.title, value });
+    }
+    return out;
+  });
+
+  readonly filtered = computed<Product[]>(() => {
+    let list = [...this.products()];
+    for (const g of this.groups()) {
+      const wanted = [...(this.picked()[g.code] || [])];
+      if (!wanted.length) continue;
+      list = list.filter((p) =>
+        g.code === 'gender'
+          ? wanted.some((sel) => genderMatchesFilter(this.attrLabels(p, 'gender')[0] || '', sel))
+          : this.matches(this.attrLabels(p, g.code), wanted),
+      );
+    }
+    switch (this.sort()) {
+      case 'price-asc':
+        return list.sort((a, b) => Number(a.basePrice) - Number(b.basePrice));
+      case 'price-desc':
+        return list.sort((a, b) => Number(b.basePrice) - Number(a.basePrice));
+      case 'name':
+        return list.sort((a, b) => a.name.localeCompare(b.name));
+      default:
+        return list.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    }
+  });
+
+  /** The expanded variant, if it is still in the list. */
+  private readonly openProduct = computed(() => this.filtered().find((p) => p.id === this.openId()) || null);
+
+  /** The model photos of the colour chosen in the expanded panel. */
+  readonly models = computed(() => {
+    const p = this.openProduct();
+    return p ? this.catalog.modelImages(p, this.openColor()) : [];
+  });
+
+  @HostListener('window:resize')
+  onResize() {
+    const next = columnsFor(window.innerWidth);
+    if (next !== this.cols()) this.cols.set(next);
+  }
+
+  ngOnInit() {
+    this.site.load();
+    this.catalog.getAttributes().subscribe({
+      next: (defs) => this.attrDefs.set(defs.filter((d) => d.isActive !== false)),
+    });
     this.catalog.getCollectionCategories().subscribe({
       next: (cats) => {
         this.collections.set(cats);
-        const slug = this.route.snapshot.queryParamMap.get('collection');
-        this.applySlug(slug);
+        this.applySlug(this.route.snapshot.queryParamMap.get('collection'));
       },
-      error: () =>
-        this.error.set('Could not load categories. Start the Nest API on :3000.'),
+      error: () => {
+        this.error.set('Could not load the catalogues. Check the API connection.');
+        this.applySlug(this.route.snapshot.queryParamMap.get('collection'));
+      },
     });
-
-    this.route.queryParamMap.subscribe((params) => {
-      this.applySlug(params.get('collection'));
+    this.wantedProduct = this.route.snapshot.queryParamMap.get('product');
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
+      if (this.collections().length || this.error()) this.applySlug(params.get('collection'));
     });
+    this.destroyRef.onDestroy(() => this.hydrateTimer && clearTimeout(this.hydrateTimer));
   }
 
   selectCollection(cat: Category | null) {
-    const slug = cat?.slug ?? null;
     this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: slug ? { collection: slug } : {},
+      queryParams: cat ? { collection: cat.slug } : {},
       replaceUrl: true,
     });
-  }
-
-  setFit(v: string) {
-    this.fitFilter.set(v);
-    this.reloadWithFilters();
-  }
-
-  setMaterial(v: string) {
-    this.materialFilter.set(v);
-    this.reloadWithFilters();
-  }
-
-  setGender(v: string) {
-    this.genderFilter.set(v);
-    this.reloadWithFilters();
-  }
-
-  setSleeve(v: string) {
-    this.sleeveFilter.set(v);
-    this.reloadWithFilters();
-  }
-
-  setStyle(v: string) {
-    this.styleFilter.set(v);
-    this.reloadWithFilters();
-  }
-
-  resetFilters() {
-    this.fitFilter.set('');
-    this.materialFilter.set('');
-    this.genderFilter.set('');
-    this.sleeveFilter.set('');
-    this.styleFilter.set('');
-    this.reloadWithFilters();
-  }
-
-  priceLabel(p: Product, colorId?: string | null): string {
-    return formatProductPrice(p, colorId ?? this.selectedColorId(p), {
-      from: false,
-    });
-  }
-
-  descriptionFor(p: Product, colorId?: string | null): string {
-    return cardDescription(p, colorId ?? this.selectedColorId(p));
-  }
-
-  selectedColorId(p: Product): string {
-    const picked = this.cardColorIds()[p.id];
-    if (picked) return picked;
-    return p.colors?.find((c) => c.isDefault)?.id || p.colors?.[0]?.id || '';
-  }
-
-  colorSwatches(p: Product) {
-    return (p.colors || []).filter((c) => hasDisplayHex(c.hex));
-  }
-
-  selectCardColor(productId: string, colorId: string, event?: Event) {
-    event?.preventDefault();
-    event?.stopPropagation();
-    this.cardColorIds.update((m) => ({ ...m, [productId]: colorId }));
-  }
-
-  cardSrc(p: Product, colorId?: string | null): string {
-    return this.catalog.cardImageUrl(p, colorId ?? this.selectedColorId(p));
-  }
-
-  /** A variant card shows that colour's own picture (its expanded image, else its own card photo). */
-  shownSrc(card: DisplayCard): string {
-    return card.variant
-      ? this.catalog.expandedImageUrl(card.product, card.colorId)
-      : this.cardSrc(card.product, card.colorId);
-  }
-
-  cardTitle(card: DisplayCard): string {
-    return card.colorName ? `${card.product.name} · ${card.colorName}` : card.product.name;
+    this.applySlug(cat?.slug ?? null);
   }
 
   private applySlug(slug: string | null) {
+    if (this.loadedSlug === slug) return;
+    this.loadedSlug = slug;
     this.selectedSlug.set(slug);
-    const cat = slug
-      ? this.collections().find((c) => c.slug === slug)
-      : null;
-    this.rangeTitle.set(cat ? cat.name : 'Our product range');
-    this.reloadWithFilters();
-  }
-
-  private reloadWithFilters() {
-    this.loadProducts(this.selectedSlug());
+    this.close();
+    this.loadProducts(slug);
   }
 
   private loadProducts(slug: string | null) {
-    const cats = this.collections();
-    const cat = slug ? cats.find((c) => c.slug === slug) : null;
-    const base = {
-      limit: 100,
-      isActive: true as const,
-      categoryId: cat?.id,
-      includeDescendants: true as const,
-    };
-
-    const fit = this.fitFilter();
-    const material = this.materialFilter();
-    const sleeve = this.sleeveFilter();
-    const style = this.styleFilter();
-    const genderValues = this.genderFilter()
-      ? expandGenderFilter(this.genderFilter())
-      : [];
-
-    type AttrFilter = { code: string; values: string[]; union: boolean };
-    const groups: AttrFilter[] = [];
-    if (genderValues.length) {
-      groups.push({ code: 'gender', values: genderValues, union: true });
-    }
-    if (fit) groups.push({ code: 'fit', values: [fit], union: false });
-    if (material) {
-      groups.push({ code: 'material', values: [material], union: false });
-    }
-    if (sleeve) groups.push({ code: 'sleeve', values: [sleeve], union: false });
-    if (style) groups.push({ code: 'style', values: [style], union: false });
-
-    if (!groups.length) {
-      this.catalog.getProducts(base).subscribe({
-        next: (res) => this.setProductsWithMedia(res.items),
-        error: () =>
-          this.error.set('Could not load products. Start the Nest API on :3000.'),
+    const cat = slug ? this.collections().find((c) => c.slug === slug) : null;
+    this.loading.set(true);
+    this.catalog
+      .getProducts({ limit: 100, isActive: true, categoryId: cat?.id, includeDescendants: true })
+      .subscribe({
+        next: (res) => {
+          const live = (res.items || []).filter((p) => p.isActive !== false);
+          // Products already fetched in full keep their details when the list changes.
+          this.products.set(live.map((p) => this.detailed.get(p.id) ?? p));
+          this.loading.set(false);
+          this.error.set('');
+          this.scheduleDetails();
+          this.openWanted();
+        },
+        error: () => {
+          this.loading.set(false);
+          this.error.set('Could not load the variants. Check the API connection.');
+        },
       });
-      return;
+  }
+
+  /** Opens the variant named in the address (?product=…), once the list is there. */
+  private openWanted() {
+    const id = this.wantedProduct;
+    if (!id) return;
+    this.wantedProduct = null;
+    const p = this.products().find((x) => x.id === id);
+    if (p) {
+      this.open(p);
+      setTimeout(() => document.querySelector('.vx')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
     }
+  }
 
-    const groupRequests = groups.map((g) =>
-      forkJoin(
-        g.values.map((value) =>
-          this.catalog.getProducts({
-            ...base,
-            attributeCode: g.code,
-            attributeValue: value,
-          }),
-        ),
-      ).pipe(
-        map((results) => {
-          const byId = new Map<string, Product>();
-          for (const res of results) {
-            for (const p of res.items) byId.set(p.id, p);
-          }
-          return byId;
-        }),
-      ),
-    );
+  // ───── filters ─────
+  toggleFilters() {
+    const next = !this.filtersOpen();
+    this.filtersOpen.set(next);
+    // The filters need each variant's attributes: fetch them now rather than wait.
+    if (next) this.fetchDetails(5);
+  }
 
-    forkJoin(groupRequests).subscribe({
-      next: (maps) => {
-        let ids = new Set(maps[0].keys());
-        for (let i = 1; i < maps.length; i++) {
-          const next = new Set(maps[i].keys());
-          ids = new Set([...ids].filter((id) => next.has(id)));
-        }
-        const byId = new Map<string, Product>();
-        for (const m of maps) {
-          for (const [id, p] of m) byId.set(id, p);
-        }
-        this.setProductsWithMedia(
-          [...ids].map((id) => byId.get(id)!).filter(Boolean),
-        );
-      },
-      error: () =>
-        this.error.set('Could not load products. Start the Nest API on :3000.'),
+  isPicked(code: string, opt: string): boolean {
+    return !!this.picked()[code]?.has(opt);
+  }
+
+  toggleOption(code: string, opt: string, event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.picked.update((all) => {
+      const next = new Set(all[code] || []);
+      if (checked) next.add(opt);
+      else next.delete(opt);
+      return { ...all, [code]: next };
+    });
+    this.fetchDetails(5);
+  }
+
+  removeChip(chip: FilterChip) {
+    this.picked.update((all) => {
+      const next = new Set(all[chip.code] || []);
+      next.delete(chip.value);
+      return { ...all, [chip.code]: next };
     });
   }
 
-  private setProductsWithMedia(items: Product[]) {
-    const live = (items || []).filter((p) => p.isActive !== false);
-    this.products.set(live);
-    this.catalog.enrichWithColorMedia(live).subscribe({
-      next: (full) => this.products.set(full.filter((p) => p.isActive !== false)),
-    });
+  resetFilters() {
+    this.picked.set({});
+    this.sort.set('featured');
+  }
+
+  onSort(event: Event) {
+    this.sort.set((event.target as HTMLSelectElement).value);
+  }
+
+  /** Fetches the attribute details quietly a moment after the list is shown. */
+  private scheduleDetails() {
+    if (this.hydrateTimer) clearTimeout(this.hydrateTimer);
+    this.hydrateTimer = setTimeout(() => this.fetchDetails(3), 1200);
+  }
+
+  /** The list has no attributes; the full record of each variant has them. A few at a time. */
+  private fetchDetails(concurrency: number) {
+    if (this.hydrating) return;
+    const need = this.products().filter((p) => !this.detailed.has(p.id));
+    if (!need.length) return;
+    this.hydrating = true;
+    this.attrPending.set(true);
+    let n = 0;
+    const flush = () =>
+      this.products.update((list) => list.map((p) => this.detailed.get(p.id) ?? p));
+    this.catalog
+      .hydrateProducts(need, concurrency)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (full) => {
+          const base = this.products().find((p) => p.id === full.id);
+          this.detailed.set(full.id, { ...(base ?? full), ...full, sortOrder: base?.sortOrder ?? full.sortOrder });
+          if (++n % 3 === 0) flush();
+        },
+        complete: () => {
+          flush();
+          this.hydrating = false;
+          this.attrPending.set(false);
+          // variants that arrived (another catalogue) while this ran
+          if (this.products().some((p) => !this.detailed.has(p.id))) this.fetchDetails(concurrency);
+        },
+        error: () => {
+          this.hydrating = false;
+          this.attrPending.set(false);
+        },
+      });
+  }
+
+  private normalize(v: string): string {
+    return v.toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  private matches(productLabels: string[], wanted: string[]): boolean {
+    if (!productLabels.length) return false;
+    return wanted.some((sel) =>
+      productLabels.some((pl) => {
+        const a = this.normalize(pl);
+        const b = this.normalize(sel);
+        return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
+      }),
+    );
+  }
+
+  /** The values a variant has for one attribute (by code). */
+  private attrLabels(p: Product, code: string): string[] {
+    const out: string[] = [];
+    const push = (raw: string | null | undefined) => {
+      const v = (raw || '').trim();
+      if (v && !out.some((x) => this.normalize(x) === this.normalize(v))) out.push(v);
+    };
+    const def = this.attrDefs().find((d) => d.code === code);
+    for (const av of p.attributeValues || []) {
+      const matchesDef =
+        av.attributeDefinition?.code === code ||
+        (!!def && (av.attributeDefinitionId === def.id || av.attributeDefinition?.id === def.id));
+      if (!matchesDef) continue;
+      push(av.option?.label);
+      push(av.valueText);
+      for (const id of [...(av.optionIds || []), ...(av.optionId ? [av.optionId] : [])]) {
+        push(def?.options?.find((o) => o.id === id)?.label);
+      }
+    }
+    if (code === 'sustainability' && p.ecoTag) push(p.ecoTag);
+    return out;
+  }
+
+  // ───── expanding a variant ─────
+  toggle(p: Product) {
+    if (this.openId() === p.id) this.close();
+    else this.open(p);
+  }
+
+  private open(p: Product) {
+    const def = p.colors?.find((c) => c.isDefault) || p.colors?.[0];
+    this.openId.set(p.id);
+    this.openColor.set(def?.id || '');
+    this.openTab.set('colours');
+    // opens on the variant's own main image; picking a colour or a model changes it
+    this.stageUrl.set(this.catalog.mainImageUrl(p));
+    this.catalog.prefetchProduct(p.id);
+  }
+
+  close() {
+    this.openId.set(null);
+  }
+
+  pickColour(p: Product, c: ProductColor) {
+    this.openColor.set(c.id);
+    this.stageUrl.set(this.catalog.colourImageUrl(p, c.id));
+  }
+
+  /**
+   * The expanded panel is shown after the last card of the row that holds the open variant, so
+   * the cards keep their order and the panel spans the full width.
+   */
+  panelAfter(index: number): Product | null {
+    const open = this.openProduct();
+    if (!open) return null;
+    const list = this.filtered();
+    const at = list.findIndex((p) => p.id === open.id);
+    const cols = this.cols();
+    const rowEnd = Math.min(Math.floor(at / cols) * cols + cols - 1, list.length - 1);
+    return index === rowEnd ? open : null;
+  }
+
+  priceLabel(p: Product): string {
+    return formatProductPrice(p, null, { from: true });
+  }
+
+  descriptionFor(p: Product): string {
+    const def = p.colors?.find((c) => c.isDefault)?.id || p.colors?.[0]?.id;
+    return cardDescription(p, def);
+  }
+
+  /** Opens the Custom Designer on this variant (and colour). */
+  designerParams(p: Product, colorId?: string | null): Record<string, string> {
+    const color = colorId || p.colors?.find((c) => c.isDefault)?.id || p.colors?.[0]?.id || '';
+    return { product: p.id, name: p.name, category: p.template || '', color };
   }
 }

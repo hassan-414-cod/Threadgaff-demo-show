@@ -1,43 +1,21 @@
-import {
-  Component,
-  DestroyRef,
-  ElementRef,
-  OnInit,
-  ViewChild,
-  computed,
-  inject,
-  signal,
-} from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Component, ElementRef, OnInit, ViewChild, computed, effect, inject, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { NgTemplateOutlet } from '@angular/common';
-import {
-  AttributeDefinition,
-  CatalogService,
-} from '../../core/services/catalog.service';
+import { CatalogService } from '../../core/services/catalog.service';
 import { Category, Product } from '../../core/models/catalog.models';
-import { genderMatchesFilter } from '../../core/utils/gender';
-import { hasDisplayHex } from '../../core/utils/hex';
-import { priceLabel as formatProductPrice } from '../../core/utils/price';
-import { cardDescription } from '../../core/utils/description';
-import { customFilterDefinitions, filterOptionLabels } from '../../core/utils/filters';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
-import { PortraitFitDirective } from '../../shared/portrait-fit.directive';
+import { FadeInDirective } from '../../shared/fade-in.directive';
 
-/** The built-in groups, or the attribute code of a filter added on the Filters page. */
-type FilterGroup = string;
-
-interface ActiveFilterChip {
-  group: FilterGroup;
-  type: string;
-  value: string;
+export interface HomeCard {
   key: string;
+  slug: string;
+  name: string;
+  image: string | null;
 }
 
 @Component({
   selector: 'tg-home-page',
   standalone: true,
-  imports: [RouterLink, NgTemplateOutlet, PortraitFitDirective],
+  imports: [RouterLink, FadeInDirective],
   template: `
     <section class="home-hero" aria-label="Threadgaff">
       <div class="home-hero-copy">
@@ -52,7 +30,7 @@ interface ActiveFilterChip {
           <a class="home-hero-btn home-hero-btn-fill" routerLink="/quote"
             >Request a Quote <span aria-hidden="true">→</span></a
           >
-          <a class="home-hero-btn home-hero-btn-ghost" href="#featuredCollection"
+          <a class="home-hero-btn home-hero-btn-ghost" href="#catalogues"
             >View Catalogue</a
           >
         </div>
@@ -96,40 +74,42 @@ interface ActiveFilterChip {
           #heroRail
           (scroll)="onHeroRailScroll()"
         >
-          @if (heroLoading()) {
+          @if (slidesLoading()) {
             @for (n of heroSkeletons; track n) {
               <div class="hero-card is-loading" role="status" aria-label="Loading">
                 <span class="hero-spinner"></span>
               </div>
             }
           } @else {
-            @for (card of heroCards(); track card.slug; let i = $index) {
+            @for (card of slides(); track card.key; let i = $index) {
               <a
                 class="hero-card"
-                [class.is-pending]="card.image && !heroReady()[card.slug]"
+                [class.is-pending]="card.image && !heroReady()[card.key]"
                 [style.animation-delay]="(i * 0.04) + 's'"
                 [routerLink]="['/products']"
-                [queryParams]="{ collection: card.slug }"
+                [queryParams]="card.slug ? { collection: card.slug } : {}"
               >
                 @if (card.image) {
                   <img
                     [src]="card.image"
                     [alt]="card.name"
-                    [class.is-ready]="heroReady()[card.slug]"
+                    [class.is-ready]="heroReady()[card.key]"
                     fetchpriority="high"
-                    (load)="heroImageDone(card.slug)"
-                    (error)="heroImageDone(card.slug)"
+                    (load)="heroImageDone(card.key)"
+                    (error)="heroImageDone(card.key)"
                   />
-                  @if (!heroReady()[card.slug]) {
+                  @if (!heroReady()[card.key]) {
                     <span class="hero-spinner" role="status" aria-label="Loading"></span>
                   }
                 }
-                <div class="hero-card-meta">
-                  <div>
-                    <strong>{{ card.name }}</strong>
+                @if (card.name) {
+                  <div class="hero-card-meta">
+                    <div>
+                      <strong>{{ card.name }}</strong>
+                    </div>
+                    <span class="hero-card-go" aria-hidden="true">→</span>
                   </div>
-                  <span class="hero-card-go" aria-hidden="true">→</span>
-                </div>
+                }
               </a>
             }
           }
@@ -154,263 +134,44 @@ interface ActiveFilterChip {
       </div>
     </section>
 
-    <section class="shop-hero" id="featuredCollection" aria-labelledby="featuredCollectionHeading">
-      <div class="shop-hero-inner">
-        <aside class="shop-filters" aria-label="Product filters">
-          <div class="sf-head">
-            <span class="sf-title">Filter by:</span>
-            @if (activeFilterChips().length > 0) {
-              <button type="button" class="sf-reset" (click)="resetFilters()">Reset all</button>
-            }
-          </div>
+    <section class="catalogues" id="catalogues" aria-labelledby="cataloguesHeading">
+      <div class="catalogues-inner">
+        <div class="catalogues-intro">
+          <span class="cat-kicker">Apparel for a brighter tomorrow</span>
+          <h2 id="cataloguesHeading">{{ site.settings().shopHeading }}</h2>
+          <p class="cat-lede">{{ site.settings().shopIntro }}</p>
+        </div>
 
-          <div class="sf-group" [class.open]="openGroups().has('category')">
-            <button type="button" class="sf-group-head" (click)="toggleGroup('category')" [attr.aria-expanded]="openGroups().has('category')">
-              Product Category
-              <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-            </button>
-            <div class="sf-group-body">
-              @for (c of mainCategories(); track c.slug) {
-                <label class="sf-check">
-                  <input
-                    type="checkbox"
-                    [checked]="selectedCats().has(c.slug)"
-                    (change)="toggleCat(c.slug, $event)"
-                  />
-                  <span>{{ c.name }}</span>
-                </label>
-              }
-            </div>
-          </div>
+        @if (error()) {
+          <div class="alert alert-error">{{ error() }}</div>
+        }
 
-          @if (sustainabilityOpts().length && !isFilterHidden('sustainability')) {
-          <div class="sf-group" [class.open]="openGroups().has('sustainability')">
-            <button type="button" class="sf-group-head" (click)="toggleGroup('sustainability')" [attr.aria-expanded]="openGroups().has('sustainability')">
-              Sustainability &amp; Ethics
-              <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-            </button>
-            <div class="sf-group-body">
-              @for (opt of sustainabilityOpts(); track opt) {
-                <label class="sf-check">
-                  <input
-                    type="checkbox"
-                    [checked]="selectedSustainability().has(opt)"
-                    (change)="toggleSustainability(opt, $event)"
-                  />
-                  <span>{{ opt }}</span>
-                </label>
-              }
-            </div>
-          </div>
-          }
-
-          @if (materialOpts().length && !isFilterHidden('material')) {
-          <div class="sf-group" [class.open]="openGroups().has('material')">
-            <button type="button" class="sf-group-head" (click)="toggleGroup('material')" [attr.aria-expanded]="openGroups().has('material')">
-              Material
-              <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-            </button>
-            <div class="sf-group-body">
-              @for (opt of materialOpts(); track opt) {
-                <label class="sf-check">
-                  <input
-                    type="checkbox"
-                    [checked]="selectedMaterials().has(opt)"
-                    (change)="toggleMaterial(opt, $event)"
-                  />
-                  <span>{{ opt }}</span>
-                </label>
-              }
-            </div>
-          </div>
-          }
-
-          @if (genderOpts().length && !isFilterHidden('gender')) {
-          <div class="sf-group" [class.open]="openGroups().has('gender')">
-            <button type="button" class="sf-group-head" (click)="toggleGroup('gender')" [attr.aria-expanded]="openGroups().has('gender')">
-              Gender
-              <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-            </button>
-            <div class="sf-group-body">
-              @for (opt of genderOpts(); track opt) {
-                <label class="sf-check">
-                  <input
-                    type="checkbox"
-                    [checked]="selectedGenders().has(opt)"
-                    (change)="toggleGender(opt, $event)"
-                  />
-                  <span>{{ opt }}</span>
-                </label>
-              }
-            </div>
-          </div>
-          }
-
-          @for (g of customGroups(); track g.code) {
-            <div class="sf-group" [class.open]="openGroups().has(g.code)">
-              <button type="button" class="sf-group-head" (click)="toggleGroup(g.code)" [attr.aria-expanded]="openGroups().has(g.code)">
-                {{ g.title }}
-                <svg class="sf-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-              </button>
-              <div class="sf-group-body">
-                @for (opt of g.options; track opt) {
-                  <label class="sf-check">
-                    <input
-                      type="checkbox"
-                      [checked]="isCustomSelected(g.code, opt)"
-                      (change)="toggleCustom(g.code, opt, $event)"
-                    />
-                    <span>{{ opt }}</span>
-                  </label>
-                }
+        <div class="cat-grid">
+          @if (cataloguesLoading()) {
+            @for (n of [0, 1, 2]; track n) {
+              <div class="cat-card is-loading" role="status" aria-label="Loading">
+                <span class="hero-spinner"></span>
               </div>
-            </div>
-          }
-
-          <div class="sf-card">
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 20A7 7 0 014 13c0-5 4-9.5 10-10 .5 5.5-1 12-9 13.5"/><path d="M6.5 20c1-4.5 3.5-8 7-10" stroke-linecap="round"/></svg>
-            <h4>A more responsible supply chain</h4>
-            <p>Ethically made. Transparently sourced. Built for a better tomorrow.</p>
-            <a routerLink="/how-we-work">Learn more →</a>
-          </div>
-        </aside>
-
-        <div class="shop-main">
-          <div class="shop-intro">
-            <span class="shop-kicker">Apparel for a brighter tomorrow</span>
-            <h1 id="featuredCollectionHeading">{{ site.settings().shopHeading }}</h1>
-            <p class="shop-lede">{{ site.settings().shopIntro }}</p>
-          </div>
-
-          <div class="shop-toolbar">
-            <span class="shop-count"
-              >Showing {{ filteredProducts().length }} of {{ filterPoolSize() }} styles</span
-            >
-            <label class="shop-sort"
-              >Sort by
-              <select [value]="sort()" (change)="onSort($event)">
-                <option value="featured">Default order</option>
-                <option value="price-asc">Price: low to high</option>
-                <option value="price-desc">Price: high to low</option>
-                <option value="name">Name A–Z</option>
-              </select>
-            </label>
-          </div>
-
-          @if (activeFilterChips().length) {
-            <div class="sf-active" aria-label="Active filters">
-              @for (chip of activeFilterChips(); track chip.key) {
-                <button
-                  type="button"
-                  class="sf-chip"
-                  (click)="removeFilterChip(chip)"
-                  [attr.title]="'Remove ' + chip.type + ': ' + chip.value"
-                >
-                  <span class="sf-chip-type">{{ chip.type }}</span>
-                  <span class="sf-chip-val">{{ chip.value }}</span>
-                  <span class="sf-chip-x" aria-hidden="true">×</span>
-                </button>
-              }
-            </div>
-          }
-
-          @if (error()) {
-            <div class="alert alert-error">{{ error() }}</div>
-          }
-
-          <ng-template #productCard let-p="p">
-            <article class="pc">
+            }
+          } @else {
+            @for (c of catalogues(); track c.key) {
               <a
-                class="pc-media"
-                [routerLink]="['/designer']"
-                [queryParams]="designerParams(p)"
-                (pointerenter)="catalog.prefetchProduct(p.id)"
-                (touchstart)="catalog.prefetchProduct(p.id)"
+                class="cat-card"
+                [routerLink]="['/products']"
+                [queryParams]="c.slug ? { collection: c.slug } : {}"
               >
-                @if (p.badge) {
-                  <span class="pc-badge">{{ p.badge }}</span>
+                @if (c.image) {
+                  <img tgFadeIn [src]="c.image" [alt]="c.name" loading="lazy" decoding="async" />
                 }
-                <img tgPortraitFit [src]="cardSrc(p)" [alt]="p.name" loading="lazy" decoding="async" />
-              </a>
-              <div class="pc-body">
-                <h3 class="pc-name">
-                  <a
-                    [routerLink]="['/designer']"
-                    [queryParams]="designerParams(p)"
-                    (pointerenter)="catalog.prefetchProduct(p.id)"
-                  >
-                    {{ p.name }}
-                  </a>
-                </h3>
-                <div class="pc-price">{{ priceLabel(p, selectedColorId(p)) }}</div>
-                @if (p.sku) {
-                  <div class="pc-sku">{{ p.sku }}</div>
-                }
-                @if (colorSwatches(p).length) {
-                  <div class="pc-swatches">
-                    @for (c of colorSwatches(p).slice(0, 6); track c.id) {
-                      <button
-                        type="button"
-                        class="pc-swatch"
-                        [style.background]="c.hex"
-                        [class.is-on]="selectedColorId(p) === c.id"
-                        [attr.title]="c.name"
-                        [attr.aria-label]="c.name"
-                        (click)="selectCardColor(p.id, c.id, $event)"
-                      ></button>
-                    }
-                  </div>
-                }
-                <div class="pc-foot">
-                  @if (descriptionFor(p)) {
-                    <p class="pc-desc">{{ descriptionFor(p) }}</p>
-                  } @else {
-                    <span class="pc-desc" aria-hidden="true"></span>
-                  }
-                  <div class="pc-actions">
-                    <a
-                      class="pc-mini"
-                      [routerLink]="['/products']"
-                      [queryParams]="exploreParams(p)"
-                    >
-                      Explore
-                    </a>
-                    <a
-                      class="pc-mini pc-mini-fill"
-                      [routerLink]="['/designer']"
-                      [queryParams]="designerParams(p)"
-                      (pointerenter)="catalog.prefetchProduct(p.id)"
-                    >
-                      Design
-                    </a>
-                  </div>
+                <div class="cat-meta">
+                  <strong class="cat-name">{{ c.name }}</strong>
+                  <span class="cat-go">View variants <span aria-hidden="true">→</span></span>
                 </div>
-              </div>
-            </article>
-          </ng-template>
-
-          <div class="shop-grid">
-            @for (p of filteredProducts().slice(0, 4); track p.id) {
-              <ng-container *ngTemplateOutlet="productCard; context: { p: p }"></ng-container>
+              </a>
             }
-          </div>
-          @if (filteredProducts().length > 4 && openGroups().size > 2) {
-            <div class="shop-grid" style="margin-top: 26px;">
-              @for (p of filteredProducts().slice(4); track p.id) {
-                <ng-container *ngTemplateOutlet="productCard; context: { p: p }"></ng-container>
-              }
-            </div>
           }
         </div>
       </div>
-
-      @if (filteredProducts().length > 4 && openGroups().size <= 2) {
-        <div class="shop-grid bottom-grid" style="margin-top: 26px;">
-          @for (p of filteredProducts().slice(4); track p.id) {
-            <ng-container *ngTemplateOutlet="productCard; context: { p: p }"></ng-container>
-          }
-        </div>
-      }
     </section>
 
     <section class="quality-band">
@@ -793,128 +554,13 @@ interface ActiveFilterChip {
       color: #ffffff;
     }
     
-    #featuredCollection { scroll-margin-top: 118px; }
+    #catalogues { scroll-margin-top: 118px; }
 
-    .shop-hero {
-      background: var(--paper);
-      padding: 24px 28px 44px;
-    }
-    .shop-hero-inner {
-      display: grid;
-      grid-template-columns: 190px minmax(0, 1fr);
-      gap: 0 28px;
-      align-items: start;
-    }
-    .shop-filters {
-      border-right: 1px solid var(--line);
-      padding-right: 16px;
-    }
-    .sf-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-    .sf-title {
-      font-family: 'Montserrat', sans-serif;
-      font-size: 0.68rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-    }
-    .sf-reset {
-      background: none;
-      border: none;
-      color: var(--muted);
-      font-size: 0.68rem;
-      cursor: pointer;
-      text-decoration: underline;
-      padding: 0;
-    }
-    .sf-group { border-bottom: 1px solid var(--line); }
-    .sf-group-head {
-      width: 100%;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: none;
-      border: none;
-      padding: 12px 0;
-      font-family: 'Montserrat', sans-serif;
-      font-size: 0.68rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--ink);
-      cursor: pointer;
-      text-align: left;
-    }
-    .sf-chev { width: 14px; height: 14px; transition: transform 0.2s; }
-    .sf-group.open > .sf-group-head .sf-chev { transform: rotate(180deg); }
-    .sf-group-body { display: none; padding: 0 0 12px; }
-    .sf-group.open > .sf-group-body { display: flex; flex-direction: column; gap: 8px; }
-    .sf-check {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.78rem;
-      cursor: pointer;
-      color: var(--ink);
-    }
-    .sf-check input { accent-color: var(--forest); }
-    .sf-active {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 0 0 14px;
-    }
-    .sf-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border: 1px solid var(--line);
-      background: var(--panel, #fffdf9);
-      color: var(--ink);
-      border-radius: 999px;
-      padding: 5px 10px 5px 8px;
-      font-size: 0.72rem;
-      cursor: pointer;
-      font-family: inherit;
-      line-height: 1.2;
-    }
-    .sf-chip:hover { border-color: var(--forest); }
-    .sf-chip-type {
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      font-size: 0.62rem;
-      color: var(--muted);
-    }
-    .sf-chip-val { font-weight: 600; }
-    .sf-chip-x {
-      margin-left: 2px;
-      color: var(--muted);
-      font-size: 0.9rem;
-      line-height: 1;
-    }
-    .sf-card {
-      margin-top: 18px;
-      padding: 16px;
-      background: var(--forest-tint);
-      border: 1px solid var(--line);
-    }
-    .sf-card svg { width: 22px; height: 22px; color: var(--forest); margin-bottom: 8px; }
-    .sf-card h4 {
-      font-size: 0.72rem;
-      letter-spacing: 0.06em;
-      margin: 0 0 6px;
-      text-transform: uppercase;
-    }
-    .sf-card p { margin: 0 0 10px; font-size: 0.75rem; color: var(--muted); max-width: none; }
-    .sf-card a { font-size: 0.75rem; font-weight: 600; color: var(--forest); }
 
-    .shop-main { display: grid; row-gap: 18px; }
-    .shop-kicker {
+    .catalogues { background: var(--paper); padding: 56px 28px 72px; }
+    .catalogues-inner { max-width: 1360px; margin: 0 auto; }
+    .catalogues-intro { max-width: 640px; margin: 0 0 32px; }
+    .cat-kicker {
       display: block;
       font-family: 'Montserrat', sans-serif;
       font-size: 0.62rem;
@@ -924,7 +570,7 @@ interface ActiveFilterChip {
       color: var(--muted);
       margin-bottom: 12px;
     }
-    .shop-intro h1 {
+    .catalogues-intro h2 {
       font-family: 'Cormorant Garamond', Georgia, serif;
       font-weight: 600;
       font-size: clamp(2.4rem, 4.6vw, 4rem);
@@ -933,37 +579,78 @@ interface ActiveFilterChip {
       line-height: 1.02;
       margin: 0 0 16px;
     }
-    .shop-lede {
-      margin: 0;
-      max-width: 56ch;
-      font-size: 0.86rem;
-      line-height: 1.65;
-      color: var(--muted);
+    .cat-lede { margin: 0; max-width: 56ch; font-size: 0.9rem; line-height: 1.65; color: var(--muted); }
+    .cat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+      gap: 22px;
     }
-    .shop-toolbar {
+    .cat-card {
+      position: relative;
+      display: block;
+      aspect-ratio: 4 / 5;
+      border-radius: 18px;
+      overflow: hidden;
+      background: #d9d4c7;
+      color: #fff;
+      text-decoration: none;
+      box-shadow: 0 10px 28px rgba(40, 36, 28, 0.12);
+      isolation: isolate;
+    }
+    .cat-card.is-loading { pointer-events: none; }
+    .cat-card img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      transition: transform 0.6s ease, opacity 0.45s ease;
+    }
+    .cat-card img.tg-pending { opacity: 0; }
+    .cat-card:hover img { transform: scale(1.045); }
+    .cat-card:not(.is-loading)::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top, rgba(22, 24, 18, 0.74) 0%, rgba(22, 24, 18, 0.1) 46%, transparent 70%);
+      z-index: 1;
+      pointer-events: none;
+    }
+    .cat-meta {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 2;
+      padding: 26px;
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
+      gap: 14px;
     }
-    .shop-count { font-size: 0.72rem; color: var(--muted); }
-    .shop-sort {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 0.72rem;
-      color: var(--muted);
+    .cat-name {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-weight: 600;
+      font-size: clamp(1.7rem, 2.4vw, 2.2rem);
+      line-height: 1.05;
+      letter-spacing: -0.01em;
     }
-    .shop-sort select {
-      font: inherit;
-      color: var(--ink);
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 3px;
-      padding: 6px 10px;
-      min-width: 118px;
+    .cat-go {
+      flex: none;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.64rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 9px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      background: rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(4px);
+      transition: background 0.2s, color 0.2s;
     }
+    .cat-card:hover .cat-go { background: #fff; color: var(--forest); }
 
     .quality-band { background: var(--ink); color: var(--paper); }
     .quality-band-inner {
@@ -1090,9 +777,8 @@ interface ActiveFilterChip {
         background: transparent;
       }
       .hero-card { min-height: 320px; height: 58vw; max-height: 420px; }
-      .shop-hero-inner { grid-template-columns: 1fr; }
-      .shop-filters { border-right: none; border-bottom: 1px solid var(--line); padding: 0 0 20px; margin-bottom: 20px; }
       .quality-band-inner { grid-template-columns: 1fr; }
+      .catalogues { padding: 40px 18px 52px; }
     }
     @media (max-width: 560px) {
       .home-hero-actions { flex-direction: column; align-items: stretch; }
@@ -1101,102 +787,120 @@ interface ActiveFilterChip {
       .hero-rail, .hero-rail-controls { padding-left: 16px; padding-right: 16px; }
       .hero-card { flex-basis: 70vw; min-height: 360px; height: 70vw; }
       .home-hero-brandline { right: 16px; left: 16px; }
+      .cat-grid { grid-template-columns: 1fr; }
     }
   `,
 })
 export class HomePageComponent implements OnInit {
   @ViewChild('heroRail') heroRailRef?: ElementRef<HTMLElement>;
 
-
   readonly catalog = inject(CatalogService);
-  private readonly destroyRef = inject(DestroyRef);
-  private hydrateTimer: ReturnType<typeof setTimeout> | null = null;
   readonly site = inject(SiteSettingsService);
-  readonly featured = signal<Product[]>([]);
-  readonly collections = signal<Category[]>([]);
-  readonly attrDefs = signal<AttributeDefinition[]>([]);
-  readonly selectedCats = signal<Set<string>>(new Set());
-  readonly selectedGenders = signal<Set<string>>(new Set());
-  readonly selectedMaterials = signal<Set<string>>(new Set());
-  readonly selectedSustainability = signal<Set<string>>(new Set());
-  readonly openGroups = signal<Set<string>>(new Set(['category']));
-  readonly sort = signal('featured');
   readonly error = signal('');
-  readonly filteredProducts = signal<Product[]>([]);
   readonly heroSlide = signal(0);
-  /**
-   * Main product categories (Hoodies, T-Shirts, Sweatshirts, Joggers, Polo Shirts, Sets) in
-   * slider order. The Featured Collection filter and product pool follow this list. If the
-   * catalogue uses none of these slugs, it falls back to the slider's categories.
-   */
-  readonly mainCategories = computed(() => {
-    const cards = this.heroCards();
-    const main = this.heroPreferredOrder
-      .map((slug) => cards.find((c) => c.slug === slug))
-      .filter((c): c is NonNullable<typeof c> => !!c);
-    return (main.length ? main : cards).map((c) => ({ slug: c.slug, name: c.name }));
-  });
-  readonly allProducts = signal<Product[]>([]);
-  /** productId → selected colour id for card preview */
-  readonly cardColorIds = signal<Record<string, string>>({});
-
-  /** Filter checklists come only from the admin Filters page (no built-in fallback lists). */
-  readonly sustainabilityOpts = signal<string[]>([]);
-  readonly materialOpts = signal<string[]>([]);
-  readonly genderOpts = signal<string[]>([]);
-
-  /** Filters added on the Filters page, with their checklist items. */
-  readonly customGroups = computed(() =>
-    customFilterDefinitions(this.attrDefs())
-      .filter((d) => !this.isFilterHidden(d.code))
-      .map((d) => ({ code: d.code, title: d.name, options: filterOptionLabels(d) }))
-      .filter((g) => g.options.length),
-  );
-  readonly selectedCustom = signal<Record<string, Set<string>>>({});
-
-  private readonly heroPreferredOrder = [
-    'hoodies',
-    't-shirts',
-    'sweatshirts',
-    'joggers',
-    'polo-shirts',
-    'sets',
-  ];
-
-  /**
-   * The slider cards. Empty until the categories and products have come back from the
-   * database; there are no built-in pictures. A card without an admin picture has `image: null`.
-   */
-  readonly heroCards = signal<{ slug: string; name: string; image: string | null }[]>([]);
-  /** True until the categories and products have loaded: the slider shows loading boxes. */
-  readonly heroLoading = signal(true);
   readonly heroSkeletons = [0, 1, 2, 3, 4];
-  /** Cards whose picture has finished loading (or failed): their spinner is gone. */
+  /** Slider pictures that have finished loading (or failed): their spinner is gone. */
   readonly heroReady = signal<Record<string, boolean>>({});
-  private catsLoaded = false;
-  private productsLoaded = false;
 
-  heroImageDone(slug: string) {
-    this.heroReady.update((m) => (m[slug] ? m : { ...m, [slug]: true }));
+  private readonly collections = signal<Category[]>([]);
+  private readonly products = signal<Product[]>([]);
+  private readonly catsLoaded = signal(false);
+  private readonly productsLoaded = signal(false);
+
+  /**
+   * Until the admin sets up the home page, the collections are shown as they are (each with its
+   * cover picture or its first product's photo). Nothing is shown before the server has answered.
+   */
+  private readonly derived = computed<HomeCard[]>(() =>
+    this.catsLoaded() && this.productsLoaded()
+      ? this.catalog.deriveHomeCards(this.collections(), this.products()).map((c) => ({
+          key: c.slug,
+          slug: c.slug,
+          name: c.name,
+          image: c.imageUrl || null,
+        }))
+      : [],
+  );
+  private readonly derivedReady = computed(() => this.catsLoaded() && this.productsLoaded());
+
+  /** True until what the slider needs has come back from the server. */
+  readonly slidesLoading = computed(
+    () => !this.site.ready() || (this.site.settings().homeSlides === null && !this.derivedReady()),
+  );
+  readonly slides = computed<HomeCard[]>(() => {
+    if (this.slidesLoading()) return [];
+    const saved = this.site.settings().homeSlides;
+    return saved
+      ? saved.map((s) => ({
+          key: s.id,
+          slug: s.slug,
+          name: s.title,
+          image: s.imageUrl ? this.catalog.normalizeMediaUrl(s.imageUrl) : null,
+        }))
+      : this.derived();
+  });
+
+  readonly cataloguesLoading = computed(
+    () => !this.site.ready() || (this.site.settings().homeCatalogues === null && !this.derivedReady()),
+  );
+  readonly catalogues = computed<HomeCard[]>(() => {
+    if (this.cataloguesLoading()) return [];
+    const saved = this.site.settings().homeCatalogues;
+    return saved
+      ? saved.map((c) => ({
+          key: c.id,
+          slug: c.slug,
+          name: c.name,
+          image: c.imageUrl ? this.catalog.normalizeMediaUrl(c.imageUrl) : null,
+        }))
+      : this.derived();
+  });
+
+  private fallbackRequested = false;
+
+  constructor() {
+    // The collections and products are only needed while the home page has not been set up in
+    // the admin: once it has, the saved pictures are everything the page needs.
+    effect(() => {
+      if (!this.site.ready() || this.fallbackRequested) return;
+      const s = this.site.settings();
+      if (s.homeCatalogues === null || s.homeSlides === null) {
+        this.fallbackRequested = true;
+        untracked(() => this.loadCollections());
+      }
+    });
   }
 
-  /** Pictures that were already cached can finish before Angular listens: catch those too. */
-  private syncHeroImages() {
-    const mark = () => {
-      const el = this.heroRailRef?.nativeElement;
-      if (!el) return;
-      el.querySelectorAll<HTMLImageElement>('.hero-card img').forEach((img) => {
-        const card = this.heroCards().find((c) => c.image && img.getAttribute('src') === c.image);
-        if (card && img.complete) this.heroImageDone(card.slug);
-      });
-    };
-    setTimeout(mark, 0);
-    setTimeout(mark, 400);
-    setTimeout(mark, 1500);
+  ngOnInit() {
+    this.site.load();
+  }
+
+  private loadCollections() {
+    this.catalog.getCollectionCategories().subscribe({
+      next: (cats) => {
+        this.collections.set(cats);
+        this.catsLoaded.set(true);
+      },
+      error: () => this.catsLoaded.set(true),
+    });
+    this.catalog.getProducts({ limit: 100, isActive: true }).subscribe({
+      next: (res) => {
+        this.products.set((res.items || []).filter((p) => p.isActive !== false));
+        this.productsLoaded.set(true);
+      },
+      error: () => {
+        this.productsLoaded.set(true);
+        this.error.set('Could not load the catalogues. Check the API connection.');
+      },
+    });
+  }
+
+  heroImageDone(key: string) {
+    this.heroReady.update((m) => (m[key] ? m : { ...m, [key]: true }));
   }
 
   heroDotIndexes() {
-    return this.heroCards().map((_, i) => i);
+    return this.slides().map((_, i) => i);
   }
 
   scrollHeroRail(dir: number) {
@@ -1222,500 +926,6 @@ export class HomePageComponent implements OnInit {
     const card = el.querySelector('.hero-card') as HTMLElement | null;
     const step = card ? card.offsetWidth + 16 : 200;
     const index = Math.round(el.scrollLeft / step);
-    this.heroSlide.set(
-      Math.max(0, Math.min(index, this.heroCards().length - 1)),
-    );
-  }
-
-  isFilterHidden(code: string): boolean {
-    return this.site.isFilterHidden(code);
-  }
-
-  ngOnInit() {
-    this.site.load();
-    this.catalog.getAttributes().subscribe({
-      next: (defs) => {
-        this.attrDefs.set(defs.filter((d) => d.isActive !== false));
-        const labels = (code: string) =>
-          filterOptionLabels(defs.find((d) => d.code === code));
-        this.sustainabilityOpts.set(labels('sustainability'));
-        this.materialOpts.set(labels('material'));
-        this.genderOpts.set(labels('gender'));
-        this.applyFilters();
-      },
-    });
-
-    this.catalog.getCollectionCategories().subscribe({
-      next: (cats) => {
-        this.collections.set(cats);
-        this.catsLoaded = true;
-        this.refreshHeroCards(cats, this.allProducts());
-      },
-      error: () => {
-        this.catsLoaded = true;
-        this.refreshHeroCards([], this.allProducts());
-      },
-    });
-
-    this.catalog.getProducts({ limit: 100, isActive: true }).subscribe({
-      next: (res) => {
-        const items = (res.items || []).filter((p) => p.isActive !== false);
-        const ordered = [...items].sort(
-          (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
-        );
-        this.allProducts.set(ordered);
-        this.productsLoaded = true;
-        this.refreshHeroCards(this.collections(), ordered);
-
-        // Default homepage grid follows admin drag order (sortOrder)
-        this.featured.set(ordered);
-        this.applyFilters();
-
-        // The cards are complete already. The filters also need each product's attributes: fetch
-        // those quietly afterwards, a few at a time, so the pictures are not held up.
-        this.enrichWithColorMediaLater(ordered);
-      },
-      error: () => {
-        this.productsLoaded = true;
-        this.refreshHeroCards(this.collections(), []);
-        this.error.set('Could not load products. Check the API connection.');
-      },
-    });
-  }
-
-  private enrichWithColorMediaLater(ordered: Product[]) {
-    if (this.hydrateTimer) clearTimeout(this.hydrateTimer);
-    this.hydrateTimer = setTimeout(() => {
-      const byId = new Map<string, Product>();
-      let n = 0;
-      this.catalog
-        .hydrateProducts(ordered, 3)
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({
-          next: (full) => {
-            byId.set(full.id, full);
-            if (++n % 3 === 0) this.applyHydrated(byId);
-          },
-          complete: () => this.applyHydrated(byId),
-        });
-    }, 1500);
-    this.destroyRef.onDestroy(() => this.hydrateTimer && clearTimeout(this.hydrateTimer));
-  }
-
-  private applyHydrated(byId: Map<string, Product>) {
-    const live = this.allProducts()
-      .map((p) => (byId.has(p.id) ? { ...p, ...byId.get(p.id)!, sortOrder: p.sortOrder ?? byId.get(p.id)!.sortOrder } : p))
-      .filter((p) => p.isActive !== false)
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    this.allProducts.set(live);
-    this.featured.set(live);
-    this.applyFilters();
-  }
-
-  private labelForSlug(slug: string) {
-    const labels: Record<string, string> = {
-      hoodies: 'Hoodies',
-      't-shirts': 'T-Shirts',
-      sweatshirts: 'Sweatshirts',
-      joggers: 'Joggers',
-      'polo-shirts': 'Polo Shirts',
-      sets: 'Sets/Co-ords',
-      tracksuits: 'Tracksuits',
-      jackets: 'Jackets',
-    };
-    return (
-      labels[slug] ||
-      slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    );
-  }
-
-  private refreshHeroCards(cats: Category[], products: Product[]) {
-    // Nothing is shown until both the categories and the products have answered.
-    if (!(this.catsLoaded && this.productsLoaded)) return;
-    const bySlug = new Map(cats.map((c) => [c.slug, c]));
-    const photos = new Map<string, string>();
-
-    const ranked = [...products].sort((a, b) => {
-      const feat = Number(b.isFeatured) - Number(a.isFeatured);
-      if (feat) return feat;
-      return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
-    });
-    // a category without its own picture borrows the real photo of its first product
-    for (const p of ranked) {
-      const slug = p.category?.slug;
-      const photo = this.catalog.productPhotoUrl(p);
-      if (slug && photo && !photos.has(slug)) photos.set(slug, photo);
-    }
-
-    const orderedSlugs = [
-      ...this.heroPreferredOrder.filter((s) => bySlug.has(s) || photos.has(s)),
-      ...cats.map((c) => c.slug).filter((s) => !this.heroPreferredOrder.includes(s)),
-    ];
-    const unique = [...new Set(orderedSlugs)].slice(0, 8);
-
-    const cards = unique.map((slug) => {
-      const cat = bySlug.get(slug);
-      const raw = cat?.imageUrl || photos.get(slug) || '';
-      return {
-        slug,
-        name: slug === 'sets' ? 'Sets/Co-ords' : cat?.name || this.labelForSlug(slug),
-        image: raw ? this.catalog.normalizeMediaUrl(raw) : null,
-      };
-    });
-    // categories that have a picture first, in the usual order
-    cards.sort((a, b) => Number(!!b.image) - Number(!!a.image));
-
-    this.heroCards.set(cards);
-    this.heroLoading.set(false);
-    this.syncHeroImages();
-    // The featured collection follows these categories.
-    this.applyFilters();
-  }
-
-  toggleGroup(name: string) {
-    const current = new Set(this.openGroups());
-    if (current.has(name)) {
-      current.delete(name);
-    } else {
-      current.add(name);
-    }
-    this.openGroups.set(current);
-  }
-
-  private toggleInSet(
-    store: ReturnType<typeof signal<Set<string>>>,
-    value: string,
-    event: Event,
-  ) {
-    const checked = (event.target as HTMLInputElement).checked;
-    store.update((set) => {
-      const next = new Set(set);
-      if (checked) next.add(value);
-      else next.delete(value);
-      return next;
-    });
-    this.applyFilters();
-  }
-
-  toggleCat(slug: string, event: Event) {
-    this.toggleInSet(this.selectedCats, slug, event);
-  }
-
-  toggleGender(opt: string, event: Event) {
-    this.toggleInSet(this.selectedGenders, opt, event);
-  }
-
-  toggleMaterial(opt: string, event: Event) {
-    this.toggleInSet(this.selectedMaterials, opt, event);
-  }
-
-  toggleSustainability(opt: string, event: Event) {
-    this.toggleInSet(this.selectedSustainability, opt, event);
-  }
-
-  isCustomSelected(code: string, opt: string): boolean {
-    return !!this.selectedCustom()[code]?.has(opt);
-  }
-
-  toggleCustom(code: string, opt: string, event: Event) {
-    const checked = (event.target as HTMLInputElement).checked;
-    this.selectedCustom.update((all) => {
-      const next = new Set(all[code] || []);
-      if (checked) next.add(opt);
-      else next.delete(opt);
-      return { ...all, [code]: next };
-    });
-    this.applyFilters();
-  }
-
-  private customSelectedCount(): number {
-    return Object.values(this.selectedCustom()).reduce((n, s) => n + s.size, 0);
-  }
-
-  resetFilters() {
-    this.selectedCats.set(new Set());
-    this.selectedGenders.set(new Set());
-    this.selectedMaterials.set(new Set());
-    this.selectedSustainability.set(new Set());
-    this.selectedCustom.set({});
-    this.sort.set('featured');
-    this.applyFilters();
-  }
-
-  onSort(event: Event) {
-    this.sort.set((event.target as HTMLSelectElement).value);
-    this.applyFilters();
-  }
-
-  hasActiveFilters(): boolean {
-    return (
-      this.selectedCats().size > 0 ||
-      this.selectedGenders().size > 0 ||
-      this.selectedMaterials().size > 0 ||
-      this.selectedSustainability().size > 0 ||
-      this.customSelectedCount() > 0
-    );
-  }
-
-  /** Products in the main categories (all products if none of them match yet). */
-  private inMainCategories(list: Product[]): Product[] {
-    const slugs = new Set(this.mainCategories().map((c) => c.slug));
-    const inMain = list.filter((p) => p.category?.slug && slugs.has(p.category.slug));
-    return inMain.length ? inMain : list;
-  }
-
-  filterPoolSize(): number {
-    const pool = this.hasActiveFilters()
-      ? this.allProducts().length
-        ? this.allProducts()
-        : this.featured()
-      : this.featured();
-    return this.inMainCategories(pool).length;
-  }
-
-  activeFilterChips(): ActiveFilterChip[] {
-    const chips: ActiveFilterChip[] = [];
-    for (const slug of this.selectedCats()) {
-      const name =
-        this.collections().find((c) => c.slug === slug)?.name || slug;
-      chips.push({
-        group: 'category',
-        type: 'Category',
-        value: name,
-        key: `category:${slug}`,
-      });
-    }
-    for (const opt of this.selectedSustainability()) {
-      chips.push({
-        group: 'sustainability',
-        type: 'Sustainability',
-        value: opt,
-        key: `sustainability:${opt}`,
-      });
-    }
-    for (const opt of this.selectedMaterials()) {
-      chips.push({
-        group: 'material',
-        type: 'Material',
-        value: opt,
-        key: `material:${opt}`,
-      });
-    }
-    for (const opt of this.selectedGenders()) {
-      chips.push({
-        group: 'gender',
-        type: 'Gender',
-        value: opt,
-        key: `gender:${opt}`,
-      });
-    }
-    for (const g of this.customGroups()) {
-      for (const opt of this.selectedCustom()[g.code] || []) {
-        chips.push({ group: g.code, type: g.title, value: opt, key: `${g.code}:${opt}` });
-      }
-    }
-    return chips;
-  }
-
-  removeFilterChip(chip: ActiveFilterChip) {
-    const drop = (store: ReturnType<typeof signal<Set<string>>>, key: string) => {
-      store.update((set) => {
-        const next = new Set(set);
-        next.delete(key);
-        return next;
-      });
-    };
-    if (chip.group === 'category') {
-      const slug =
-        this.collections().find((c) => c.name === chip.value)?.slug ||
-        chip.key.replace(/^category:/, '');
-      drop(this.selectedCats, slug);
-    } else if (chip.group === 'sustainability') {
-      drop(this.selectedSustainability, chip.value);
-    } else if (chip.group === 'material') {
-      drop(this.selectedMaterials, chip.value);
-    } else if (chip.group === 'gender') {
-      drop(this.selectedGenders, chip.value);
-    } else {
-      this.selectedCustom.update((all) => {
-        const next = new Set(all[chip.group] || []);
-        next.delete(chip.value);
-        return { ...all, [chip.group]: next };
-      });
-    }
-    this.applyFilters();
-  }
-
-  selectedColorId(p: Product): string {
-    const picked = this.cardColorIds()[p.id];
-    if (picked) return picked;
-    return p.colors?.find((c) => c.isDefault)?.id || p.colors?.[0]?.id || '';
-  }
-
-  /** Only colours with a real hex show as storefront swatches. */
-  colorSwatches(p: Product) {
-    return (p.colors || []).filter((c) => hasDisplayHex(c.hex));
-  }
-
-  selectCardColor(productId: string, colorId: string, event?: Event) {
-    event?.preventDefault();
-    event?.stopPropagation();
-    this.cardColorIds.update((m) => ({ ...m, [productId]: colorId }));
-  }
-
-  cardSrc(p: Product): string {
-    return this.catalog.cardImageUrl(p, this.selectedColorId(p));
-  }
-
-  priceLabel(p: Product, colorId?: string | null): string {
-    return formatProductPrice(p, colorId, { from: !colorId });
-  }
-
-  descriptionFor(p: Product): string {
-    return cardDescription(p, this.selectedColorId(p));
-  }
-
-  /** Opens the Custom Designer on this garment, in the colour currently shown on the card. */
-  designerParams(p: Product): Record<string, string> {
-    return { product: p.id, name: p.name, category: p.template || '', color: this.selectedColorId(p) };
-  }
-
-  exploreParams(p: Product): Record<string, string> {
-    const params: Record<string, string> = { product: p.id };
-    const slug = p.category?.slug;
-    if (slug) params['collection'] = slug;
-    return params;
-  }
-
-  private normalizeLabel(v: string): string {
-    return v
-      .toLowerCase()
-      .replace(/[’']/g, '')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim();
-  }
-
-  private labelsMatch(productLabel: string, selected: string): boolean {
-    const a = this.normalizeLabel(productLabel);
-    const b = this.normalizeLabel(selected);
-    if (!a || !b) return false;
-    return a === b || a.includes(b) || b.includes(a);
-  }
-
-  private productAttrLabels(p: Product, code: string): string[] {
-    const out: string[] = [];
-    const push = (raw: string | null | undefined) => {
-      const v = (raw || '').trim();
-      if (!v) return;
-      if (out.some((x) => this.normalizeLabel(x) === this.normalizeLabel(v))) return;
-      out.push(v);
-    };
-
-    const def = this.attrDefs().find((d) => d.code === code);
-    for (const av of p.attributeValues || []) {
-      const avCode = av.attributeDefinition?.code;
-      const avDefId = av.attributeDefinitionId;
-      const matches =
-        avCode === code || (!!def && (avDefId === def.id || av.attributeDefinition?.id === def.id));
-      if (!matches) continue;
-
-      push(av.option?.label);
-      push(av.valueText);
-
-      const ids = [
-        ...(av.optionIds || []),
-        ...(av.optionId ? [av.optionId] : []),
-      ];
-      for (const id of ids) {
-        const opt = def?.options?.find((o) => o.id === id);
-        if (opt) push(opt.label);
-      }
-    }
-
-    if (code === 'sustainability' && p.ecoTag) {
-      push(p.ecoTag);
-    }
-
-    return out;
-  }
-
-  private productGender(p: Product): string {
-    return this.productAttrLabels(p, 'gender')[0] || '';
-  }
-
-  private matchesSelectedLabels(
-    productLabels: string[],
-    selected: string[],
-  ): boolean {
-    if (!selected.length) return true;
-    if (!productLabels.length) return false;
-    return selected.some((sel) =>
-      productLabels.some((pl) => this.labelsMatch(pl, sel)),
-    );
-  }
-
-  private applyFilters() {
-    const filtering = this.hasActiveFilters();
-    let list = this.inMainCategories(
-      filtering
-        ? [...(this.allProducts().length ? this.allProducts() : this.featured())]
-        : [...this.featured()],
-    );
-
-    const cats = this.selectedCats();
-    if (cats.size) {
-      list = list.filter(
-        (p) => p.category?.slug && cats.has(p.category.slug),
-      );
-    }
-
-    const genders = [...this.selectedGenders()];
-    if (genders.length) {
-      list = list.filter((p) => {
-        const g = this.productGender(p);
-        return genders.some((sel) => genderMatchesFilter(g, sel));
-      });
-    }
-
-    const materials = [...this.selectedMaterials()];
-    if (materials.length) {
-      list = list.filter((p) =>
-        this.matchesSelectedLabels(this.productAttrLabels(p, 'material'), materials),
-      );
-    }
-
-    const sustain = [...this.selectedSustainability()];
-    if (sustain.length) {
-      list = list.filter((p) =>
-        this.matchesSelectedLabels(
-          this.productAttrLabels(p, 'sustainability'),
-          sustain,
-        ),
-      );
-    }
-
-    for (const [code, picked] of Object.entries(this.selectedCustom())) {
-      const wanted = [...picked];
-      if (!wanted.length) continue;
-      list = list.filter((p) =>
-        this.matchesSelectedLabels(this.productAttrLabels(p, code), wanted),
-      );
-    }
-
-    switch (this.sort()) {
-      case 'price-asc':
-        list.sort((a, b) => Number(a.basePrice) - Number(b.basePrice));
-        break;
-      case 'price-desc':
-        list.sort((a, b) => Number(b.basePrice) - Number(a.basePrice));
-        break;
-      case 'name':
-        list.sort((a, b) => a.name.localeCompare(b.name));
-        break;
-      default:
-        list.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-        break;
-    }
-    this.filteredProducts.set(list);
+    this.heroSlide.set(Math.max(0, Math.min(index, this.slides().length - 1)));
   }
 }

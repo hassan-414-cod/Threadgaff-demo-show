@@ -16,6 +16,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { AdminProductEditorComponent } from './admin-product-editor.component';
 import { AdminFiltersComponent } from './admin-filters.component';
 import { AdminSiteOutlookComponent } from './admin-site-outlook.component';
+import { AdminHomeComponent } from './admin-home.component';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
 
 type AdminView =
@@ -26,6 +27,7 @@ type AdminView =
   | 'categories'
   | 'attributes'
   | 'filters'
+  | 'home'
   | 'outlook'
   | 'orders'
   | 'enquiries'
@@ -61,6 +63,7 @@ interface CategoryTreeListRow {
     AdminSalesDeskComponent,
     AdminFiltersComponent,
     AdminSiteOutlookComponent,
+    AdminHomeComponent,
   ],
   template: `
     <div class="shell">
@@ -190,6 +193,14 @@ interface CategoryTreeListRow {
         <button
           type="button"
           class="nav-btn"
+          [class.active]="view() === 'home'"
+          (click)="setView('home')"
+        >
+          Home page
+        </button>
+        <button
+          type="button"
+          class="nav-btn"
           [class.active]="view() === 'outlook'"
           (click)="setView('outlook')"
         >
@@ -232,6 +243,9 @@ interface CategoryTreeListRow {
         } @else {
           @if (view() === 'filters') {
             <tg-admin-filters />
+          }
+          @if (view() === 'home') {
+            <tg-admin-home />
           }
           @if (view() === 'outlook') {
             <tg-admin-site-outlook />
@@ -316,7 +330,7 @@ interface CategoryTreeListRow {
                     <li (click)="openProduct(p)">
                       <img
                         class="ops-thumb"
-                        [src]="catalog.cardImageUrl(p)"
+                        [src]="catalog.mainImageUrl(p)"
                         [alt]="p.name"
                       />
                       <div>
@@ -632,7 +646,7 @@ interface CategoryTreeListRow {
                           </td>
                           <td>
                             <div class="col-cell">
-                              <img class="prod-thumb" [src]="catalog.cardImageUrl(p)" [alt]="p.name" />
+                              <img class="prod-thumb" [src]="catalog.mainImageUrl(p)" [alt]="p.name" />
                               <div class="col-meta">
                                 <span class="prod-name">{{ p.name }}</span>
                                 <span class="col-desc">{{ p.slug }}</span>
@@ -761,7 +775,7 @@ interface CategoryTreeListRow {
                         </td>
                         <td>
                           <div class="col-cell">
-                            <img class="prod-thumb" [src]="catalog.cardImageUrl(p)" [alt]="p.name" />
+                            <img class="prod-thumb" [src]="catalog.mainImageUrl(p)" [alt]="p.name" />
                             <div class="col-meta">
                               <span class="prod-name">{{ p.name }}</span>
                               <span class="col-desc">{{ p.slug }}</span>
@@ -3425,6 +3439,7 @@ export class AdminPageComponent implements OnInit {
       'categories',
       'attributes',
       'filters',
+      'home',
       'outlook',
       'orders',
       'enquiries',

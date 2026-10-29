@@ -3,7 +3,25 @@ import { firstValueFrom } from 'rxjs';
 import { CatalogService, SITE_SETTINGS_SLUG } from './catalog.service';
 import { Product } from '../models/catalog.models';
 
-/** Texts the admin can change on the Site Outlook page. */
+/** A big card on the home page. It opens the products page on one catalogue (a collection). */
+export interface HomeCatalogue {
+  id: string;
+  /** Slug of the collection it opens; empty opens all products. */
+  slug: string;
+  name: string;
+  imageUrl: string;
+}
+
+/** A picture in the home page slider. */
+export interface HomeSlide {
+  id: string;
+  /** Slug of the collection it opens; empty opens all products. */
+  slug: string;
+  title: string;
+  imageUrl: string;
+}
+
+/** Texts the admin can change on the Site Outlook page, plus the home page pictures. */
 export interface SiteSettings {
   bannerVisible: boolean;
   bannerText: string;
@@ -13,6 +31,10 @@ export interface SiteSettings {
   contactEmail: string;
   /** Attribute codes of filters switched off on the shop (set on the Filters page). */
   hiddenFilters: string[];
+  /** Home page catalogue cards. null = not set up yet: the collections are shown as they are. */
+  homeCatalogues: HomeCatalogue[] | null;
+  /** Home page slider. null = not set up yet: the collections are shown as they are. */
+  homeSlides: HomeSlide[] | null;
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
@@ -23,6 +45,8 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   shopIntro: 'Browse our collections, then open a style to customise it in the designer.',
   contactEmail: 'hello@threadgaff.com',
   hiddenFilters: [],
+  homeCatalogues: null,
+  homeSlides: null,
 };
 
 const CACHE_KEY = 'tg_site_settings';
@@ -38,6 +62,8 @@ const CACHE_KEY = 'tg_site_settings';
 export class SiteSettingsService {
   private readonly catalog = inject(CatalogService);
   readonly settings = signal<SiteSettings>(this.fromCache());
+  /** True once the server has answered (or failed): the saved home pictures are then known. */
+  readonly ready = signal(false);
   private loaded = false;
   /** Id of the hidden settings product once known (saves skip the lookup). */
   private productId: string | null = null;
@@ -61,9 +87,11 @@ export class SiteSettingsService {
         this.productId = p?.id || this.productId;
         this.saved = parsed;
         this.apply(parsed);
+        this.ready.set(true);
       },
       error: () => {
         /* nothing saved yet: keep the defaults */
+        this.ready.set(true);
       },
     });
   }
@@ -151,6 +179,8 @@ export class SiteSettingsService {
         ? raw.hiddenFilters.filter((c): c is string => typeof c === 'string')
         : [];
       return {
+        homeCatalogues: this.parseCards<HomeCatalogue>(raw.homeCatalogues, true),
+        homeSlides: this.parseCards<HomeSlide>(raw.homeSlides, false),
         bannerVisible: pick('bannerVisible'),
         bannerText: pick('bannerText'),
         heroTagline: pick('heroTagline'),
@@ -162,6 +192,26 @@ export class SiteSettingsService {
     } catch {
       return { ...DEFAULT_SITE_SETTINGS };
     }
+  }
+
+  /** A saved list of home cards, cleaned up; null when none was ever saved. */
+  private parseCards<T extends { id: string; slug: string; imageUrl: string }>(
+    raw: unknown,
+    withName: boolean,
+  ): T[] | null {
+    if (!Array.isArray(raw)) return null;
+    const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
+    return raw
+      .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+      .slice(0, 24)
+      .map((c, i) => {
+        const base = {
+          id: str(c['id'], 40) || 'c' + i,
+          slug: str(c['slug'], 120),
+          imageUrl: str(c['imageUrl'], 500),
+        };
+        return (withName ? { ...base, name: str(c['name'], 80) } : { ...base, title: str(c['title'], 80) }) as unknown as T;
+      });
   }
 
   private apply(s: SiteSettings): void {

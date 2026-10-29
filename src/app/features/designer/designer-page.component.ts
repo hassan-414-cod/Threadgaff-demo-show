@@ -72,7 +72,7 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
             <div class="des-pick-grid">
               @for (p of pickList(); track p.id) {
                 <button type="button" class="des-pick-card" (click)="selectProduct(p)">
-                  <img [src]="catalog.cardImageUrl(p)" [alt]="p.name" />
+                  <img [src]="catalog.mainImageUrl(p)" [alt]="p.name" />
                   <span class="des-pick-name">{{ p.name }}</span>
                   <span class="des-pick-meta">{{ p.category?.name || p.template || 'Apparel' }}</span>
                   @if (descriptionFor(p)) {

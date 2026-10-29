@@ -20,6 +20,16 @@ import {
   ProductTag,
 } from '../models/catalog.models';
 
+/**
+ * Marks a variant's main image: the product-level card image that was set on purpose in the
+ * admin (not the silent copy older saves kept). Only a marked image overrides the picture a
+ * product already shows, so existing products look exactly as before until one is set.
+ */
+export const MAIN_IMAGE_ALT = 'main-image';
+
+/** The collections the home page lists first, in this order. */
+export const HOME_PREFERRED_ORDER = ['hoodies', 't-shirts', 'sweatshirts', 'joggers', 'polo-shirts', 'sets'];
+
 /** Slug of the hidden system product that stores category cover images. */
 export const COVER_STORE_SLUG = 'category-cover-images';
 /** Slug of the hidden system product that stores the editable site texts (Site Outlook). */
@@ -665,21 +675,108 @@ export class CatalogService {
   }
 
   /**
-   * The picture on a colour's own card on the products page (which lists variants): the image
-   * uploaded for that, else the colour's own card photo.
+   * A variant's own main image (a variant is a product inside a catalogue): the image set as its
+   * main image in the admin. A product with none set keeps the picture it already showed (its
+   * default colour's card image).
    */
-  expandedImageUrl(product: Product, colorId?: string | null): string {
-    const colors = product.colors || [];
-    const color =
-      (colorId ? colors.find((c) => c.id === colorId) : null) ||
-      colors.find((c) => c.isDefault) ||
-      colors[0];
-    const own = [
-      ...(color?.images || []),
-      ...(product.images || []).filter((im) => color?.id && im.productColorId === color.id),
-    ].filter((im) => im.role === 'gallery' && !!im.url);
-    const pick = own.find((im) => im.url.includes('/uploads/')) || own[0];
-    return pick ? this.normalizeMediaUrl(pick.url) : this.colorCardImageUrl(product, color);
+  mainImageUrl(product: Product): string {
+    const chosen = (product.images || []).filter(
+      (i) => i.role === 'card' && !i.productColorId && !!i.url && i.altText === MAIN_IMAGE_ALT,
+    );
+    const pick = chosen.find((i) => i.url.includes('/uploads/')) || chosen[0];
+    return pick ? this.normalizeMediaUrl(pick.url) : this.cardImageUrl(product);
+  }
+
+  /**
+   * Every image that belongs to one colour (nested on the colour or tagged with its id). With no
+   * colour given, the product's own images that belong to no colour.
+   */
+  private imagesOfColour(product: Product, colorId: string | null | undefined) {
+    const color = (product.colors || []).find((c) => c.id === colorId);
+    const all = colorId
+      ? [
+          ...(color?.images || []),
+          ...(product.images || []).filter((im) => im.productColorId === colorId),
+        ]
+      : (product.images || []).filter((im) => !im.productColorId);
+    const seen = new Set<string>();
+    return all.filter((im) => {
+      const k = im.id || im.url;
+      if (!im.url || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
+  /** The model photos of one colour (its angles), in the order set in the admin. */
+  modelImages(product: Product, colorId: string | null | undefined): Array<{ url: string; label: string }> {
+    const pretty = (angle: string | null | undefined, n: number) => {
+      const a = (angle || '').trim();
+      if (!a || a === 'other') return 'Model ' + n;
+      return a.split(/[-_\s]+/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    };
+    return this.imagesOfColour(product, colorId)
+      .filter((im) => im.role === 'view' || im.role === 'gallery')
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+      .map((im, i) => ({ url: this.normalizeMediaUrl(im.url), label: pretty(im.angle, i + 1) }));
+  }
+
+  /** A colour's picture in the expanded view: its colour image, else its first model, else the variant's main image. */
+  colourImageUrl(product: Product, colorId: string | null | undefined): string {
+    const own = this.imagesOfColour(product, colorId);
+    const card = own.find((i) => i.role === 'card' && i.url.includes('/uploads/')) || own.find((i) => i.role === 'card');
+    const raw = card?.url || this.modelImages(product, colorId)[0]?.url;
+    return raw ? this.normalizeMediaUrl(raw) : this.mainImageUrl(product);
+  }
+
+  /**
+   * The collections as home page cards, for a site whose home page has not been set up in the
+   * admin yet: the usual order first, each with its cover picture or the photo of its first
+   * product. Nothing is invented: a collection without a picture has none.
+   */
+  deriveHomeCards(
+    cats: Category[],
+    products: Product[],
+  ): Array<{ slug: string; name: string; imageUrl: string }> {
+    const bySlug = new Map(cats.map((c) => [c.slug, c]));
+    const photos = new Map<string, string>();
+    const ranked = [...products].sort((a, b) => {
+      const feat = Number(b.isFeatured) - Number(a.isFeatured);
+      return feat || (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    });
+    for (const p of ranked) {
+      const slug = p.category?.slug;
+      const photo = this.productPhotoUrl(p);
+      if (slug && photo && !photos.has(slug)) photos.set(slug, photo);
+    }
+    const order = [
+      ...HOME_PREFERRED_ORDER.filter((s) => bySlug.has(s) || photos.has(s)),
+      ...cats.map((c) => c.slug).filter((s) => !HOME_PREFERRED_ORDER.includes(s)),
+    ];
+    const cards = [...new Set(order)].slice(0, 8).map((slug) => {
+      const raw = bySlug.get(slug)?.imageUrl || photos.get(slug) || '';
+      return {
+        slug,
+        name: slug === 'sets' ? 'Sets/Co-ords' : bySlug.get(slug)?.name || this.labelForSlug(slug),
+        imageUrl: raw ? this.normalizeMediaUrl(raw) : '',
+      };
+    });
+    // collections that have a picture first, in the usual order
+    return cards.sort((a, b) => Number(!!b.imageUrl) - Number(!!a.imageUrl));
+  }
+
+  private labelForSlug(slug: string): string {
+    const labels: Record<string, string> = {
+      hoodies: 'Hoodies',
+      't-shirts': 'T-Shirts',
+      sweatshirts: 'Sweatshirts',
+      joggers: 'Joggers',
+      'polo-shirts': 'Polo Shirts',
+      sets: 'Sets/Co-ords',
+      tracksuits: 'Tracksuits',
+      jackets: 'Jackets',
+    };
+    return labels[slug] || slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   colorCardImageUrl(

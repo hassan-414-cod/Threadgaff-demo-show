@@ -23,6 +23,7 @@ import { HttpEventType, HttpResponse } from '@angular/common/http';
 import { firstValueFrom, forkJoin, from, of, timer, throwError, timeout } from 'rxjs';
 import { catchError, filter, map, switchMap, retry, tap } from 'rxjs/operators';
 import { UploadGate } from '../../core/utils/upload-gate';
+import { MAIN_IMAGE_ALT } from '../../core/services/catalog.service';
 import { AuthService } from '../../core/services/auth.service';
 import {
   BUILTIN_FILTERS,
@@ -64,9 +65,7 @@ interface ColorFormRow {
   description: string;
   isDefault: boolean;
   cardImage: string;
-  /** Shown only once the product is expanded on the shop (stored as the variant's gallery image). */
-  expandedImage: string;
-  /** Further gallery photos already saved on the variant: kept and sent back untouched. */
+  /** Gallery photos already saved on the colour: kept and sent back untouched on Save. */
   moreGallery: Array<{ url: string; angle: string; sortOrder: number }>;
   views: AngleSlot[];
   selected: boolean;
@@ -613,7 +612,7 @@ const DEFAULT_BRAND_NAMES = [
                 @if (previewUrl()) {
                   <img [src]="shown(previewUrl())" [alt]="form.name || 'Preview'" loading="lazy" decoding="async" />
                 } @else {
-                  <span class="preview-empty">Add a variant or set default media to generate preview</span>
+                  <span class="preview-empty">Add a main image or a colour to generate a preview</span>
                 }
               </div>
               <p class="preview-name">{{ form.name || 'Product' }}</p>
@@ -788,13 +787,13 @@ const DEFAULT_BRAND_NAMES = [
             <section class="ui-card live-preview-card">
               <div class="ui-card-h tight">
                 <h2 class="side-h"><span class="dot-live"></span>Live Preview</h2>
-                <span class="meta-soft">From variant / default media</span>
+                <span class="meta-soft">Models of this colour</span>
               </div>
               <div class="lp-stage" [class.is-empty]="!livePreviewSrc()">
                 @if (livePreviewSrc()) {
-                  <img [src]="shown(livePreviewSrc())" alt="Variant preview" loading="lazy" decoding="async" />
+                  <img [src]="shown(livePreviewSrc())" alt="Colour preview" loading="lazy" decoding="async" />
                 } @else {
-                  <span class="preview-empty">Preview appears when a variant image or default media is set</span>
+                  <span class="preview-empty">Preview appears when a colour picture or model photo is set</span>
                 }
               </div>
               @if (focusedViews().length) {
@@ -832,6 +831,42 @@ const DEFAULT_BRAND_NAMES = [
         </div>
 
         <div class="product-main" [class.step-off]="step() !== 4">
+          <section class="ui-card" id="mainImageCard">
+            <div class="ui-card-h tight">
+              <div>
+                <h2>Main image</h2>
+                <p>This variant's own picture on the products page. Its colours and models are set below.</p>
+              </div>
+            </div>
+            <div class="thumb-row">
+              @if (form.cardImageUrl.trim()) {
+                <img [src]="shown(form.cardImageUrl)" alt="Main image" loading="lazy" decoding="async" />
+              } @else {
+                <div class="thumb-placeholder">No main image yet</div>
+              }
+              <div>
+                <label class="btn btn-ghost file-btn">
+                  Upload main image
+                  <input type="file" accept="image/*" hidden (change)="onDefaultCardImage($event)" />
+                </label>
+                <button type="button" class="btn btn-ghost" [disabled]="!form.cardImageUrl.trim()" (click)="clearMainImage()">
+                  Clear
+                </button>
+              </div>
+            </div>
+            @if (uploadInfo(-1, 'card', 0); as u) {
+              <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
+                @if (u.status === 'uploading') {
+                  {{ u.progress && u.progress < 100 ? 'Uploading ' + u.progress + '%' : u.progress === 100 ? 'Saving the photo…' : 'Uploading…' }}
+                  <span class="slot-bar"><i [style.width.%]="u.progress || 4"></i></span>
+                } @else {
+                  Upload failed{{ u.message ? ': ' + u.message : '' }}
+                  <button type="button" class="retry" (click)="retrySlot(-1, 'card', 0)">Retry</button>
+                }
+              </div>
+            }
+          </section>
+
           <section class="ui-card" id="cardVariants">
             @if (hexNotice()) {
               <p class="hex-notice" role="status">{{ hexNotice() }}</p>
@@ -840,12 +875,12 @@ const DEFAULT_BRAND_NAMES = [
               <div class="ch-title">
                 <span class="card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></span>
                 <div>
-                  <h2>Manage Variants</h2>
-                  <p>Add and manage product variants such as colours, with images and pricing.</p>
+                  <h2>Colours &amp; models</h2>
+                  <p>Add the colours of this variant. Each colour has its own picture and model photos.</p>
                 </div>
               </div>
               <button type="button" class="btn btn-gold variants-add-btn" (click)="addVariant()">
-                + Add Variant
+                + Add colour
               </button>
             </div>
 
@@ -855,7 +890,7 @@ const DEFAULT_BRAND_NAMES = [
                   <div class="variant-bulk-bar">
                     <span class="variant-bulk-count"
                       >{{ selectedCount() }}
-                      {{ selectedCount() === 1 ? 'variant selected' : 'variants selected' }}</span
+                      {{ selectedCount() === 1 ? 'colour selected' : 'colours selected' }}</span
                     >
                     <input
                       type="number"
@@ -890,9 +925,9 @@ const DEFAULT_BRAND_NAMES = [
                   >
                     <div class="ui-card-h">
                       <div>
-                        <h2 class="variant-h">Variant Details</h2>
+                        <h2 class="variant-h">Colour details</h2>
                         <p class="variant-sub">
-                          Edit colour, price, images and angles for this variant.
+                          Edit this colour's name, price, picture and model photos.
                         </p>
                       </div>
                       <div class="toolbar">
@@ -915,7 +950,7 @@ const DEFAULT_BRAND_NAMES = [
 
                     <div class="grid-2">
                       <div>
-                        <label>Variant name</label>
+                        <label>Colour name</label>
                         <input type="text" [(ngModel)]="c.name" (ngModelChange)="onVariantName(c)" [name]="'cname' + c.id" placeholder="Burgundy" />
                       </div>
                       <div>
@@ -972,7 +1007,7 @@ const DEFAULT_BRAND_NAMES = [
                         />
                       </div>
                       <div>
-                        <label>Same as another variant</label>
+                        <label>Same as another colour</label>
                         <select
                           [ngModel]="''"
                           [name]="'same' + c.id"
@@ -988,7 +1023,7 @@ const DEFAULT_BRAND_NAMES = [
                       </div>
                     </div>
                     <div class="row-gap">
-                      <label>Variant description</label>
+                      <label>Colour description</label>
                       <textarea
                         [(ngModel)]="c.description"
                         [name]="'cdesc' + c.id"
@@ -1057,12 +1092,12 @@ const DEFAULT_BRAND_NAMES = [
                     </div>
 
                     <div class="ui-card-h tight angles-head">
-                      <h2 class="side-h">Designer preview images ({{ c.views.length }})</h2>
+                      <h2 class="side-h">Models ({{ c.views.length }})</h2>
                     </div>
                     <p class="fn angles-note">
-                      These are the angles customers see in the <strong>Custom Designer preview</strong>, separate
-                      from the card image and the products page image. The first angle is shown first; angles you add
-                      after it are extra views only.
+                      Model photos of this colour. Customers see them under <strong>Models</strong> when they expand the
+                      variant, and in the Custom Designer preview. The first one is shown first; photos you add after it
+                      are extra views only.
                     </p>
                     <div class="angle-grid">
                       @for (v of c.views; track $index; let vi = $index) {
@@ -1110,7 +1145,7 @@ const DEFAULT_BRAND_NAMES = [
                           }
                         </div>
                       } @empty {
-                        <p class="fn">No angles on this variant yet.</p>
+                        <p class="fn">No model photos on this colour yet.</p>
                       }
                     </div>
                     <div class="section-tools">
@@ -1125,7 +1160,7 @@ const DEFAULT_BRAND_NAMES = [
                   </div>
                 } @else {
                   <div class="ui-card color-block variants-empty">
-                    <p class="fn">No variants yet. Use “+ Add Variant” to create the first one.</p>
+                    <p class="fn">No colours yet. Use “+ Add colour” to create the first one.</p>
                   </div>
                 }
               </div>
@@ -1133,7 +1168,7 @@ const DEFAULT_BRAND_NAMES = [
               <div class="variants-right">
                 <div class="ui-card nested variants-list-card">
                   <div class="ui-card-h tight">
-                    <h2 class="side-h">Variants ({{ colors.length }})</h2>
+                    <h2 class="side-h">Colours ({{ colors.length }})</h2>
                   </div>
                   <div class="variant-pick-list">
                     @for (c of colors; track c.id; let i = $index) {
@@ -1155,7 +1190,7 @@ const DEFAULT_BRAND_NAMES = [
                         </span>
                       </button>
                     } @empty {
-                      <p class="fn">No variants yet.</p>
+                      <p class="fn">No colours yet.</p>
                     }
                   </div>
                 </div>
@@ -1163,15 +1198,15 @@ const DEFAULT_BRAND_NAMES = [
                 @if (focusedColor(); as fc) {
                   <div class="ui-card nested swatch-card">
                     <div class="ui-card-h tight">
-                      <h2 class="side-h">Card image</h2>
+                      <h2 class="side-h">Colour image</h2>
                       <span class="meta-soft">{{ fc.name || 'Untitled' }}</span>
                     </div>
-                    <p class="fn">The main window card, shown on the <strong>home page</strong>.</p>
+                    <p class="fn">This colour's picture and swatch when a customer expands the variant on the products page.</p>
                     <div class="swatch-full" [class.is-empty]="!fc.cardImage">
                       @if (fc.cardImage) {
                         <img [src]="shown(fc.cardImage)" [alt]="(fc.name || 'Variant') + ' card image'" loading="lazy" decoding="async" />
                       } @else {
-                        <span>No card image yet. The cards use the first designer angle.</span>
+                        <span>No colour image yet. The first model photo is used.</span>
                       }
                     </div>
                     <div class="swatch-actions">
@@ -1200,7 +1235,7 @@ const DEFAULT_BRAND_NAMES = [
                       </div>
                     }
                     @if (variantImageOptions().length) {
-                      <label>Or use an image from any variant</label>
+                      <label>Or use an image from any colour</label>
                       <div class="pick-grid">
                         @for (o of variantImageOptions(); track o.key) {
                           <button
@@ -1217,48 +1252,6 @@ const DEFAULT_BRAND_NAMES = [
                     }
                   </div>
 
-                  <div class="ui-card nested swatch-card expanded-card">
-                    <div class="ui-card-h tight">
-                      <h2 class="side-h">Products page image</h2>
-                      <span class="meta-soft">{{ fc.name || 'Untitled' }}</span>
-                    </div>
-                    <p class="fn">
-                      Shown on this variant's own card on the <strong>products page</strong>, where every variant
-                      has its own card. Leave it empty to use the card image.
-                    </p>
-                    <div class="swatch-full" [class.is-empty]="!fc.expandedImage">
-                      @if (fc.expandedImage) {
-                        <img [src]="shown(fc.expandedImage)" [alt]="(fc.name || 'Variant') + ' products page image'" loading="lazy" decoding="async" />
-                      } @else {
-                        <span>No products page image yet. The card image is used.</span>
-                      }
-                    </div>
-                    <div class="swatch-actions">
-                      <label class="btn btn-ghost file-btn">
-                        Upload image
-                        <input
-                          type="file"
-                          accept="image/*"
-                          hidden
-                          (change)="onColorExpandedImage($event, focusedIndex())"
-                        />
-                      </label>
-                      <button type="button" class="btn btn-ghost" [disabled]="!fc.expandedImage" (click)="fc.expandedImage = ''">
-                        Clear
-                      </button>
-                    </div>
-                    @if (uploadInfo(focusedIndex(), 'gallery', 1); as u) {
-                      <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
-                        @if (u.status === 'uploading') {
-                          {{ u.progress && u.progress < 100 ? 'Uploading ' + u.progress + '%' : u.progress === 100 ? 'Saving the photo…' : 'Uploading…' }}
-                          <span class="slot-bar"><i [style.width.%]="u.progress || 4"></i></span>
-                        } @else {
-                          Upload failed{{ u.message ? ': ' + u.message : '' }}
-                          <button type="button" class="retry" (click)="retrySlot(focusedIndex(), 'gallery', 0)">Retry</button>
-                        }
-                      </div>
-                    }
-                  </div>
                 }
               </div>
             </div>
@@ -1268,28 +1261,11 @@ const DEFAULT_BRAND_NAMES = [
             <section class="ui-card" id="productLevelMedia">
               <div class="ui-card-h">
                 <div>
-                  <h2>Default Product Media</h2>
-                  <p>Used when a product has no colour variants yet.</p>
+                  <h2>Default models</h2>
+                  <p>Model photos used while this variant has no colours yet.</p>
                 </div>
               </div>
-              <label>Default card image</label>
-              <div class="thumb-row">
-                @if (form.cardImageUrl.trim()) {
-                  <img [src]="shown(form.cardImageUrl)" alt="" loading="lazy" decoding="async" />
-                } @else {
-                  <div class="thumb-placeholder">No default image</div>
-                }
-                <div>
-                  <label class="btn btn-ghost file-btn">
-                    Upload
-                    <input type="file" accept="image/*" hidden (change)="onDefaultCardImage($event)" />
-                  </label>
-                  <button type="button" class="btn btn-ghost" (click)="form.cardImageUrl = ''">
-                    Clear card image
-                  </button>
-                </div>
-              </div>
-              <label>Default product angles</label>
+              <label>Models</label>
               <div class="section-tools">
                 <input
                   type="text"
@@ -2036,7 +2012,6 @@ const DEFAULT_BRAND_NAMES = [
       letter-spacing: 0.08em; text-transform: uppercase;
     }
     .angles-note { margin: 0 0 8px; }
-    .expanded-card { margin-top: 12px; }
     .angle-slot .angle-label {
       font-size: 0.62rem; margin: 0 0 6px; font-family: Montserrat, sans-serif;
       letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700;
@@ -2105,7 +2080,7 @@ export class AdminProductEditorComponent implements OnChanges {
     { n: 1, label: 'Basic Information' },
     { n: 2, label: 'Details & Pricing' },
     { n: 3, label: 'Decoration' },
-    { n: 4, label: 'Variants & Media' },
+    { n: 4, label: 'Colours & Media' },
     { n: 5, label: 'Review' },
   ];
   readonly step = signal(1);
@@ -2121,6 +2096,8 @@ export class AdminProductEditorComponent implements OnChanges {
   /** Up to three uploads at a time; the same slot is never sent twice at once. */
   private readonly gate = new UploadGate(3);
   private readonly slotJobs = new Map<string, Promise<void>>();
+  /** True when the main image was set on purpose (it is saved with a tag; see MAIN_IMAGE_ALT). */
+  mainImageChosen = false;
   /** What the Save button says while it works ("" = plain "Saving…"). */
   readonly saveNote = signal('');
   /** Ids of the images the product has on the server, so a new upload can be told apart without asking again. */
@@ -2396,13 +2373,13 @@ export class AdminProductEditorComponent implements OnChanges {
     return c?.views[0]?.src?.trim() || c?.cardImage?.trim() || '';
   }
 
-  /** The product card (shop and home): the card image, else the main window image. */
+  /** The variant's card on the products page: its main image, else a colour picture or model. */
   previewUrl(): string {
+    const main = this.form.cardImageUrl.trim();
+    if (main) return main;
     const c = this.focusedColor();
     const fromVariant = c?.cardImage?.trim() || c?.views[0]?.src?.trim() || '';
     if (fromVariant) return fromVariant;
-    const def = this.form.cardImageUrl.trim();
-    if (def) return def;
     const fromDefaultAngle = this.defaultAngles[0]?.src?.trim() || '';
     if (fromDefaultAngle) return fromDefaultAngle;
     // Only an added angle is left: better than a blank, but never ahead of a card or main image.
@@ -3045,7 +3022,6 @@ export class AdminProductEditorComponent implements OnChanges {
       description: '',
       isDefault: this.colors.length === 0,
       cardImage: '',
-      expandedImage: '',
       moreGallery: [],
       views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
       selected: false,
@@ -3077,7 +3053,6 @@ export class AdminProductEditorComponent implements OnChanges {
     dest.priceOverride = src.priceOverride;
     dest.description = src.description;
     dest.cardImage = src.cardImage;
-    dest.expandedImage = src.expandedImage;
     dest.views = src.views.map((v) => ({ ...v }));
   }
 
@@ -3153,14 +3128,6 @@ export class AdminProductEditorComponent implements OnChanges {
     });
   }
 
-  onColorExpandedImage(event: Event, i: number) {
-    this.readImage(event, 640, 0.62).then((src) => {
-      if (!this.colors[i]) return;
-      this.colors[i].expandedImage = src;
-      void this.persistColorImageNow(i, src, { role: 'gallery', angle: 'front', sortOrder: 1 });
-    });
-  }
-
   onColorAngleImage(event: Event, ci: number, vi: number) {
     this.readImage(event, 520, 0.55).then((src) => {
       const row = this.colors[ci];
@@ -3179,12 +3146,19 @@ export class AdminProductEditorComponent implements OnChanges {
   onDefaultCardImage(event: Event) {
     this.readImage(event, 640, 0.62).then((src) => {
       this.form.cardImageUrl = src;
+      this.mainImageChosen = true;
       void this.persistProductImageNow(src, {
         role: 'card',
         angle: 'front',
         sortOrder: 0,
+        altText: MAIN_IMAGE_ALT,
       });
     });
+  }
+
+  clearMainImage() {
+    this.form.cardImageUrl = '';
+    this.mainImageChosen = false;
   }
 
   onDefaultAngleImage(event: Event, i: number) {
@@ -3278,7 +3252,6 @@ export class AdminProductEditorComponent implements OnChanges {
     }
     const row = this.colors[ci];
     if (role === 'card') return row?.cardImage === dataUrl;
-    if (role === 'gallery') return row?.expandedImage === dataUrl;
     return row?.views[sortOrder - 1]?.src === dataUrl;
   }
 
@@ -3297,8 +3270,6 @@ export class AdminProductEditorComponent implements OnChanges {
       else this.defaultAngles[meta.sortOrder - 1].src = url;
     } else if (meta.role === 'card') {
       this.colors[ci].cardImage = url;
-    } else if (meta.role === 'gallery') {
-      this.colors[ci].expandedImage = url;
     } else {
       this.colors[ci].views[meta.sortOrder - 1].src = url;
     }
@@ -3354,7 +3325,7 @@ export class AdminProductEditorComponent implements OnChanges {
   private async uploadWithRetry(
     productId: string,
     file: File,
-    meta: { role: string; angle: string; sortOrder: number; productColorId?: string },
+    meta: { role: string; angle: string; sortOrder: number; productColorId?: string; altText?: string },
     onProgress?: (percent: number) => void,
   ): Promise<unknown> {
     let last: unknown;
@@ -3414,7 +3385,7 @@ export class AdminProductEditorComponent implements OnChanges {
   private async uploadAdaptive(
     productId: string,
     file: File,
-    meta: { role: string; angle: string; sortOrder: number; productColorId?: string },
+    meta: { role: string; angle: string; sortOrder: number; productColorId?: string; altText?: string },
     onProgress?: (percent: number) => void,
   ): Promise<unknown> {
     const steps: Array<[number, number] | null> = [null, [3000, 0.95], [2200, 0.92], [1600, 0.9]];
@@ -3532,10 +3503,6 @@ export class AdminProductEditorComponent implements OnChanges {
       const card = this.newestImage(imgs.filter((im) => im.role === 'card'), priorIds)?.url;
       return this.putUploadedUrl(colorIndex, meta, card, dataUrl);
     }
-    if (meta.role === 'gallery') {
-      const gallery = this.newestImage(imgs.filter((im) => im.role === 'gallery'), priorIds)?.url;
-      return this.putUploadedUrl(colorIndex, meta, gallery, dataUrl);
-    }
     const views = imgs.filter((im) => im.role === 'view');
     const match =
       this.newestImage(
@@ -3547,7 +3514,7 @@ export class AdminProductEditorComponent implements OnChanges {
 
   private persistProductImageNow(
     dataUrl: string,
-    meta: { role: string; angle: string; sortOrder: number },
+    meta: { role: string; angle: string; sortOrder: number; altText?: string },
   ): Promise<void> {
     const productId = this.productId || this.persistedId;
     if (!productId || !dataUrl.startsWith('data:')) return Promise.resolve();
@@ -3613,7 +3580,7 @@ export class AdminProductEditorComponent implements OnChanges {
   }
 
   /** "Retry" button on a slot whose upload failed. */
-  retrySlot(ci: number, role: 'view' | 'card' | 'gallery', index: number) {
+  retrySlot(ci: number, role: 'view' | 'card', index: number) {
     if (ci < 0) {
       const v = this.defaultAngles[index];
       if (!v?.src.startsWith('data:')) return this.setUpload(this.uploadKey(-1, 'view', index + 1), null);
@@ -3629,11 +3596,6 @@ export class AdminProductEditorComponent implements OnChanges {
     if (role === 'card') {
       if (!row.cardImage.startsWith('data:')) return this.setUpload(this.uploadKey(ci, 'card', 0), null);
       void this.persistColorImageNow(ci, row.cardImage, { role: 'card', angle: 'front', sortOrder: 0 });
-      return;
-    }
-    if (role === 'gallery') {
-      if (!row.expandedImage.startsWith('data:')) return this.setUpload(this.uploadKey(ci, 'gallery', 1), null);
-      void this.persistColorImageNow(ci, row.expandedImage, { role: 'gallery', angle: 'front', sortOrder: 1 });
       return;
     }
     const v = row.views[index];
@@ -3738,9 +3700,6 @@ export class AdminProductEditorComponent implements OnChanges {
       if (c.cardImage && !c.cardImage.startsWith('data:')) {
         images.push({ url: c.cardImage, role: 'card', angle: 'front', sortOrder: 0 });
       }
-      if (c.expandedImage && !c.expandedImage.startsWith('data:')) {
-        images.push({ url: c.expandedImage, role: 'gallery', angle: 'front', sortOrder: 1 });
-      }
       for (const g of c.moreGallery) {
         images.push({ url: g.url, role: 'gallery', angle: this.toImageAngle(g.angle), sortOrder: g.sortOrder });
       }
@@ -3834,6 +3793,7 @@ export class AdminProductEditorComponent implements OnChanges {
           role: 'card',
           angle: 'front',
           sortOrder: 0,
+          ...(this.mainImageChosen ? { altText: MAIN_IMAGE_ALT } : {}),
         });
       }
       this.defaultAngles.forEach((v, i) => {
@@ -4066,7 +4026,6 @@ export class AdminProductEditorComponent implements OnChanges {
         description: '',
         isDefault: true,
         cardImage: '',
-        expandedImage: '',
         moreGallery: [],
         views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
         selected: false,
@@ -4112,6 +4071,9 @@ export class AdminProductEditorComponent implements OnChanges {
     this.pendingAttrProduct = p;
     this.knownImageIds = new Set();
     this.rememberImageIds(p);
+    this.mainImageChosen = (p.images || []).some(
+      (i) => i.role === 'card' && !i.productColorId && i.altText === MAIN_IMAGE_ALT,
+    );
     const fromAttrs = this.merchFromAttributes(p);
     const merch = this.parseMerch(p.shortDescription || '');
     this.form = {
@@ -4134,7 +4096,7 @@ export class AdminProductEditorComponent implements OnChanges {
       basePrice: p.basePrice ?? '',
       isActive: p.isActive !== false,
       isFeatured: !!p.isFeatured,
-      cardImageUrl: this.catalog.cardImageUrl(p),
+      cardImageUrl: this.catalog.mainImageUrl(p),
       decoration: fromAttrs.decoration.length ? fromAttrs.decoration : merch.decoration,
       sustainability: fromAttrs.sustainability.length
         ? fromAttrs.sustainability
@@ -4193,8 +4155,7 @@ export class AdminProductEditorComponent implements OnChanges {
         description: (c.description || '').trim(),
         isDefault: !!c.isDefault,
         cardImage: card,
-        expandedImage: galleries[0]?.url || '',
-        moreGallery: galleries.slice(1).map((g) => ({ url: g.url, angle: g.angle || 'front', sortOrder: g.sortOrder ?? 1 })),
+        moreGallery: galleries.map((g) => ({ url: g.url, angle: g.angle || 'front', sortOrder: g.sortOrder ?? 1 })),
         views: views.length
           ? views
           : DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
@@ -4484,7 +4445,7 @@ export class AdminProductEditorComponent implements OnChanges {
     return (
       local(this.form.cardImageUrl) ||
       this.defaultAngles.some((v) => local(v.src)) ||
-      this.colors.some((c) => local(c.cardImage) || local(c.expandedImage) || c.views.some((v) => local(v.src)))
+      this.colors.some((c) => local(c.cardImage) || c.views.some((v) => local(v.src)))
     );
   }
 
@@ -4507,6 +4468,7 @@ export class AdminProductEditorComponent implements OnChanges {
       angle: string;
       sortOrder: number;
       productColorId?: string;
+      altText?: string;
     };
     const jobs: import('rxjs').Observable<unknown>[] = [];
     let missingColorLink = false;
@@ -4560,6 +4522,7 @@ export class AdminProductEditorComponent implements OnChanges {
         role: 'card',
         angle: 'front',
         sortOrder: 0,
+        ...(this.mainImageChosen ? { altText: MAIN_IMAGE_ALT } : {}),
       });
     }
     this.defaultAngles.forEach((v, i) => {
@@ -4579,7 +4542,6 @@ export class AdminProductEditorComponent implements OnChanges {
       }
       const hasPending =
         c.cardImage.startsWith('data:') ||
-        c.expandedImage.startsWith('data:') ||
         c.views.some((v) => v.src.startsWith('data:'));
       if (hasPending && !productColorId) {
         missingColorLink = true;
@@ -4592,9 +4554,6 @@ export class AdminProductEditorComponent implements OnChanges {
           sortOrder: 0,
           productColorId,
         });
-      }
-      if (c.expandedImage.startsWith('data:')) {
-        queue(c.expandedImage, { role: 'gallery', angle: 'front', sortOrder: 1, productColorId });
       }
       c.views.forEach((v, vi) => {
         if (v.src.startsWith('data:')) {
