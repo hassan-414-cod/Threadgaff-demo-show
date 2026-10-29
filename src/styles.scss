@@ -504,43 +504,6 @@ select option:hover {
   color: #fff;
 }
 
-.pc-expand {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  box-shadow: none;
-  color: var(--forest);
-  font-family: 'Inter', system-ui, sans-serif;
-  font-size: 0.58rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  width: fit-content;
-  text-shadow: 0 0 6px rgba(255, 253, 249, 0.9), 0 0 2px #fffdf9;
-}
-
-.pc-expand:hover {
-  color: var(--gold-deep);
-  background: none;
-  border: 0;
-}
-
-/* Only the arrow is shown (the words are kept as the button's accessible name). */
-.pc-expand-arrow {
-  font-size: 1.05rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
 /* Products page: always 5 equal columns, full-width within padded section */
 #productGrid.shop-grid {
   grid-template-columns: repeat(5, minmax(0, 1fr));

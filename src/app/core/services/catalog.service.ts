@@ -665,8 +665,8 @@ export class CatalogService {
   }
 
   /**
-   * The picture on a colour's own card once the product is expanded on the shop: the image
-   * uploaded for that, else the colour's normal card image.
+   * The picture on a colour's own card on the products page (which lists variants): the image
+   * uploaded for that, else the colour's own card photo.
    */
   expandedImageUrl(product: Product, colorId?: string | null): string {
     const colors = product.colors || [];

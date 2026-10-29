@@ -16,8 +16,8 @@ interface DisplayCard {
   product: Product;
   colorId: string;
   colorName: string;
-  expanded: boolean;
-  canExpand: boolean;
+  /** True for a colour variant's own card (the products page lists variants, not the main card). */
+  variant: boolean;
 }
 
 @Component({
@@ -126,18 +126,7 @@ interface DisplayCard {
         }
         <div id="productGrid" class="shop-grid">
           @for (card of displayCards(); track card.key) {
-            <article class="pc" [class.is-variant]="card.expanded">
-              @if (card.canExpand || card.expanded) {
-                <button
-                  type="button"
-                  class="pc-expand"
-                  [attr.aria-label]="card.expanded ? 'Back' : 'Expand'"
-                  [attr.title]="card.expanded ? 'Back' : 'Expand'"
-                  (click)="toggleExpand(card, $event)"
-                >
-                  <span class="pc-expand-arrow" aria-hidden="true">{{ card.expanded ? '←' : '→' }}</span>
-                </button>
-              }
+            <article class="pc" [class.is-variant]="card.variant">
               <a
                 class="pc-media"
                 (pointerenter)="catalog.prefetchProduct(card.product.id)"
@@ -175,7 +164,7 @@ interface DisplayCard {
                 @if (card.product.sku) {
                   <div class="pc-sku">{{ card.product.sku }}</div>
                 }
-                @if (!card.expanded && colorSwatches(card.product).length) {
+                @if (!card.variant && colorSwatches(card.product).length) {
                   <div class="pc-swatches">
                     @for (c of colorSwatches(card.product).slice(0, 8); track c.id) {
                       <button
@@ -391,9 +380,6 @@ interface DisplayCard {
       color: var(--muted);
     }
 
-    .pc.is-variant {
-      outline: 1px solid color-mix(in srgb, var(--forest) 22%, var(--line));
-    }
 
     .bottom-cta {
       background: #e8e6df;
@@ -549,36 +535,28 @@ export class ProductsPageComponent implements OnInit {
   readonly styleOptions = signal<string[]>([]);
   /** productId → selected colour id for card preview */
   readonly cardColorIds = signal<Record<string, string>>({});
-  /** When set, that product’s colour variants fill the grid in sequence. */
-  readonly expandedProductIds = signal<Set<string>>(new Set());
-
+  /**
+   * The products page lists variants: each colour of a product is its own card, with that
+   * colour's picture. (The main card window is only for the home page.) A product with no
+   * colours is shown as one plain card.
+   */
   readonly displayCards = computed((): DisplayCard[] => {
-    const expandedIds = this.expandedProductIds();
     const cards: DisplayCard[] = [];
     for (const p of this.products()) {
       const colors = p.colors || [];
-      const canExpand = colors.length > 1;
-      if (expandedIds.has(p.id) && canExpand) {
-        for (const c of colors) {
-          cards.push({
-            key: `${p.id}:${c.id}`,
-            product: p,
-            colorId: c.id,
-            colorName: c.name || '',
-            expanded: true,
-            canExpand: true,
-          });
-        }
+      if (!colors.length) {
+        cards.push({ key: p.id, product: p, colorId: '', colorName: '', variant: false });
         continue;
       }
-      cards.push({
-        key: p.id,
-        product: p,
-        colorId: this.selectedColorId(p),
-        colorName: '',
-        expanded: false,
-        canExpand,
-      });
+      for (const c of colors) {
+        cards.push({
+          key: `${p.id}:${c.id}`,
+          product: p,
+          colorId: c.id,
+          colorName: colors.length > 1 ? c.name || '' : '',
+          variant: true,
+        });
+      }
     }
     return cards;
   });
@@ -616,24 +594,11 @@ export class ProductsPageComponent implements OnInit {
 
   selectCollection(cat: Category | null) {
     const slug = cat?.slug ?? null;
-    this.expandedProductIds.set(new Set());
     this.router.navigate([], {
       relativeTo: this.route,
       queryParams: slug ? { collection: slug } : {},
       replaceUrl: true,
     });
-  }
-
-  toggleExpand(card: DisplayCard, event?: Event) {
-    event?.preventDefault();
-    event?.stopPropagation();
-    const current = new Set(this.expandedProductIds());
-    if (card.expanded) {
-      current.delete(card.product.id);
-    } else {
-      current.add(card.product.id);
-    }
-    this.expandedProductIds.set(current);
   }
 
   setFit(v: string) {
@@ -700,9 +665,9 @@ export class ProductsPageComponent implements OnInit {
     return this.catalog.cardImageUrl(p, colorId ?? this.selectedColorId(p));
   }
 
-  /** A collapsed card shows the card image; once expanded, each colour shows its own expanded image. */
+  /** A variant card shows that colour's own picture (its expanded image, else its own card photo). */
   shownSrc(card: DisplayCard): string {
-    return card.expanded
+    return card.variant
       ? this.catalog.expandedImageUrl(card.product, card.colorId)
       : this.cardSrc(card.product, card.colorId);
   }
@@ -712,9 +677,6 @@ export class ProductsPageComponent implements OnInit {
   }
 
   private applySlug(slug: string | null) {
-    if (this.selectedSlug() !== slug) {
-      this.expandedProductIds.set(new Set());
-    }
     this.selectedSlug.set(slug);
     const cat = slug
       ? this.collections().find((c) => c.slug === slug)

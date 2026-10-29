@@ -1061,7 +1061,7 @@ const DEFAULT_BRAND_NAMES = [
                     </div>
                     <p class="fn angles-note">
                       These are the angles customers see in the <strong>Custom Designer preview</strong>, separate
-                      from the card image and the expanded view image. The first angle is shown first; angles you add
+                      from the card image and the products page image. The first angle is shown first; angles you add
                       after it are extra views only.
                     </p>
                     <div class="angle-grid">
@@ -1166,7 +1166,7 @@ const DEFAULT_BRAND_NAMES = [
                       <h2 class="side-h">Card image</h2>
                       <span class="meta-soft">{{ fc.name || 'Untitled' }}</span>
                     </div>
-                    <p class="fn">Shown on the shop and home product cards, before expanding.</p>
+                    <p class="fn">The main window card, shown on the <strong>home page</strong>.</p>
                     <div class="swatch-full" [class.is-empty]="!fc.cardImage">
                       @if (fc.cardImage) {
                         <img [src]="shown(fc.cardImage)" [alt]="(fc.name || 'Variant') + ' card image'" loading="lazy" decoding="async" />
@@ -1219,18 +1219,18 @@ const DEFAULT_BRAND_NAMES = [
 
                   <div class="ui-card nested swatch-card expanded-card">
                     <div class="ui-card-h tight">
-                      <h2 class="side-h">Expanded view image</h2>
+                      <h2 class="side-h">Products page image</h2>
                       <span class="meta-soft">{{ fc.name || 'Untitled' }}</span>
                     </div>
                     <p class="fn">
-                      Shown only after a customer clicks <strong>expand</strong> on the shop. Leave it empty to
-                      use the card image.
+                      Shown on this variant's own card on the <strong>products page</strong>, where every variant
+                      has its own card. Leave it empty to use the card image.
                     </p>
                     <div class="swatch-full" [class.is-empty]="!fc.expandedImage">
                       @if (fc.expandedImage) {
-                        <img [src]="shown(fc.expandedImage)" [alt]="(fc.name || 'Variant') + ' expanded view image'" loading="lazy" decoding="async" />
+                        <img [src]="shown(fc.expandedImage)" [alt]="(fc.name || 'Variant') + ' products page image'" loading="lazy" decoding="async" />
                       } @else {
-                        <span>No expanded image yet. The card image is used.</span>
+                        <span>No products page image yet. The card image is used.</span>
                       }
                     </div>
                     <div class="swatch-actions">
