@@ -842,7 +842,10 @@ const DEFAULT_BRAND_NAMES = [
             <div class="ui-card-h tight">
               <div>
                 <h2>Main image</h2>
-                <p>This variant's own picture on the products page. Its colours and models are set below.</p>
+                <p>
+                  The only picture of this variant on the products page. Every other picture (its colours, models,
+                  web shoot and angles, set below) opens in the Custom Designer.
+                </p>
               </div>
             </div>
             <div class="thumb-row">
@@ -861,6 +864,22 @@ const DEFAULT_BRAND_NAMES = [
                 </button>
               </div>
             </div>
+            @if (mainImageOptions().length) {
+              <label>Or choose one of this variant's pictures</label>
+              <div class="pick-grid">
+                @for (o of mainImageOptions(); track o.key) {
+                  <button
+                    type="button"
+                    [class.is-on]="isMainImage(o.url)"
+                    [title]="o.label"
+                    [attr.aria-label]="'Use ' + o.label + ' as the main image'"
+                    (click)="setMainImage(o.url)"
+                  >
+                    <img [src]="shown(o.url)" [alt]="o.label" loading="lazy" decoding="async" />
+                  </button>
+                }
+              </div>
+            }
             @if (uploadInfo(-1, 'card', 0); as u) {
               <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
                 @if (u.status === 'uploading') {
@@ -1102,16 +1121,24 @@ const DEFAULT_BRAND_NAMES = [
                       <h2 class="side-h">Web shoot ({{ c.webShoot.length }})</h2>
                     </div>
                     <p class="fn angles-note">
-                      The photos of this colour for the <strong>products page</strong>, shown there in this order. They
-                      are also listed in the Custom Designer, after the angles. Until a colour has web shoot photos, the
-                      products page shows its angles instead, so nothing goes missing.
+                      The model and web shoot photos of this colour. They open in the <strong>Custom Designer</strong>,
+                      after the angles. The products page shows only the variant's main image: press
+                      <strong>Set as main</strong> on a photo to make it that picture.
                     </p>
                     <div class="angle-grid web-shoot-grid">
                       @for (g of c.webShoot; track $index; let gi = $index) {
-                        <div class="angle-slot web-shot">
-                          <span class="slot-tag">Photo {{ gi + 1 }}</span>
+                        <div class="angle-slot web-shot" [class.is-main]="isMainImage(g.url)">
+                          <span class="slot-tag">{{ isMainImage(g.url) ? 'Main · products page' : 'Photo ' + (gi + 1) }}</span>
                           <img [src]="shown(g.url)" alt="" loading="lazy" decoding="async" />
                           <div class="slot-actions">
+                            <button
+                              type="button"
+                              class="btn btn-ghost"
+                              [disabled]="g.url.startsWith('data:') || isMainImage(g.url)"
+                              (click)="setMainImage(g.url)"
+                            >
+                              Set as main
+                            </button>
                             <button type="button" class="btn btn-danger" (click)="removeWebShot(focusedIndex(), gi)">
                               Delete
                             </button>
@@ -3230,6 +3257,23 @@ export class AdminProductEditorComponent implements OnChanges {
         altText: MAIN_IMAGE_ALT,
       });
     });
+  }
+
+  /** Makes one of the variant's saved pictures its main image: the one the products page shows. */
+  setMainImage(url: string) {
+    if (!url || url.startsWith('data:')) return;
+    this.form.cardImageUrl = url;
+    this.mainImageChosen = true;
+  }
+
+  isMainImage(url: string): boolean {
+    const file = (u: string) => u.replace(/^https?:\/\/[^/]+/i, '').split('?')[0];
+    return !!url && !!this.form.cardImageUrl && file(url) === file(this.form.cardImageUrl);
+  }
+
+  /** The variant's saved pictures its main image can be picked from. */
+  mainImageOptions() {
+    return this.variantImageOptions().filter((o) => !o.url.startsWith('data:'));
   }
 
   clearMainImage() {

@@ -66,10 +66,11 @@ interface Shot {
 }
 
 /**
- * The shop. Home sends a customer here by catalogue; this page shows every picture of every
- * variant in the catalogue (its colours and models), in the same order as the admin list,
- * catalogue by catalogue. A variant's main image is left out. Attribute values that have a
- * picture show it when clicked. Catalogue tabs, filters and sort are on this one page.
+ * The shop. Home sends a customer here by catalogue; this page lists the variants of each
+ * catalogue in the admin order, each as one picture (the main image chosen in the admin) with
+ * its name, price and colours. Everything else (the other colours, models, web shoot photos and
+ * angles) is in the Custom Designer, which a click on a variant or a colour opens. Attribute
+ * values that have a picture show it when clicked. Catalogue tabs, filters and sort are here too.
  */
 @Component({
   selector: 'tg-products-page',
@@ -145,7 +146,7 @@ interface Shot {
       <header class="shop-head">
         <span class="kicker">Wholesale apparel manufacturing</span>
         <h1>{{ rangeTitle() }}</h1>
-        <p class="lede">Every picture of each variant, with its colours and models. Click a picture to see it larger.</p>
+        <p class="lede">Each variant with its main picture and its colours. Open one to see all its models and photos in the Custom Designer.</p>
       </header>
 
       <section class="shop-body">
@@ -207,47 +208,58 @@ interface Shot {
             @if (!selectedSlug()) {
               <h2 class="cat-title">{{ sec.title }}</h2>
             }
-            @for (p of sec.items; track p.id) {
-              <article class="prod" [id]="'p-' + p.id" [class.flash]="flashId() === p.id">
-                <header class="prod-head">
-                  <h3 class="prod-name">{{ p.name }}</h3>
-                  <span class="prod-price">{{ priceLabel(p) }}</span>
+            <div class="grid">
+              @for (p of sec.items; track p.id) {
+                <article class="prod" [id]="'p-' + p.id" [class.flash]="flashId() === p.id">
                   <a
-                    class="pc-mini pc-mini-fill prod-go"
+                    class="prod-pic"
                     [routerLink]="['/designer']"
                     [queryParams]="designerParams(p)"
+                    [attr.aria-label]="'Customise ' + p.name"
                     (pointerenter)="catalog.prefetchProduct(p.id)"
                     (touchstart)="catalog.prefetchProduct(p.id)"
                   >
-                    Customise →
+                    <span class="prod-frame">
+                      @if (mainOf(p)) {
+                        <img tgFadeIn [src]="mainOf(p)" [alt]="p.name" loading="lazy" decoding="async" />
+                      } @else {
+                        <span class="prod-empty">No picture yet</span>
+                      }
+                    </span>
                   </a>
-                </header>
+                  <h3 class="prod-name">
+                    <a [routerLink]="['/designer']" [queryParams]="designerParams(p)">{{ p.name }}</a>
+                  </h3>
+                  <div class="prod-price">{{ priceLabel(p) }}</div>
 
-                @if (pillsOf(p).length) {
-                  <div class="pills" aria-label="Attributes">
-                    @for (pl of pillsOf(p); track pl.key) {
-                      <button type="button" class="pill" (click)="openAttribute(p, pl)" [attr.aria-label]="pl.title + ': ' + pl.label + ' — show picture'">
-                        <img [src]="pl.url" alt="" loading="lazy" decoding="async" />
-                        <span><b>{{ pl.title }}</b> {{ pl.label }}</span>
-                      </button>
-                    }
-                  </div>
-                }
-
-                <div class="wall">
-                  @for (s of galleryOf(p); track s.url; let i = $index) {
-                    <button type="button" class="shot" (click)="openShot(p, i)" [attr.aria-label]="p.name + ' — ' + s.label">
-                      <span class="shot-frame">
-                        <img tgFadeIn [src]="s.url" [alt]="p.name + ' ' + s.label" loading="lazy" decoding="async" />
-                      </span>
-                      <span class="shot-cap">{{ s.label }}</span>
-                    </button>
-                  } @empty {
-                    <p class="no-pics">No pictures have been added for this variant yet.</p>
+                  @if (swatchesOf(p).length) {
+                    <div class="swatches" aria-label="Colours">
+                      @for (c of swatchesOf(p); track c.id) {
+                        <a
+                          class="sw"
+                          [routerLink]="['/designer']"
+                          [queryParams]="designerParams(p, c.id)"
+                          [style.background]="c.hex"
+                          [attr.title]="c.name"
+                          [attr.aria-label]="c.name + ' — customise in this colour'"
+                        ></a>
+                      }
+                    </div>
                   }
-                </div>
-              </article>
-            }
+
+                  @if (pillsOf(p).length) {
+                    <div class="pills" aria-label="Attributes">
+                      @for (pl of pillsOf(p); track pl.key) {
+                        <button type="button" class="pill" (click)="openAttribute(p, pl)" [attr.aria-label]="pl.title + ': ' + pl.label + ' — show picture'">
+                          <img [src]="pl.url" alt="" loading="lazy" decoding="async" />
+                          <span><b>{{ pl.title }}</b> {{ pl.label }}</span>
+                        </button>
+                      }
+                    </div>
+                  }
+                </article>
+              }
+            </div>
           </section>
         }
       </section>
@@ -445,24 +457,50 @@ interface Shot {
       padding-bottom: 10px;
       border-bottom: 1px solid var(--line);
     }
-    .prod { margin: 0 0 44px; }
-    .prod.flash .prod-name { background: color-mix(in srgb, var(--forest) 14%, transparent); border-radius: 6px; }
-    .prod-head { display: flex; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; margin: 0 0 12px; }
+    /* the catalogue: one main picture per variant, five across, name / price / colours underneath */
+    .grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 46px 26px; }
+    .prod { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
+    .prod-pic { display: block; width: 100%; }
+    .prod-frame { display: block; aspect-ratio: 1 / 1; overflow: hidden; background: #ececee; }
+    .prod-frame img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+      object-position: 50% 22%;
+      transition: transform 0.35s ease, opacity 0.4s ease;
+    }
+    .prod-frame img.tg-pending { opacity: 0; }
+    .prod-frame:has(img.tg-pending) {
+      background: linear-gradient(100deg, #e8e8ea 30%, #f4f4f5 50%, #e8e8ea 70%) 0 0 / 220% 100%;
+      animation: shotShimmer 1.4s linear infinite;
+    }
+    @keyframes shotShimmer { to { background-position: -120% 0; } }
+    .prod-pic:hover img { transform: scale(1.04); }
+    .prod-pic:focus-visible { outline: 2px solid var(--forest); outline-offset: 4px; }
+    .prod-empty { display: grid; place-items: center; height: 100%; color: var(--muted); font-size: 0.78rem; }
     .prod-name {
-      margin: 0;
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 1.05rem;
-      font-weight: 700;
-      letter-spacing: 0;
-      text-transform: none;
+      margin: 16px 0 0;
       padding: 2px 6px;
-      margin-left: -6px;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.92rem;
+      font-weight: 400;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+      border-radius: 6px;
       transition: background 0.4s ease;
     }
-    .prod-price { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; font-weight: 600; color: var(--ink); }
-    .prod-go { margin-left: auto; padding: 8px 14px; font-size: 0.64rem; }
+    .prod-name a { color: inherit; text-decoration: none; }
+    .prod-name a:hover { text-decoration: underline; text-underline-offset: 3px; }
+    .prod.flash .prod-name { background: color-mix(in srgb, var(--forest) 14%, transparent); }
+    .prod-price { margin-top: 8px; font-size: 0.82rem; color: var(--ink); }
+    .swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 100%; margin-top: 14px; }
+    .sw { display: block; width: 13px; height: 13px; border: 1px solid rgba(0, 0, 0, 0.16); transition: transform 0.15s ease; }
+    .sw:hover, .sw:focus-visible { transform: scale(1.35); border-color: var(--ink); outline: none; }
 
-    .pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+    .pills { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 14px 0 0; }
     .pill {
       display: inline-flex;
       align-items: center;
@@ -481,47 +519,6 @@ interface Shot {
     .pill img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; }
     .pill b { font-family: 'Montserrat', sans-serif; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
 
-    /* a catalogue grid: five across, big square photos edge to edge, the label centred underneath */
-    .wall { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 34px 26px; }
-    .shot {
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      gap: 14px;
-      padding: 0;
-      border: 0;
-      background: none;
-      color: var(--ink);
-      text-align: center;
-      cursor: zoom-in;
-      font: inherit;
-    }
-    .shot-frame { display: block; aspect-ratio: 1 / 1; overflow: hidden; background: #ececee; }
-    .shot img {
-      width: 100%;
-      height: 100%;
-      display: block;
-      object-fit: cover;
-      object-position: 50% 22%;
-      transition: transform 0.35s ease, opacity 0.4s ease;
-    }
-    .shot img.tg-pending { opacity: 0; }
-    .shot-frame:has(img.tg-pending) {
-      background: linear-gradient(100deg, #e8e8ea 30%, #f4f4f5 50%, #e8e8ea 70%) 0 0 / 220% 100%;
-      animation: shotShimmer 1.4s linear infinite;
-    }
-    @keyframes shotShimmer { to { background-position: -120% 0; } }
-    .shot:hover img { transform: scale(1.04); }
-    .shot:focus-visible { outline: 2px solid var(--forest); outline-offset: 4px; }
-    .shot-cap {
-      font-size: 0.78rem;
-      font-weight: 500;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-      line-height: 1.35;
-      overflow-wrap: anywhere;
-    }
-    .no-pics { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 0.82rem; }
 
     /* viewer */
     .lb {
@@ -579,16 +576,15 @@ interface Shot {
 
     @media (max-width: 900px) {
       .shop-tabs-inner, .shop-head, .shop-body, .shop-filters-inner { padding-left: 18px; padding-right: 18px; }
-      .wall { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 14px; }
-      .prod-go { margin-left: 0; }
+      .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 14px; }
     }
     @media (max-width: 560px) {
-      .wall { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 10px; }
-      .shot-cap { font-size: 0.7rem; }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px 10px; }
+      .prod-name { font-size: 0.8rem; }
     }
     @media (prefers-reduced-motion: reduce) {
       .shop-filters, .lb { animation: none; }
-      .shot-frame:has(img.tg-pending) { animation: none; }
+      .prod-frame:has(img.tg-pending) { animation: none; }
     }
   `,
 })
@@ -613,7 +609,7 @@ export class ProductsPageComponent implements OnInit {
   /** True while the attribute details the filters need are still being fetched. */
   readonly attrPending = signal(false);
 
-  /** The picture open in the viewer, with the others of the same variant to step through. */
+  /** The picture open in the viewer (an attribute picture). */
   readonly viewer = signal<{ product: Product; list: Shot[]; index: number } | null>(null);
   /** The variant just jumped to from an address (?product=…), highlighted for a moment. */
   readonly flashId = signal<string | null>(null);
@@ -717,12 +713,26 @@ export class ProductsPageComponent implements OnInit {
     return out;
   });
 
-  /** Every picture of each shown variant (its main image left out). */
-  private readonly galleries = computed(
-    () => new Map(this.filtered().map((p) => [p.id, this.catalog.productGallery(p)])),
+  /** The main picture of each shown variant (the one chosen in the admin). */
+  private readonly mains = computed(
+    () => new Map(this.filtered().map((p) => [p.id, this.catalog.mainImageUrl(p)])),
+  );
+
+  /** The colours of each shown variant, in the admin order. */
+  private readonly swatches = computed(
+    () =>
+      new Map(
+        this.filtered().map((p) => [
+          p.id,
+          [...(p.colors || [])]
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+            .map((c) => ({ id: c.id, name: c.name || 'Colour', hex: /^#[0-9a-f]{3,8}$/i.test(c.hex || '') ? c.hex : '#9ca3af' })),
+        ]),
+      ),
   );
 
   /** The attribute values of each shown variant that have a picture. */
+
   private readonly pills = computed(() => {
     const defs = [...this.attrDefs()].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     const out = new Map<string, Pill[]>();
@@ -739,8 +749,12 @@ export class ProductsPageComponent implements OnInit {
     return out;
   });
 
-  galleryOf(p: Product) {
-    return this.galleries().get(p.id) ?? [];
+  mainOf(p: Product): string {
+    return this.mains().get(p.id) ?? '';
+  }
+
+  swatchesOf(p: Product) {
+    return this.swatches().get(p.id) ?? [];
   }
 
   pillsOf(p: Product): Pill[] {
@@ -947,11 +961,6 @@ export class ProductsPageComponent implements OnInit {
   }
 
   // ───── viewer ─────
-  openShot(p: Product, index: number) {
-    const list: Shot[] = this.galleryOf(p).map((s) => ({ url: s.url, label: s.label, colorId: s.colorId }));
-    if (list.length) this.viewer.set({ product: p, list, index });
-  }
-
   openAttribute(p: Product, pill: Pill) {
     this.viewer.set({
       product: p,
