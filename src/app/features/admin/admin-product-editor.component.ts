@@ -57,6 +57,13 @@ interface AngleSlot {
   src: string;
 }
 
+/** One web shoot photo; `url` is a data URL while it is still only on this computer. */
+interface WebShot {
+  url: string;
+  angle: string;
+  sortOrder: number;
+}
+
 interface ColorFormRow {
   id: string;
   name: string;
@@ -65,8 +72,8 @@ interface ColorFormRow {
   description: string;
   isDefault: boolean;
   cardImage: string;
-  /** Gallery photos already saved on the colour: kept and sent back untouched on Save. */
-  moreGallery: Array<{ url: string; angle: string; sortOrder: number }>;
+  /** Web shoot photos: what the products page shows for this colour (the designer lists them after the angles). */
+  webShoot: WebShot[];
   views: AngleSlot[];
   selected: boolean;
 }
@@ -787,7 +794,7 @@ const DEFAULT_BRAND_NAMES = [
             <section class="ui-card live-preview-card">
               <div class="ui-card-h tight">
                 <h2 class="side-h"><span class="dot-live"></span>Live Preview</h2>
-                <span class="meta-soft">Models of this colour</span>
+                <span class="meta-soft">Angles of this colour</span>
               </div>
               <div class="lp-stage" [class.is-empty]="!livePreviewSrc()">
                 @if (livePreviewSrc()) {
@@ -1091,13 +1098,59 @@ const DEFAULT_BRAND_NAMES = [
                       }
                     </div>
 
-                    <div class="ui-card-h tight angles-head">
-                      <h2 class="side-h">Models ({{ c.views.length }})</h2>
+                    <div class="ui-card-h tight angles-head" id="webShoot">
+                      <h2 class="side-h">Web shoot ({{ c.webShoot.length }})</h2>
                     </div>
                     <p class="fn angles-note">
-                      Model photos of this colour. Customers see them under <strong>Models</strong> when they expand the
-                      variant, and in the Custom Designer preview. The first one is shown first; photos you add after it
-                      are extra views only.
+                      The photos of this colour for the <strong>products page</strong>, shown there in this order. They
+                      are also listed in the Custom Designer, after the angles. Until a colour has web shoot photos, the
+                      products page shows its angles instead, so nothing goes missing.
+                    </p>
+                    <div class="angle-grid web-shoot-grid">
+                      @for (g of c.webShoot; track $index; let gi = $index) {
+                        <div class="angle-slot web-shot">
+                          <span class="slot-tag">Photo {{ gi + 1 }}</span>
+                          <img [src]="shown(g.url)" alt="" loading="lazy" decoding="async" />
+                          <div class="slot-actions">
+                            <button type="button" class="btn btn-danger" (click)="removeWebShot(focusedIndex(), gi)">
+                              Delete
+                            </button>
+                          </div>
+                          @if (uploadInfo(focusedIndex(), 'gallery', g.sortOrder); as u) {
+                            <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
+                              @if (u.status === 'uploading') {
+                                {{ u.progress && u.progress < 100 ? 'Uploading ' + u.progress + '%' : u.progress === 100 ? 'Saving the photo…' : 'Uploading…' }}
+                                <span class="slot-bar"><i [style.width.%]="u.progress || 4"></i></span>
+                              } @else {
+                                Upload failed{{ u.message ? ': ' + u.message : '' }}
+                                <button type="button" class="retry" (click)="retrySlot(focusedIndex(), 'gallery', g.sortOrder)">Retry</button>
+                              }
+                            </div>
+                          }
+                        </div>
+                      } @empty {
+                        <p class="fn">No web shoot photos on this colour yet.</p>
+                      }
+                    </div>
+                    <div class="section-tools">
+                      <label class="btn btn-ghost file-btn">
+                        + Add web shoot photos
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          hidden
+                          (change)="onWebShootFiles($event, focusedIndex())"
+                        />
+                      </label>
+                    </div>
+
+                    <div class="ui-card-h tight angles-head">
+                      <h2 class="side-h">Angles ({{ c.views.length }})</h2>
+                    </div>
+                    <p class="fn angles-note">
+                      The angles of this colour for the <strong>Custom Designer</strong> preview only; the products page
+                      does not show them. The first one is shown first; photos you add after it are extra views only.
                     </p>
                     <div class="angle-grid">
                       @for (v of c.views; track $index; let vi = $index) {
@@ -1145,7 +1198,7 @@ const DEFAULT_BRAND_NAMES = [
                           }
                         </div>
                       } @empty {
-                        <p class="fn">No model photos on this colour yet.</p>
+                        <p class="fn">No angles on this colour yet.</p>
                       }
                     </div>
                     <div class="section-tools">
@@ -1261,11 +1314,11 @@ const DEFAULT_BRAND_NAMES = [
             <section class="ui-card" id="productLevelMedia">
               <div class="ui-card-h">
                 <div>
-                  <h2>Default models</h2>
-                  <p>Model photos used while this variant has no colours yet.</p>
+                  <h2>Default angles</h2>
+                  <p>Angles used while this variant has no colours yet.</p>
                 </div>
               </div>
-              <label>Models</label>
+              <label>Angles</label>
               <div class="section-tools">
                 <input
                   type="text"
@@ -3022,7 +3075,7 @@ export class AdminProductEditorComponent implements OnChanges {
       description: '',
       isDefault: this.colors.length === 0,
       cardImage: '',
-      moreGallery: [],
+      webShoot: [],
       views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
       selected: false,
     });
@@ -3088,6 +3141,28 @@ export class AdminProductEditorComponent implements OnChanges {
     this.newAngleLabel = '';
   }
 
+  /** Adds the chosen photos to the colour's web shoot; each uploads in the background as soon as it is picked. */
+  async onWebShootFiles(event: Event, ci: number) {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    for (const file of files) {
+      const src = await this.readFile(file).catch(() => '');
+      const row = this.colors[ci];
+      if (!src || !row) continue;
+      const sortOrder = Math.max(0, ...row.webShoot.map((g) => g.sortOrder)) + 1;
+      row.webShoot.push({ url: src, angle: 'other', sortOrder });
+      void this.persistColorImageNow(ci, src, { role: 'gallery', angle: 'other', sortOrder });
+    }
+  }
+
+  removeWebShot(ci: number, index: number) {
+    const shot = this.colors[ci]?.webShoot[index];
+    if (!shot) return;
+    this.colors[ci].webShoot.splice(index, 1);
+    this.setUpload(this.uploadKey(ci, 'gallery', shot.sortOrder), null);
+  }
+
   addDefaultAngle() {
     const label = this.newDefaultAngleLabel.trim() || `Angle ${this.defaultAngles.length + 1}`;
     this.defaultAngles.push({ label, angle: this.slugify(label), src: '' });
@@ -3107,6 +3182,7 @@ export class AdminProductEditorComponent implements OnChanges {
       };
       add(c.cardImage, 'Card');
       c.views.forEach((v) => add(v.src, v.label || 'Angle'));
+      c.webShoot.forEach((g, gi) => add(g.url, `Web shoot ${gi + 1}`));
     });
     return out;
   }
@@ -3252,6 +3328,7 @@ export class AdminProductEditorComponent implements OnChanges {
     }
     const row = this.colors[ci];
     if (role === 'card') return row?.cardImage === dataUrl;
+    if (role === 'gallery') return !!row?.webShoot.some((g) => g.sortOrder === sortOrder && g.url === dataUrl);
     return row?.views[sortOrder - 1]?.src === dataUrl;
   }
 
@@ -3270,6 +3347,9 @@ export class AdminProductEditorComponent implements OnChanges {
       else this.defaultAngles[meta.sortOrder - 1].src = url;
     } else if (meta.role === 'card') {
       this.colors[ci].cardImage = url;
+    } else if (meta.role === 'gallery') {
+      const shot = this.colors[ci].webShoot.find((g) => g.sortOrder === meta.sortOrder && g.url === dataUrl);
+      if (shot) shot.url = url;
     } else {
       this.colors[ci].views[meta.sortOrder - 1].src = url;
     }
@@ -3503,6 +3583,10 @@ export class AdminProductEditorComponent implements OnChanges {
       const card = this.newestImage(imgs.filter((im) => im.role === 'card'), priorIds)?.url;
       return this.putUploadedUrl(colorIndex, meta, card, dataUrl);
     }
+    if (meta.role === 'gallery') {
+      const shots = imgs.filter((im) => im.role === 'gallery' && im.sortOrder === meta.sortOrder);
+      return this.putUploadedUrl(colorIndex, meta, this.newestImage(shots, priorIds)?.url, dataUrl);
+    }
     const views = imgs.filter((im) => im.role === 'view');
     const match =
       this.newestImage(
@@ -3580,7 +3664,7 @@ export class AdminProductEditorComponent implements OnChanges {
   }
 
   /** "Retry" button on a slot whose upload failed. */
-  retrySlot(ci: number, role: 'view' | 'card', index: number) {
+  retrySlot(ci: number, role: 'view' | 'card' | 'gallery', index: number) {
     if (ci < 0) {
       const v = this.defaultAngles[index];
       if (!v?.src.startsWith('data:')) return this.setUpload(this.uploadKey(-1, 'view', index + 1), null);
@@ -3593,6 +3677,13 @@ export class AdminProductEditorComponent implements OnChanges {
     }
     const row = this.colors[ci];
     if (!row) return;
+    if (role === 'gallery') {
+      // for a web shoot photo `index` is its sort order
+      const shot = row.webShoot.find((g) => g.sortOrder === index);
+      if (!shot?.url.startsWith('data:')) return this.setUpload(this.uploadKey(ci, 'gallery', index), null);
+      void this.persistColorImageNow(ci, shot.url, { role: 'gallery', angle: shot.angle, sortOrder: index });
+      return;
+    }
     if (role === 'card') {
       if (!row.cardImage.startsWith('data:')) return this.setUpload(this.uploadKey(ci, 'card', 0), null);
       void this.persistColorImageNow(ci, row.cardImage, { role: 'card', angle: 'front', sortOrder: 0 });
@@ -3700,7 +3791,8 @@ export class AdminProductEditorComponent implements OnChanges {
       if (c.cardImage && !c.cardImage.startsWith('data:')) {
         images.push({ url: c.cardImage, role: 'card', angle: 'front', sortOrder: 0 });
       }
-      for (const g of c.moreGallery) {
+      for (const g of c.webShoot) {
+        if (!g.url || g.url.startsWith('data:')) continue;
         images.push({ url: g.url, role: 'gallery', angle: this.toImageAngle(g.angle), sortOrder: g.sortOrder });
       }
       c.views.forEach((v, vi) => {
@@ -4026,7 +4118,7 @@ export class AdminProductEditorComponent implements OnChanges {
         description: '',
         isDefault: true,
         cardImage: '',
-        moreGallery: [],
+        webShoot: [],
         views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
         selected: false,
       },
@@ -4146,7 +4238,9 @@ export class AdminProductEditorComponent implements OnChanges {
       // The card image is only ever the one saved as the card: an angle photo is never taken for it.
       const card = merged.find((im) => im.role === 'card')?.url || '';
       const views = this.slotsFromImages(merged);
-      const galleries = merged.filter((im) => im.role === 'gallery' && !!im.url);
+      const galleries = merged
+        .filter((im) => im.role === 'gallery' && !!im.url)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
       return {
         id: c.id || this.uid(),
         name: c.name,
@@ -4155,7 +4249,7 @@ export class AdminProductEditorComponent implements OnChanges {
         description: (c.description || '').trim(),
         isDefault: !!c.isDefault,
         cardImage: card,
-        moreGallery: galleries.map((g) => ({ url: g.url, angle: g.angle || 'front', sortOrder: g.sortOrder ?? 1 })),
+        webShoot: galleries.map((g) => ({ url: g.url, angle: g.angle || 'other', sortOrder: g.sortOrder ?? 1 })),
         views: views.length
           ? views
           : DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
@@ -4445,7 +4539,9 @@ export class AdminProductEditorComponent implements OnChanges {
     return (
       local(this.form.cardImageUrl) ||
       this.defaultAngles.some((v) => local(v.src)) ||
-      this.colors.some((c) => local(c.cardImage) || c.views.some((v) => local(v.src)))
+      this.colors.some(
+        (c) => local(c.cardImage) || c.views.some((v) => local(v.src)) || c.webShoot.some((g) => local(g.url)),
+      )
     );
   }
 
@@ -4542,7 +4638,8 @@ export class AdminProductEditorComponent implements OnChanges {
       }
       const hasPending =
         c.cardImage.startsWith('data:') ||
-        c.views.some((v) => v.src.startsWith('data:'));
+        c.views.some((v) => v.src.startsWith('data:')) ||
+        c.webShoot.some((g) => g.url.startsWith('data:'));
       if (hasPending && !productColorId) {
         missingColorLink = true;
         return;
@@ -4565,6 +4662,11 @@ export class AdminProductEditorComponent implements OnChanges {
           });
         }
       });
+      for (const g of c.webShoot) {
+        if (g.url.startsWith('data:')) {
+          queue(g.url, { role: 'gallery', angle: this.toImageAngle(g.angle), sortOrder: g.sortOrder, productColorId });
+        }
+      }
     });
 
     if (missingColorLink && !jobs.length) {
@@ -4689,6 +4791,11 @@ export class AdminProductEditorComponent implements OnChanges {
     const file = input.files?.[0];
     input.value = '';
     if (!file) return Promise.reject();
+    return this.readFile(file);
+  }
+
+  /** One chosen photo as a data URL (see the note inside on what is kept). */
+  private readFile(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = () => reject();

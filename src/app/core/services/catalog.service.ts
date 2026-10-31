@@ -731,10 +731,12 @@ export class CatalogService {
   }
 
   /**
-   * Every picture of a variant, in the order set in the admin: for each colour (in order) its
-   * colour image, then its model photos, then any gallery photos; then the variant's own model
-   * photos. The variant's main image is left out (it is shown elsewhere), and a picture that
-   * appears twice is listed once.
+   * Every picture of a variant on the products page, in the order set in the admin: for each
+   * colour (in order) its colour image, then its web shoot photos; then the variant's own web
+   * shoot. A colour (or variant) that has no web shoot yet shows its angles instead, so nothing
+   * that was already there disappears; once it has a web shoot, the angles belong to the designer
+   * only. The variant's main image is left out (it is shown elsewhere), and a picture that appears
+   * twice is listed once.
    */
   productGallery(product: Product): GalleryShot[] {
     const file = (u: string) => u.replace(/^https?:\/\/[^/]+/i, '').split('?')[0];
@@ -751,6 +753,11 @@ export class CatalogService {
       if (!a || a === 'other') return 'Photo ' + n;
       return a.split(/[-_\s]+/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     };
+    // the web shoot, or (while there is none) the angles
+    const shoot = (list: NonNullable<Product['images']>) => {
+      const web = bySort(list.filter((i) => i.role === 'gallery'));
+      return web.length ? web : bySort(list.filter((i) => i.role === 'view'));
+    };
     const add = (url: string, label: string, colorId: string | null, colorName: string) => {
       if (!url || seen.has(file(url))) return;
       seen.add(file(url));
@@ -761,13 +768,13 @@ export class CatalogService {
       const name = color.name || 'Colour';
       for (const im of bySort(own.filter((i) => i.role === 'card'))) add(im.url, name, color.id, name);
       let n = 0;
-      for (const im of bySort(own.filter((i) => i.role === 'view' || i.role === 'gallery'))) {
+      for (const im of shoot(own)) {
         n++;
         add(im.url, `${name} · ${pretty(im.angle, n)}`, color.id, name);
       }
     }
     let n = 0;
-    for (const im of bySort(this.imagesOfColour(product, null).filter((i) => i.role === 'view' || i.role === 'gallery'))) {
+    for (const im of shoot(this.imagesOfColour(product, null))) {
       n++;
       add(im.url, pretty(im.angle, n), null, '');
     }

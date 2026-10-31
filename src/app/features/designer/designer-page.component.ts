@@ -962,32 +962,33 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
       );
     }
 
-    // The designer preview has its own pictures: the angles uploaded for it. The shop card image
-    // and the image shown after expanding are separate settings and are not listed here.
-    const views = merged
-      .filter((im) => !!im.url && im.role === 'view')
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-      .map((im, i) => ({
-        key: im.id || `${im.role}-${im.angle}-${i}`,
-        label: this.prettyAngle(im.angle),
-        url: this.catalog.normalizeMediaUrl(im.url),
-        angle: im.angle || 'front',
-      }))
-      .filter((v) => !!v.url);
+    // The designer preview has its own pictures: the angles uploaded for it, then the web shoot
+    // photos of the colour. The shop card image is a separate setting and is not listed here.
+    const ordered = (role: string) =>
+      merged
+        .filter((im) => !!im.url && im.role === role)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const angles = ordered('view').map((im, i) => ({
+      key: im.id || `${im.role}-${im.angle}-${i}`,
+      label: this.prettyAngle(im.angle),
+      url: this.catalog.normalizeMediaUrl(im.url),
+      angle: im.angle || 'front',
+    }));
+    const shoot = ordered('gallery').map((im, i) => ({
+      key: im.id || `${im.role}-${im.angle}-${i}`,
+      label: 'Photo ' + (i + 1),
+      url: this.catalog.normalizeMediaUrl(im.url),
+      angle: im.angle || 'other',
+    }));
 
-    if (views.length) return views;
-
+    // With no angles the card image leads, as before.
     const card = this.catalog.cardImageUrl(p, color?.id);
-    return card
-      ? [
-          {
-            key: 'card',
-            label: 'Front',
-            url: this.catalog.normalizeMediaUrl(card),
-            angle: 'front',
-          },
-        ]
-      : [];
+    const lead = angles.length
+      ? angles
+      : card
+        ? [{ key: 'card', label: 'Front', url: this.catalog.normalizeMediaUrl(card), angle: 'front' }]
+        : [];
+    return [...lead, ...shoot].filter((v) => !!v.url);
   });
 
   readonly sizeCodes = computed(() => {
