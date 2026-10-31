@@ -12,7 +12,6 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AttributeDefinition, CatalogService } from '../../core/services/catalog.service';
 import { AttributeImagesService } from '../../core/services/attribute-images.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
-import { PortraitFitDirective } from '../../shared/portrait-fit.directive';
 import { FadeInDirective } from '../../shared/fade-in.directive';
 import { Category, Product } from '../../core/models/catalog.models';
 import { genderMatchesFilter } from '../../core/utils/gender';
@@ -75,7 +74,7 @@ interface Shot {
 @Component({
   selector: 'tg-products-page',
   standalone: true,
-  imports: [RouterLink, PortraitFitDirective, FadeInDirective],
+  imports: [RouterLink, FadeInDirective],
   template: `
     <div class="shop">
       <nav class="shop-tabs" aria-label="Catalogues">
@@ -238,7 +237,9 @@ interface Shot {
                 <div class="wall">
                   @for (s of galleryOf(p); track s.url; let i = $index) {
                     <button type="button" class="shot" (click)="openShot(p, i)" [attr.aria-label]="p.name + ' — ' + s.label">
-                      <img tgPortraitFit [src]="s.url" [alt]="p.name + ' ' + s.label" loading="lazy" decoding="async" />
+                      <span class="shot-frame">
+                        <img tgFadeIn [src]="s.url" [alt]="p.name + ' ' + s.label" loading="lazy" decoding="async" />
+                      </span>
                       <span class="shot-cap">{{ s.label }}</span>
                     </button>
                   } @empty {
@@ -480,53 +481,46 @@ interface Shot {
     .pill img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; }
     .pill b { font-family: 'Montserrat', sans-serif; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
 
-    .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 15.5vw, 210px), 1fr)); gap: 12px; }
+    /* a catalogue grid: five across, big square photos edge to edge, the label centred underneath */
+    .wall { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 34px 26px; }
     .shot {
-      position: relative;
-      display: block;
-      aspect-ratio: 4 / 5;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 14px;
       padding: 0;
       border: 0;
-      border-radius: 10px;
-      background: #fff;
-      overflow: hidden;
+      background: none;
+      color: var(--ink);
+      text-align: center;
       cursor: zoom-in;
       font: inherit;
     }
+    .shot-frame { display: block; aspect-ratio: 1 / 1; overflow: hidden; background: #ececee; }
     .shot img {
       width: 100%;
       height: 100%;
       display: block;
-      object-fit: contain;
-      object-position: center;
-      transform: scale(var(--fit-zoom, 1));
-      transform-origin: var(--fit-origin, 50% 50%);
+      object-fit: cover;
+      object-position: 50% 22%;
       transition: transform 0.35s ease, opacity 0.4s ease;
     }
     .shot img.tg-pending { opacity: 0; }
-    .shot:has(img.tg-pending) {
-      background: linear-gradient(100deg, #f3efe6 30%, #faf8f3 50%, #f3efe6 70%) 0 0 / 220% 100%;
+    .shot-frame:has(img.tg-pending) {
+      background: linear-gradient(100deg, #e8e8ea 30%, #f4f4f5 50%, #e8e8ea 70%) 0 0 / 220% 100%;
       animation: shotShimmer 1.4s linear infinite;
     }
     @keyframes shotShimmer { to { background-position: -120% 0; } }
-    .shot:hover img { transform: scale(calc(var(--fit-zoom, 1) * 1.04)); }
-    .shot:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; }
+    .shot:hover img { transform: scale(1.04); }
+    .shot:focus-visible { outline: 2px solid var(--forest); outline-offset: 4px; }
     .shot-cap {
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      padding: 22px 10px 9px;
-      font-size: 0.68rem;
-      font-weight: 600;
-      color: #fff;
-      text-align: left;
-      background: linear-gradient(to top, rgba(20, 22, 16, 0.62), transparent);
-      opacity: 0;
-      transition: opacity 0.2s ease;
-      pointer-events: none;
+      font-size: 0.78rem;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
     }
-    .shot:hover .shot-cap, .shot:focus-visible .shot-cap { opacity: 1; }
     .no-pics { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 0.82rem; }
 
     /* viewer */
@@ -585,12 +579,16 @@ interface Shot {
 
     @media (max-width: 900px) {
       .shop-tabs-inner, .shop-head, .shop-body, .shop-filters-inner { padding-left: 18px; padding-right: 18px; }
-      .wall { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+      .wall { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 14px; }
       .prod-go { margin-left: 0; }
+    }
+    @media (max-width: 560px) {
+      .wall { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 10px; }
+      .shot-cap { font-size: 0.7rem; }
     }
     @media (prefers-reduced-motion: reduce) {
       .shop-filters, .lb { animation: none; }
-      .shot:has(img.tg-pending) { animation: none; }
+      .shot-frame:has(img.tg-pending) { animation: none; }
     }
   `,
 })
