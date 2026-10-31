@@ -10,14 +10,19 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AttributeDefinition, CatalogService } from '../../core/services/catalog.service';
+import { AttributeImagesService } from '../../core/services/attribute-images.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
 import { PortraitFitDirective } from '../../shared/portrait-fit.directive';
 import { FadeInDirective } from '../../shared/fade-in.directive';
-import { Category, Product, ProductColor } from '../../core/models/catalog.models';
+import { Category, Product } from '../../core/models/catalog.models';
 import { genderMatchesFilter } from '../../core/utils/gender';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
-import { cardDescription } from '../../core/utils/description';
-import { BUILTIN_FILTERS, customFilterDefinitions, filterOptionLabels } from '../../core/utils/filters';
+import {
+  BUILTIN_FILTERS,
+  customFilterDefinitions,
+  filterOptionLabels,
+  filterTitle,
+} from '../../core/utils/filters';
 
 /** One checklist in the filter panel. */
 interface FilterGroup {
@@ -39,19 +44,33 @@ const EXTRA_FILTERS = [
   { code: 'style', title: 'Style' },
 ];
 
-/** How many cards fit on one row (the grid and the expand panel both follow this). */
-function columnsFor(width: number): number {
-  if (width >= 1500) return 5;
-  if (width >= 1200) return 4;
-  if (width >= 900) return 3;
-  if (width >= 600) return 2;
-  return 1;
+/** A catalogue's variants, in the order of the admin list. */
+interface Section {
+  key: string;
+  title: string;
+  items: Product[];
+}
+
+/** An attribute value that has a picture (shown when the customer clicks it). */
+interface Pill {
+  key: string;
+  title: string;
+  label: string;
+  url: string;
+}
+
+/** One picture in the viewer. */
+interface Shot {
+  url: string;
+  label: string;
+  colorId: string | null;
 }
 
 /**
- * The shop. Home sends a customer here by catalogue; this page lists that catalogue's variants
- * (each with its own main image), and a variant expands to show its colours and models.
- * Everything needed to narrow the list (catalogue tabs, filters, sort) is on this one page.
+ * The shop. Home sends a customer here by catalogue; this page shows every picture of every
+ * variant in the catalogue (its colours and models), in the same order as the admin list,
+ * catalogue by catalogue. A variant's main image is left out. Attribute values that have a
+ * picture show it when clicked. Catalogue tabs, filters and sort are on this one page.
  */
 @Component({
   selector: 'tg-products-page',
@@ -127,7 +146,7 @@ function columnsFor(width: number): number {
       <header class="shop-head">
         <span class="kicker">Wholesale apparel manufacturing</span>
         <h1>{{ rangeTitle() }}</h1>
-        <p class="lede">Open a variant to see its colours and models, then take it into the Custom Designer.</p>
+        <p class="lede">Every picture of each variant, with its colours and models. Click a picture to see it larger.</p>
       </header>
 
       <section class="shop-body">
@@ -184,117 +203,82 @@ function columnsFor(width: number): number {
           </p>
         }
 
-        <div class="vgrid" [style.--cols]="cols()">
-          @for (p of filtered(); track p.id; let i = $index) {
-            <article class="pc vc" [class.is-open]="openId() === p.id">
-              <button
-                type="button"
-                class="pc-media vc-media"
-                [attr.aria-expanded]="openId() === p.id"
-                [attr.aria-label]="(openId() === p.id ? 'Close ' : 'Open ') + p.name"
-                (click)="toggle(p)"
-                (pointerenter)="catalog.prefetchProduct(p.id)"
-                (touchstart)="catalog.prefetchProduct(p.id)"
-              >
-                @if (p.badge) {
-                  <span class="pc-badge">{{ p.badge }}</span>
-                }
-                <img tgPortraitFit [src]="catalog.mainImageUrl(p)" [alt]="p.name" loading="lazy" decoding="async" />
-              </button>
-              <div class="pc-body">
-                <h3 class="pc-name">{{ p.name }}</h3>
-                <div class="pc-price">{{ priceLabel(p) }}</div>
-                @if (p.sku) {
-                  <div class="pc-sku">{{ p.sku }}</div>
-                }
-                <div class="pc-foot">
-                  @if (descriptionFor(p)) {
-                    <p class="pc-desc">{{ descriptionFor(p) }}</p>
-                  } @else {
-                    <span class="pc-desc" aria-hidden="true"></span>
-                  }
-                  <div class="pc-actions">
-                    <button type="button" class="pc-mini" (click)="toggle(p)" [attr.aria-expanded]="openId() === p.id">
-                      {{ openId() === p.id ? 'Close' : 'Expand' }}
-                    </button>
-                    <a
-                      class="pc-mini pc-mini-fill"
-                      [routerLink]="['/designer']"
-                      [queryParams]="designerParams(p)"
-                      (pointerenter)="catalog.prefetchProduct(p.id)"
-                    >
-                      Customise
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </article>
-
-            @if (panelAfter(i); as open) {
-              <section class="vx" [attr.aria-label]="open.name + ' colours and models'">
-                <div class="vx-stage">
-                  <img tgFadeIn [src]="stageUrl()" [alt]="open.name" decoding="async" />
-                </div>
-                <div class="vx-side">
-                  <header class="vx-head">
-                    <div>
-                      <h2>{{ open.name }}</h2>
-                      <p>{{ priceLabel(open) }}</p>
-                    </div>
-                    <button type="button" class="vx-close" (click)="close()" aria-label="Close">×</button>
-                  </header>
-
-                  <div class="vx-tabs" role="tablist">
-                    <button type="button" role="tab" class="vx-tab" [class.on]="openTab() === 'colours'" [attr.aria-selected]="openTab() === 'colours'" (click)="openTab.set('colours')">
-                      Colours <span>{{ open.colors?.length || 0 }}</span>
-                    </button>
-                    <button type="button" role="tab" class="vx-tab" [class.on]="openTab() === 'models'" [attr.aria-selected]="openTab() === 'models'" (click)="openTab.set('models')">
-                      Models <span>{{ models().length }}</span>
-                    </button>
-                  </div>
-
-                  @if (openTab() === 'colours') {
-                    <div class="vx-grid">
-                      @for (c of open.colors || []; track c.id) {
-                        <button type="button" class="vx-item" [class.on]="openColor() === c.id" (click)="pickColour(open, c)">
-                          <span class="vx-thumb">
-                            <img tgFadeIn [src]="catalog.colourImageUrl(open, c.id)" [alt]="c.name" loading="lazy" decoding="async" />
-                          </span>
-                          <span class="vx-label">
-                            <span class="vx-dot" [style.background]="c.hex"></span>
-                            {{ c.name }}
-                          </span>
-                        </button>
-                      } @empty {
-                        <p class="vx-empty">No colours have been added to this variant yet.</p>
-                      }
-                    </div>
-                  } @else {
-                    <div class="vx-grid">
-                      @for (m of models(); track m.url) {
-                        <button type="button" class="vx-item" [class.on]="stageUrl() === m.url" (click)="stageUrl.set(m.url)">
-                          <span class="vx-thumb">
-                            <img tgFadeIn [src]="m.url" [alt]="m.label" loading="lazy" decoding="async" />
-                          </span>
-                          <span class="vx-label">{{ m.label }}</span>
-                        </button>
-                      } @empty {
-                        <p class="vx-empty">No model photos have been added for this colour yet.</p>
-                      }
-                    </div>
-                  }
-
-                  <footer class="vx-foot">
-                    <a class="pc-mini pc-mini-fill vx-go" [routerLink]="['/designer']" [queryParams]="designerParams(open, openColor())">
-                      Customise in the designer →
-                    </a>
-                  </footer>
-                </div>
-              </section>
+        @for (sec of sections(); track sec.key) {
+          <section class="cat-sec" [attr.data-cat]="sec.key">
+            @if (!selectedSlug()) {
+              <h2 class="cat-title">{{ sec.title }}</h2>
             }
-          }
-        </div>
+            @for (p of sec.items; track p.id) {
+              <article class="prod" [id]="'p-' + p.id" [class.flash]="flashId() === p.id">
+                <header class="prod-head">
+                  <h3 class="prod-name">{{ p.name }}</h3>
+                  <span class="prod-price">{{ priceLabel(p) }}</span>
+                  <a
+                    class="pc-mini pc-mini-fill prod-go"
+                    [routerLink]="['/designer']"
+                    [queryParams]="designerParams(p)"
+                    (pointerenter)="catalog.prefetchProduct(p.id)"
+                    (touchstart)="catalog.prefetchProduct(p.id)"
+                  >
+                    Customise →
+                  </a>
+                </header>
+
+                @if (pillsOf(p).length) {
+                  <div class="pills" aria-label="Attributes">
+                    @for (pl of pillsOf(p); track pl.key) {
+                      <button type="button" class="pill" (click)="openAttribute(p, pl)" [attr.aria-label]="pl.title + ': ' + pl.label + ' — show picture'">
+                        <img [src]="pl.url" alt="" loading="lazy" decoding="async" />
+                        <span><b>{{ pl.title }}</b> {{ pl.label }}</span>
+                      </button>
+                    }
+                  </div>
+                }
+
+                <div class="wall">
+                  @for (s of galleryOf(p); track s.url; let i = $index) {
+                    <button type="button" class="shot" (click)="openShot(p, i)" [attr.aria-label]="p.name + ' — ' + s.label">
+                      <img tgPortraitFit [src]="s.url" [alt]="p.name + ' ' + s.label" loading="lazy" decoding="async" />
+                      <span class="shot-cap">{{ s.label }}</span>
+                    </button>
+                  } @empty {
+                    <p class="no-pics">No pictures have been added for this variant yet.</p>
+                  }
+                </div>
+              </article>
+            }
+          </section>
+        }
       </section>
+
+      @if (viewer(); as v) {
+        <div class="lb" role="dialog" aria-modal="true" [attr.aria-label]="v.product.name" (click)="closeViewer()">
+          <div class="lb-panel" (click)="$event.stopPropagation()">
+            <button type="button" class="lb-close" (click)="closeViewer()" aria-label="Close">×</button>
+            <div class="lb-stage">
+              @if (v.list.length > 1) {
+                <button type="button" class="lb-nav lb-prev" (click)="step(-1)" aria-label="Previous picture">‹</button>
+              }
+              <img tgFadeIn [src]="v.list[v.index].url" [alt]="v.product.name + ' ' + v.list[v.index].label" decoding="async" />
+              @if (v.list.length > 1) {
+                <button type="button" class="lb-nav lb-next" (click)="step(1)" aria-label="Next picture">›</button>
+              }
+            </div>
+            <div class="lb-cap">
+              <div>
+                <strong>{{ v.product.name }}</strong>
+                <span>{{ v.list[v.index].label }}</span>
+                @if (v.list.length > 1) {
+                  <em>{{ v.index + 1 }} / {{ v.list.length }}</em>
+                }
+              </div>
+              <a class="pc-mini pc-mini-fill" [routerLink]="['/designer']" [queryParams]="designerParams(v.product, v.list[v.index].colorId)" (click)="closeViewer()">
+                Customise in the designer →
+              </a>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
   styles: `
@@ -413,7 +397,7 @@ function columnsFor(width: number): number {
     }
     .lede { margin: 0; color: var(--muted); font-size: 0.88rem; max-width: 60ch; }
 
-    .shop-body { max-width: 1360px; margin: 0 auto; padding: 14px 28px 64px; }
+    .shop-body { max-width: 1360px; margin: 0 auto; padding: 14px 28px 72px; }
     .shop-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 6px 0 14px; }
     .count { font-size: 0.74rem; color: var(--muted); }
     .count .of { margin-left: 4px; }
@@ -446,88 +430,167 @@ function columnsFor(width: number): number {
     .chip-reset, .link { background: none; border: 0; padding: 0; font: inherit; font-size: 0.72rem; color: var(--muted); text-decoration: underline; cursor: pointer; }
     .empty { color: var(--muted); font-size: 0.9rem; margin: 28px 0; }
 
-    /* variants */
-    .vgrid { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: 26px 16px; }
-    .vc-media { padding: 0; border: 0; cursor: pointer; font: inherit; text-align: inherit; }
-    .vc.is-open { outline: 2px solid var(--forest); outline-offset: -1px; }
-    .pc-actions { flex: none; }
-
-    /* expanded variant: colours and models, across the full row */
-    .vx {
-      grid-column: 1 / -1;
-      display: grid;
-      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      overflow: hidden;
-      animation: shopOpen 0.28s ease both;
+    /* the pictures: no boxes, catalogue by catalogue, variant by variant */
+    .cat-sec { margin-top: 42px; }
+    .cat-sec:first-of-type { margin-top: 18px; }
+    .cat-title {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-weight: 600;
+      font-size: clamp(1.9rem, 3vw, 2.7rem);
+      letter-spacing: -0.01em;
+      text-transform: none;
+      line-height: 1.05;
+      margin: 0 0 22px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
     }
-    .vx-stage { position: relative; background: #fff; min-height: 360px; display: grid; place-items: center; padding: 16px; }
-    .vx-stage img { max-width: 100%; max-height: 520px; object-fit: contain; transition: opacity 0.3s ease; }
-    .vx-stage img.tg-pending { opacity: 0; }
-    .vx-side { padding: 22px 24px 20px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-    .vx-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-    .vx-head h2 { margin: 0; font-family: 'Cormorant Garamond', Georgia, serif; font-size: 1.9rem; font-weight: 600; text-transform: none; letter-spacing: -0.01em; line-height: 1.05; }
-    .vx-head p { margin: 4px 0 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; font-weight: 600; }
-    .vx-close {
-      flex: none;
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      border: 1px solid var(--line);
-      background: var(--panel);
-      font-size: 1.3rem;
-      line-height: 1;
-      cursor: pointer;
-      color: var(--ink);
-    }
-    .vx-close:hover { border-color: var(--forest); }
-    .vx-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
-    .vx-tab {
-      background: none;
-      border: 0;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-      padding: 8px 14px;
-      font-family: 'Montserrat', sans-serif;
-      font-size: 0.68rem;
+    .prod { margin: 0 0 44px; }
+    .prod.flash .prod-name { background: color-mix(in srgb, var(--forest) 14%, transparent); border-radius: 6px; }
+    .prod-head { display: flex; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; margin: 0 0 12px; }
+    .prod-name {
+      margin: 0;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 1.05rem;
       font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-      cursor: pointer;
+      letter-spacing: 0;
+      text-transform: none;
+      padding: 2px 6px;
+      margin-left: -6px;
+      transition: background 0.4s ease;
     }
-    .vx-tab span { margin-left: 4px; font-weight: 600; opacity: 0.8; }
-    .vx-tab.on { color: var(--ink); border-bottom-color: var(--forest); }
-    .vx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; align-content: start; min-height: 150px; }
-    .vx-item { display: flex; flex-direction: column; gap: 7px; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; text-align: left; min-width: 0; }
-    .vx-thumb {
-      display: block;
-      aspect-ratio: 4 / 5;
-      background: #fff;
+    .prod-price { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; font-weight: 600; color: var(--ink); }
+    .prod-go { margin-left: auto; padding: 8px 14px; font-size: 0.64rem; }
+
+    .pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       border: 1px solid var(--line);
-      border-radius: 10px;
-      overflow: hidden;
+      background: var(--panel);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 4px 14px 4px 4px;
+      font: inherit;
+      font-size: 0.74rem;
+      cursor: pointer;
       transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .vx-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; transition: opacity 0.3s ease; }
-    .vx-thumb img.tg-pending { opacity: 0; }
-    .vx-item:hover .vx-thumb { border-color: var(--forest); }
-    .vx-item.on .vx-thumb { border-color: var(--forest); box-shadow: 0 0 0 2px color-mix(in srgb, var(--forest) 35%, transparent); }
-    .vx-label { display: flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 600; color: var(--ink); min-width: 0; }
-    .vx-dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(53, 57, 54, 0.25); flex: none; }
-    .vx-empty { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 0.82rem; }
-    .vx-foot { margin-top: auto; padding-top: 6px; }
-    .vx-go { padding: 11px 18px; font-size: 0.66rem; }
+    .pill:hover { border-color: var(--forest); box-shadow: 0 2px 8px rgba(40, 36, 28, 0.1); }
+    .pill img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; }
+    .pill b { font-family: 'Montserrat', sans-serif; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
+
+    .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 15.5vw, 210px), 1fr)); gap: 12px; }
+    .shot {
+      position: relative;
+      display: block;
+      aspect-ratio: 4 / 5;
+      padding: 0;
+      border: 0;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+      cursor: zoom-in;
+      font: inherit;
+    }
+    .shot img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+      object-position: center;
+      transform: scale(var(--fit-zoom, 1));
+      transform-origin: var(--fit-origin, 50% 50%);
+      transition: transform 0.35s ease, opacity 0.4s ease;
+    }
+    .shot img.tg-pending { opacity: 0; }
+    .shot:has(img.tg-pending) {
+      background: linear-gradient(100deg, #f3efe6 30%, #faf8f3 50%, #f3efe6 70%) 0 0 / 220% 100%;
+      animation: shotShimmer 1.4s linear infinite;
+    }
+    @keyframes shotShimmer { to { background-position: -120% 0; } }
+    .shot:hover img { transform: scale(calc(var(--fit-zoom, 1) * 1.04)); }
+    .shot:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; }
+    .shot-cap {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 22px 10px 9px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: #fff;
+      text-align: left;
+      background: linear-gradient(to top, rgba(20, 22, 16, 0.62), transparent);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+    }
+    .shot:hover .shot-cap, .shot:focus-visible .shot-cap { opacity: 1; }
+    .no-pics { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 0.82rem; }
+
+    /* viewer */
+    .lb {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(20, 22, 16, 0.78);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      animation: lbIn 0.2s ease both;
+      overscroll-behavior: contain;
+    }
+    @keyframes lbIn { from { opacity: 0; } to { opacity: 1; } }
+    .lb-panel { position: relative; width: min(960px, 100%); max-height: 100%; display: flex; flex-direction: column; background: var(--panel); border-radius: 16px; overflow: hidden; }
+    .lb-close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 3;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+      font-size: 1.4rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .lb-stage { position: relative; background: #fff; display: grid; place-items: center; min-height: 280px; padding: 14px; flex: 1; min-height: 0; }
+    .lb-stage img { max-width: 100%; max-height: min(70vh, 720px); object-fit: contain; transition: opacity 0.3s ease; }
+    .lb-stage img.tg-pending { opacity: 0; }
+    .lb-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+      font-size: 1.7rem;
+      line-height: 1;
+      cursor: pointer;
+      z-index: 2;
+    }
+    .lb-prev { left: 12px; }
+    .lb-next { right: 12px; }
+    .lb-nav:hover, .lb-close:hover { border-color: var(--forest); }
+    .lb-cap { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 14px 18px; border-top: 1px solid var(--line); }
+    .lb-cap div { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .lb-cap strong { font-size: 0.95rem; }
+    .lb-cap span { color: var(--muted); font-size: 0.82rem; }
+    .lb-cap em { font-style: normal; color: var(--muted); font-size: 0.74rem; }
 
     @media (max-width: 900px) {
       .shop-tabs-inner, .shop-head, .shop-body, .shop-filters-inner { padding-left: 18px; padding-right: 18px; }
-      .vx { grid-template-columns: 1fr; }
-      .vx-stage { min-height: 280px; }
+      .wall { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+      .prod-go { margin-left: 0; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .shop-filters, .vx { animation: none; }
+      .shop-filters, .lb { animation: none; }
+      .shot:has(img.tg-pending) { animation: none; }
     }
   `,
 })
@@ -535,6 +598,7 @@ export class ProductsPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly attrImages = inject(AttributeImagesService);
   readonly catalog = inject(CatalogService);
   readonly site = inject(SiteSettingsService);
 
@@ -551,11 +615,10 @@ export class ProductsPageComponent implements OnInit {
   /** True while the attribute details the filters need are still being fetched. */
   readonly attrPending = signal(false);
 
-  readonly openId = signal<string | null>(null);
-  readonly openColor = signal('');
-  readonly openTab = signal<'colours' | 'models'>('colours');
-  readonly stageUrl = signal('');
-  readonly cols = signal(columnsFor(typeof window === 'undefined' ? 1280 : window.innerWidth));
+  /** The picture open in the viewer, with the others of the same variant to step through. */
+  readonly viewer = signal<{ product: Product; list: Shot[]; index: number } | null>(null);
+  /** The variant just jumped to from an address (?product=…), highlighted for a moment. */
+  readonly flashId = signal<string | null>(null);
 
   /** The products whose full record (attributes) has been fetched. */
   private readonly detailed = new Map<string, Product>();
@@ -619,23 +682,79 @@ export class ProductsPageComponent implements OnInit {
       case 'name':
         return list.sort((a, b) => a.name.localeCompare(b.name));
       default:
+        // the order of the admin list (the drag order)
         return list.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     }
   });
 
-  /** The expanded variant, if it is still in the list. */
-  private readonly openProduct = computed(() => this.filtered().find((p) => p.id === this.openId()) || null);
-
-  /** The model photos of the colour chosen in the expanded panel. */
-  readonly models = computed(() => {
-    const p = this.openProduct();
-    return p ? this.catalog.modelImages(p, this.openColor()) : [];
+  /**
+   * Catalogue by catalogue, in the order the catalogues have in the admin, with each variant in
+   * its admin order inside. A variant counts under the catalogue it is in (or the catalogue that
+   * contains its sub-category); anything else goes last.
+   */
+  readonly sections = computed<Section[]>(() => {
+    const cols = this.collections();
+    const owner = new Map<string, Category>();
+    const walk = (c: Category, root: Category) => {
+      owner.set(c.id, root);
+      (c.children || []).forEach((k) => walk(k, root));
+    };
+    cols.forEach((c) => walk(c, c));
+    const groups = new Map<string, Product[]>();
+    const rest: Product[] = [];
+    for (const p of this.filtered()) {
+      const root = owner.get(p.categoryId || p.category?.id || '');
+      if (!root) {
+        rest.push(p);
+        continue;
+      }
+      const bucket = groups.get(root.id) ?? [];
+      bucket.push(p);
+      groups.set(root.id, bucket);
+    }
+    const out: Section[] = cols
+      .filter((c) => groups.has(c.id))
+      .map((c) => ({ key: c.slug, title: c.name, items: groups.get(c.id)! }));
+    if (rest.length) out.push({ key: 'more', title: cols.length ? 'More' : 'All products', items: rest });
+    return out;
   });
 
-  @HostListener('window:resize')
-  onResize() {
-    const next = columnsFor(window.innerWidth);
-    if (next !== this.cols()) this.cols.set(next);
+  /** Every picture of each shown variant (its main image left out). */
+  private readonly galleries = computed(
+    () => new Map(this.filtered().map((p) => [p.id, this.catalog.productGallery(p)])),
+  );
+
+  /** The attribute values of each shown variant that have a picture. */
+  private readonly pills = computed(() => {
+    const defs = [...this.attrDefs()].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const out = new Map<string, Pill[]>();
+    for (const p of this.filtered()) {
+      const list: Pill[] = [];
+      for (const def of defs) {
+        for (const label of this.attrLabels(p, def.code)) {
+          const url = this.attrImages.imageFor(def.code, label);
+          if (url) list.push({ key: `${def.code}:${label}`, title: filterTitle(def), label, url });
+        }
+      }
+      out.set(p.id, list);
+    }
+    return out;
+  });
+
+  galleryOf(p: Product) {
+    return this.galleries().get(p.id) ?? [];
+  }
+
+  pillsOf(p: Product): Pill[] {
+    return this.pills().get(p.id) ?? [];
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onKey(event: KeyboardEvent) {
+    if (!this.viewer()) return;
+    if (event.key === 'Escape') this.closeViewer();
+    else if (event.key === 'ArrowRight') this.step(1);
+    else if (event.key === 'ArrowLeft') this.step(-1);
   }
 
   ngOnInit() {
@@ -673,7 +792,7 @@ export class ProductsPageComponent implements OnInit {
     if (this.loadedSlug === slug) return;
     this.loadedSlug = slug;
     this.selectedSlug.set(slug);
-    this.close();
+    this.closeViewer();
     this.loadProducts(slug);
   }
 
@@ -690,7 +809,7 @@ export class ProductsPageComponent implements OnInit {
           this.loading.set(false);
           this.error.set('');
           this.scheduleDetails();
-          this.openWanted();
+          this.jumpToWanted();
         },
         error: () => {
           this.loading.set(false);
@@ -699,16 +818,17 @@ export class ProductsPageComponent implements OnInit {
       });
   }
 
-  /** Opens the variant named in the address (?product=…), once the list is there. */
-  private openWanted() {
+  /** Scrolls to the variant named in the address (?product=…), once the list is there. */
+  private jumpToWanted() {
     const id = this.wantedProduct;
     if (!id) return;
     this.wantedProduct = null;
-    const p = this.products().find((x) => x.id === id);
-    if (p) {
-      this.open(p);
-      setTimeout(() => document.querySelector('.vx')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
-    }
+    if (!this.products().some((p) => p.id === id)) return;
+    setTimeout(() => {
+      document.getElementById('p-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      this.flashId.set(id);
+      setTimeout(() => this.flashId.set(null), 2500);
+    }, 200);
   }
 
   // ───── filters ─────
@@ -828,52 +948,33 @@ export class ProductsPageComponent implements OnInit {
     return out;
   }
 
-  // ───── expanding a variant ─────
-  toggle(p: Product) {
-    if (this.openId() === p.id) this.close();
-    else this.open(p);
+  // ───── viewer ─────
+  openShot(p: Product, index: number) {
+    const list: Shot[] = this.galleryOf(p).map((s) => ({ url: s.url, label: s.label, colorId: s.colorId }));
+    if (list.length) this.viewer.set({ product: p, list, index });
   }
 
-  private open(p: Product) {
-    const def = p.colors?.find((c) => c.isDefault) || p.colors?.[0];
-    this.openId.set(p.id);
-    this.openColor.set(def?.id || '');
-    this.openTab.set('colours');
-    // opens on the variant's own main image; picking a colour or a model changes it
-    this.stageUrl.set(this.catalog.mainImageUrl(p));
-    this.catalog.prefetchProduct(p.id);
+  openAttribute(p: Product, pill: Pill) {
+    this.viewer.set({
+      product: p,
+      list: [{ url: pill.url, label: `${pill.title} · ${pill.label}`, colorId: null }],
+      index: 0,
+    });
   }
 
-  close() {
-    this.openId.set(null);
+  closeViewer() {
+    this.viewer.set(null);
   }
 
-  pickColour(p: Product, c: ProductColor) {
-    this.openColor.set(c.id);
-    this.stageUrl.set(this.catalog.colourImageUrl(p, c.id));
-  }
-
-  /**
-   * The expanded panel is shown after the last card of the row that holds the open variant, so
-   * the cards keep their order and the panel spans the full width.
-   */
-  panelAfter(index: number): Product | null {
-    const open = this.openProduct();
-    if (!open) return null;
-    const list = this.filtered();
-    const at = list.findIndex((p) => p.id === open.id);
-    const cols = this.cols();
-    const rowEnd = Math.min(Math.floor(at / cols) * cols + cols - 1, list.length - 1);
-    return index === rowEnd ? open : null;
+  step(dir: 1 | -1) {
+    this.viewer.update((v) => {
+      if (!v || v.list.length < 2) return v;
+      return { ...v, index: (v.index + dir + v.list.length) % v.list.length };
+    });
   }
 
   priceLabel(p: Product): string {
     return formatProductPrice(p, null, { from: true });
-  }
-
-  descriptionFor(p: Product): string {
-    const def = p.colors?.find((c) => c.isDefault)?.id || p.colors?.[0]?.id;
-    return cardDescription(p, def);
   }
 
   /** Opens the Custom Designer on this variant (and colour). */

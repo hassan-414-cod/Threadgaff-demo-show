@@ -21,6 +21,12 @@ export interface HomeSlide {
   imageUrl: string;
 }
 
+/** A picture attached to an attribute value (see attributeImageKey). */
+export interface AttributeImage {
+  key: string;
+  imageUrl: string;
+}
+
 /** Texts the admin can change on the Site Outlook page, plus the home page pictures. */
 export interface SiteSettings {
   bannerVisible: boolean;
@@ -35,6 +41,8 @@ export interface SiteSettings {
   homeCatalogues: HomeCatalogue[] | null;
   /** Home page slider. null = not set up yet: the collections are shown as they are. */
   homeSlides: HomeSlide[] | null;
+  /** Pictures attached to attribute values; shown when a customer clicks that value. */
+  attributeImages: AttributeImage[];
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
@@ -47,6 +55,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   hiddenFilters: [],
   homeCatalogues: null,
   homeSlides: null,
+  attributeImages: [],
 };
 
 const CACHE_KEY = 'tg_site_settings';
@@ -181,6 +190,7 @@ export class SiteSettingsService {
       return {
         homeCatalogues: this.parseCards<HomeCatalogue>(raw.homeCatalogues, true),
         homeSlides: this.parseCards<HomeSlide>(raw.homeSlides, false),
+        attributeImages: this.parseAttributeImages(raw.attributeImages),
         bannerVisible: pick('bannerVisible'),
         bannerText: pick('bannerText'),
         heroTagline: pick('heroTagline'),
@@ -192,6 +202,18 @@ export class SiteSettingsService {
     } catch {
       return { ...DEFAULT_SITE_SETTINGS };
     }
+  }
+
+  private parseAttributeImages(raw: unknown): AttributeImage[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((i): i is Record<string, unknown> => !!i && typeof i === 'object')
+      .map((i) => ({
+        key: typeof i['key'] === 'string' ? i['key'].slice(0, 160) : '',
+        imageUrl: typeof i['imageUrl'] === 'string' ? i['imageUrl'].slice(0, 500) : '',
+      }))
+      .filter((i) => i.key && i.imageUrl)
+      .slice(0, 400);
   }
 
   /** A saved list of home cards, cleaned up; null when none was ever saved. */

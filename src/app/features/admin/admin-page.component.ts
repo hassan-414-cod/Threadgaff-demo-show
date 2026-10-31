@@ -15,6 +15,7 @@ import {
 import { AuthService } from '../../core/services/auth.service';
 import { AdminProductEditorComponent } from './admin-product-editor.component';
 import { AdminHomeComponent, HomeSection } from './admin-home.component';
+import { AttrImageComponent } from '../../shared/attr-image.component';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
 
 type AdminView =
@@ -58,6 +59,7 @@ interface CategoryTreeListRow {
     AdminProductEditorComponent,
     AdminSalesDeskComponent,
     AdminHomeComponent,
+    AttrImageComponent,
   ],
   template: `
     <div class="shell">
@@ -890,7 +892,10 @@ interface CategoryTreeListRow {
                         @if (a.options?.length) {
                           <span class="opt-chips">
                             @for (o of a.options; track o.id) {
-                              <span class="opt-chip">{{ o.label }}</span>
+                              <span class="opt-chip opt-chip-img">
+                                {{ o.label }}
+                                <tg-attr-image [code]="a.code" [label]="o.label" />
+                              </span>
                             }
                           </span>
                         } @else {
@@ -1778,7 +1783,8 @@ interface CategoryTreeListRow {
 
     .mono { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; }
     .muted-sm { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
-    .opt-chips { display: flex; flex-wrap: wrap; gap: 4px; max-width: 320px; }
+    .opt-chips { display: flex; flex-wrap: wrap; gap: 6px; max-width: 520px; }
+    .opt-chip-img { display: inline-flex; align-items: center; gap: 8px; padding: 3px 6px 3px 10px; }
     .opt-chip {
       display: inline-block; padding: 2px 8px; border-radius: 999px;
       background: #eef2ea; color: #3d4b37; font-size: 0.72rem;

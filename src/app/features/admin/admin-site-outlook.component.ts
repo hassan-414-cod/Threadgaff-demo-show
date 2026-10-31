@@ -138,8 +138,8 @@ export class AdminSiteOutlookComponent implements OnInit {
 
   async save() {
     const f = this.form;
-    // Hidden filters (Filters page) and the home pictures (Home page) are kept as they are.
-    const next: Omit<SiteSettings, 'hiddenFilters' | 'homeCatalogues' | 'homeSlides'> = {
+    // Hidden filters, the home pictures and the attribute pictures are kept as they are.
+    const next: Omit<SiteSettings, 'hiddenFilters' | 'homeCatalogues' | 'homeSlides' | 'attributeImages'> = {
       bannerVisible: !!f.bannerVisible,
       bannerText: f.bannerText.trim(),
       heroTagline: f.heroTagline.trim(),

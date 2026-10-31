@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, input, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { AttributeDefinition, CatalogService } from '../../core/services/catalog.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
+import { AttrImageComponent } from '../../shared/attr-image.component';
 import {
   BUILTIN_FILTERS,
   customFilterDefinitions,
@@ -27,7 +28,7 @@ interface FilterRow {
 @Component({
   selector: 'tg-admin-filters',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, AttrImageComponent],
   template: `
     @if (!embedded()) {
       <div class="head">
@@ -106,6 +107,7 @@ interface FilterRow {
               <li>
                 <span class="box" aria-hidden="true">✓</span>
                 <span class="lbl">{{ o }}</span>
+                <tg-attr-image [code]="f.code" [label]="o" />
                 <button type="button" class="x" [disabled]="busy()" (click)="removeOption(f, o)" [attr.aria-label]="'Remove ' + o + ' from ' + f.title">×</button>
               </li>
             } @empty {

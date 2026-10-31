@@ -27,6 +27,15 @@ import {
  */
 export const MAIN_IMAGE_ALT = 'main-image';
 
+/** One picture of a variant on the products page. */
+export interface GalleryShot {
+  url: string;
+  /** For example "Black · Front". */
+  label: string;
+  colorId: string | null;
+  colorName: string;
+}
+
 /** The collections the home page lists first, in this order. */
 export const HOME_PREFERRED_ORDER = ['hoodies', 't-shirts', 'sweatshirts', 'joggers', 'polo-shirts', 'sets'];
 
@@ -719,6 +728,50 @@ export class CatalogService {
       .filter((im) => im.role === 'view' || im.role === 'gallery')
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
       .map((im, i) => ({ url: this.normalizeMediaUrl(im.url), label: pretty(im.angle, i + 1) }));
+  }
+
+  /**
+   * Every picture of a variant, in the order set in the admin: for each colour (in order) its
+   * colour image, then its model photos, then any gallery photos; then the variant's own model
+   * photos. The variant's main image is left out (it is shown elsewhere), and a picture that
+   * appears twice is listed once.
+   */
+  productGallery(product: Product): GalleryShot[] {
+    const file = (u: string) => u.replace(/^https?:\/\/[^/]+/i, '').split('?')[0];
+    const seen = new Set<string>();
+    const main = (product.images || []).find(
+      (i) => i.role === 'card' && !i.productColorId && !!i.url && i.altText === MAIN_IMAGE_ALT,
+    );
+    if (main) seen.add(file(main.url));
+    const out: GalleryShot[] = [];
+    const bySort = <T extends { sortOrder?: number }>(list: T[]) =>
+      [...list].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const pretty = (angle: string | null | undefined, n: number) => {
+      const a = (angle || '').trim();
+      if (!a || a === 'other') return 'Photo ' + n;
+      return a.split(/[-_\s]+/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    };
+    const add = (url: string, label: string, colorId: string | null, colorName: string) => {
+      if (!url || seen.has(file(url))) return;
+      seen.add(file(url));
+      out.push({ url: this.normalizeMediaUrl(url), label, colorId, colorName });
+    };
+    for (const color of bySort(product.colors || [])) {
+      const own = this.imagesOfColour(product, color.id);
+      const name = color.name || 'Colour';
+      for (const im of bySort(own.filter((i) => i.role === 'card'))) add(im.url, name, color.id, name);
+      let n = 0;
+      for (const im of bySort(own.filter((i) => i.role === 'view' || i.role === 'gallery'))) {
+        n++;
+        add(im.url, `${name} · ${pretty(im.angle, n)}`, color.id, name);
+      }
+    }
+    let n = 0;
+    for (const im of bySort(this.imagesOfColour(product, null).filter((i) => i.role === 'view' || i.role === 'gallery'))) {
+      n++;
+      add(im.url, pretty(im.angle, n), null, '');
+    }
+    return out;
   }
 
   /** A colour's picture in the expanded view: its colour image, else its first model, else the variant's main image. */
