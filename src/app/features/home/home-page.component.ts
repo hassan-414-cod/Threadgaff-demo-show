@@ -623,10 +623,11 @@ export interface HomeCard {
       right: 0;
       bottom: 0;
       z-index: 2;
-      padding: 26px;
+      /* the same inset on the left, right and bottom, however long the name is */
+      padding: 0 24px 24px;
       display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
+      flex-direction: column;
+      align-items: flex-start;
       gap: 14px;
     }
     .cat-name {
@@ -635,15 +636,24 @@ export interface HomeCard {
       font-size: clamp(1.7rem, 2.4vw, 2.2rem);
       line-height: 1.05;
       letter-spacing: -0.01em;
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
     .cat-go {
       flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 100%;
+      box-sizing: border-box;
       font-family: 'Montserrat', sans-serif;
       font-size: 0.64rem;
       font-weight: 700;
       letter-spacing: 0.1em;
+      line-height: 1;
       text-transform: uppercase;
-      padding: 9px 14px;
+      white-space: nowrap;
+      padding: 11px 16px;
       border-radius: 999px;
       border: 1px solid rgba(255, 255, 255, 0.7);
       background: rgba(255, 255, 255, 0.12);
