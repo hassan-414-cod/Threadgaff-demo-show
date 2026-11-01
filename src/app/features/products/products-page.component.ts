@@ -66,9 +66,10 @@ interface Shot {
 }
 
 /**
- * The shop. Home sends a customer here by catalogue; this page lists the variants of each
- * catalogue in the admin order, each as one picture (the main image chosen in the admin) with
- * its name, price and colours. Everything else (the other colours, models, web shoot photos and
+ * The shop. Home sends a customer here by catalogue; this page lists the variants (catalogue by
+ * catalogue in the admin order, in one continuous grid), each as one picture (the main image chosen in the admin) with
+ * its name, price and colours (hovering a colour shows that colour's own main image: its first
+ * web shoot photo). Everything else (the other colours, models, web shoot photos and
  * angles) is in the Custom Designer, which a click on a variant or a colour opens. Attribute
  * values that have a picture show it when clicked. Catalogue tabs, filters and sort are here too.
  */
@@ -203,65 +204,62 @@ interface Shot {
           </p>
         }
 
-        @for (sec of sections(); track sec.key) {
-          <section class="cat-sec" [attr.data-cat]="sec.key">
-            @if (!selectedSlug()) {
-              <h2 class="cat-title">{{ sec.title }}</h2>
-            }
-            <div class="grid">
-              @for (p of sec.items; track p.id) {
-                <article class="prod" [id]="'p-' + p.id" [class.flash]="flashId() === p.id">
-                  <a
-                    class="prod-pic"
-                    [routerLink]="['/designer']"
-                    [queryParams]="designerParams(p)"
-                    [attr.aria-label]="'Customise ' + p.name"
-                    (pointerenter)="catalog.prefetchProduct(p.id)"
-                    (touchstart)="catalog.prefetchProduct(p.id)"
-                  >
-                    <span class="prod-frame">
-                      @if (mainOf(p)) {
-                        <img tgFadeIn [src]="mainOf(p)" [alt]="p.name" loading="lazy" decoding="async" />
-                      } @else {
-                        <span class="prod-empty">No picture yet</span>
-                      }
-                    </span>
-                  </a>
-                  <h3 class="prod-name">
-                    <a [routerLink]="['/designer']" [queryParams]="designerParams(p)">{{ p.name }}</a>
-                  </h3>
-                  <div class="prod-price">{{ priceLabel(p) }}</div>
-
-                  @if (swatchesOf(p).length) {
-                    <div class="swatches" aria-label="Colours">
-                      @for (c of swatchesOf(p); track c.id) {
-                        <a
-                          class="sw"
-                          [routerLink]="['/designer']"
-                          [queryParams]="designerParams(p, c.id)"
-                          [style.background]="c.hex"
-                          [attr.title]="c.name"
-                          [attr.aria-label]="c.name + ' — customise in this colour'"
-                        ></a>
-                      }
-                    </div>
+        <div class="grid">
+          @for (p of ordered(); track p.id) {
+            <article class="prod" [id]="'p-' + p.id" [class.flash]="flashId() === p.id">
+              <a
+                class="prod-pic"
+                [routerLink]="['/designer']"
+                [queryParams]="designerParams(p)"
+                [attr.aria-label]="'Customise ' + p.name"
+                (pointerenter)="catalog.prefetchProduct(p.id)"
+                (touchstart)="catalog.prefetchProduct(p.id)"
+              >
+                <span class="prod-frame">
+                  @if (mainOf(p)) {
+                    <img tgFadeIn [src]="mainOf(p)" [alt]="p.name" loading="lazy" decoding="async" />
+                  } @else {
+                    <span class="prod-empty">No picture yet</span>
                   }
+                </span>
+              </a>
+              <h3 class="prod-name">
+                <a [routerLink]="['/designer']" [queryParams]="designerParams(p)">{{ p.name }}</a>
+              </h3>
+              <div class="prod-price">{{ priceLabel(p) }}</div>
 
-                  @if (pillsOf(p).length) {
-                    <div class="pills" aria-label="Attributes">
-                      @for (pl of pillsOf(p); track pl.key) {
-                        <button type="button" class="pill" (click)="openAttribute(p, pl)" [attr.aria-label]="pl.title + ': ' + pl.label + ' — show picture'">
-                          <img [src]="pl.url" alt="" loading="lazy" decoding="async" />
-                          <span><b>{{ pl.title }}</b> {{ pl.label }}</span>
-                        </button>
-                      }
-                    </div>
+              @if (swatchesOf(p).length) {
+                <div class="swatches" aria-label="Colours">
+                  @for (c of swatchesOf(p); track c.id) {
+                    <a
+                      class="sw"
+                      [routerLink]="['/designer']"
+                      [queryParams]="designerParams(p, c.id)"
+                      [style.background]="c.hex"
+                      (pointerenter)="showColour(p, c.pic)"
+                      (pointerleave)="hideColour(p)"
+                      (focus)="showColour(p, c.pic)"
+                      (blur)="hideColour(p)"
+                      [attr.title]="c.name"
+                      [attr.aria-label]="c.name + ' — customise in this colour'"
+                    ></a>
                   }
-                </article>
+                </div>
               }
-            </div>
-          </section>
-        }
+
+              @if (pillsOf(p).length) {
+                <div class="pills" aria-label="Attributes">
+                  @for (pl of pillsOf(p); track pl.key) {
+                    <button type="button" class="pill" (click)="openAttribute(p, pl)" [attr.aria-label]="pl.title + ': ' + pl.label + ' — show picture'">
+                      <img [src]="pl.url" alt="" loading="lazy" decoding="async" />
+                      <span><b>{{ pl.title }}</b> {{ pl.label }}</span>
+                    </button>
+                  }
+                </div>
+              }
+            </article>
+          }
+        </div>
       </section>
 
       @if (viewer(); as v) {
@@ -443,22 +441,8 @@ interface Shot {
     .chip-reset, .link { background: none; border: 0; padding: 0; font: inherit; font-size: 0.72rem; color: var(--muted); text-decoration: underline; cursor: pointer; }
     .empty { color: var(--muted); font-size: 0.9rem; margin: 28px 0; }
 
-    /* the pictures: no boxes, catalogue by catalogue, variant by variant */
-    .cat-sec { margin-top: 42px; }
-    .cat-sec:first-of-type { margin-top: 18px; }
-    .cat-title {
-      font-family: 'Cormorant Garamond', Georgia, serif;
-      font-weight: 600;
-      font-size: clamp(1.9rem, 3vw, 2.7rem);
-      letter-spacing: -0.01em;
-      text-transform: none;
-      line-height: 1.05;
-      margin: 0 0 22px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid var(--line);
-    }
     /* the catalogue: one main picture per variant, five across, name / price / colours underneath */
-    .grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 46px 26px; }
+    .grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 46px 26px; margin-top: 18px; }
     .prod { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
     .prod-pic { display: block; width: 100%; }
     .prod-frame { display: block; aspect-ratio: 1 / 1; overflow: hidden; background: #ececee; }
@@ -480,12 +464,12 @@ interface Shot {
     .prod-pic:focus-visible { outline: 2px solid var(--forest); outline-offset: 4px; }
     .prod-empty { display: grid; place-items: center; height: 100%; color: var(--muted); font-size: 0.78rem; }
     .prod-name {
-      margin: 16px 0 0;
+      margin: 14px 0 0;
       padding: 2px 6px;
       font-family: 'Montserrat', sans-serif;
-      font-size: 0.92rem;
-      font-weight: 400;
-      letter-spacing: 0.02em;
+      font-size: 0.74rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
       line-height: 1.3;
       overflow-wrap: anywhere;
@@ -495,7 +479,7 @@ interface Shot {
     .prod-name a { color: inherit; text-decoration: none; }
     .prod-name a:hover { text-decoration: underline; text-underline-offset: 3px; }
     .prod.flash .prod-name { background: color-mix(in srgb, var(--forest) 14%, transparent); }
-    .prod-price { margin-top: 8px; font-size: 0.82rem; color: var(--ink); }
+    .prod-price { margin-top: 6px; font-size: 0.74rem; color: var(--muted); }
     .swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 100%; margin-top: 14px; }
     .sw { display: block; width: 13px; height: 13px; border: 1px solid rgba(0, 0, 0, 0.16); transition: transform 0.15s ease; }
     .sw:hover, .sw:focus-visible { transform: scale(1.35); border-color: var(--ink); outline: none; }
@@ -580,7 +564,7 @@ interface Shot {
     }
     @media (max-width: 560px) {
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px 10px; }
-      .prod-name { font-size: 0.8rem; }
+      .prod-name { font-size: 0.68rem; }
     }
     @media (prefers-reduced-motion: reduce) {
       .shop-filters, .lb { animation: none; }
@@ -713,6 +697,9 @@ export class ProductsPageComponent implements OnInit {
     return out;
   });
 
+  /** The variants in one run, catalogue by catalogue in the admin order, with nothing between them. */
+  readonly ordered = computed<Product[]>(() => this.sections().flatMap((s) => s.items));
+
   /** The main picture of each shown variant (the one chosen in the admin). */
   private readonly mains = computed(
     () => new Map(this.filtered().map((p) => [p.id, this.catalog.mainImageUrl(p)])),
@@ -726,7 +713,12 @@ export class ProductsPageComponent implements OnInit {
           p.id,
           [...(p.colors || [])]
             .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-            .map((c) => ({ id: c.id, name: c.name || 'Colour', hex: /^#[0-9a-f]{3,8}$/i.test(c.hex || '') ? c.hex : '#9ca3af' })),
+            .map((c) => ({
+              id: c.id,
+              name: c.name || 'Colour',
+              hex: /^#[0-9a-f]{3,8}$/i.test(c.hex || '') ? c.hex : '#9ca3af',
+              pic: this.catalog.colourMainUrl(p, c.id),
+            })),
         ]),
       ),
   );
@@ -749,8 +741,24 @@ export class ProductsPageComponent implements OnInit {
     return out;
   });
 
+  /** The picture a hovered colour swatch shows in place of the variant's main picture, by variant. */
+  private readonly hovered = signal<Record<string, string>>({});
+
   mainOf(p: Product): string {
-    return this.mains().get(p.id) ?? '';
+    return this.hovered()[p.id] || this.mains().get(p.id) || '';
+  }
+
+  /** Hovering a colour shows that colour's own main image (a colour with none changes nothing). */
+  showColour(p: Product, pic: string) {
+    if (pic) this.hovered.update((h) => ({ ...h, [p.id]: pic }));
+  }
+
+  hideColour(p: Product) {
+    this.hovered.update((h) => {
+      if (!(p.id in h)) return h;
+      const { [p.id]: _gone, ...rest } = h;
+      return rest;
+    });
   }
 
   swatchesOf(p: Product) {

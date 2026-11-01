@@ -20,13 +20,6 @@ import {
   ProductTag,
 } from '../models/catalog.models';
 
-/**
- * Marks a variant's main image: the product-level card image that was set on purpose in the
- * admin (not the silent copy older saves kept). Only a marked image overrides the picture a
- * product already shows, so existing products look exactly as before until one is set.
- */
-export const MAIN_IMAGE_ALT = 'main-image';
-
 /** The collections the home page lists first, in this order. */
 export const HOME_PREFERRED_ORDER = ['hoodies', 't-shirts', 'sweatshirts', 'joggers', 'polo-shirts', 'sets'];
 
@@ -674,32 +667,42 @@ export class CatalogService {
     );
   }
 
-  /**
-   * A variant's own main image (a variant is a product inside a catalogue): the picture the
-   * products page shows for it. That is the image set as its main image in the admin; until one
-   * is set, its first web shoot photo (the default colour's, else the first colour that has one);
-   * and a variant with no web shoot yet keeps the picture it already showed.
-   */
-  mainImageUrl(product: Product): string {
-    const chosen = (product.images || []).filter(
-      (i) => i.role === 'card' && !i.productColorId && !!i.url && i.altText === MAIN_IMAGE_ALT,
-    );
-    const pick = chosen.find((i) => i.url.includes('/uploads/')) || chosen[0];
-    return pick ? this.normalizeMediaUrl(pick.url) : this.firstWebShoot(product) || this.cardImageUrl(product);
+  /** One colour's pictures: those nested on it and those tagged with its id. */
+  private colourImages(product: Product, colour: { id: string; images?: Product['images'] }) {
+    return [...(colour.images || []), ...(product.images || []).filter((i) => i.productColorId === colour.id)];
   }
 
-  /** The first web shoot photo of the default colour, else of the first colour that has one. */
-  private firstWebShoot(product: Product): string {
+  /** A colour's first web shoot photo: its main image. */
+  private firstShot(product: Product, colour: { id: string; images?: Product['images'] }) {
+    return this.colourImages(product, colour)
+      .filter((i) => i.role === 'gallery' && !!i.url)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))[0];
+  }
+
+  /**
+   * A variant's picture on the products page (a variant is a product inside a catalogue): the main
+   * image (first web shoot photo) of its default colour, else of the first colour that has one. A
+   * variant with no web shoot yet keeps the picture it already showed.
+   */
+  mainImageUrl(product: Product): string {
     const colours = [...(product.colors || [])].sort(
       (a, b) => Number(!!b.isDefault) - Number(!!a.isDefault) || (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
     );
     for (const c of colours) {
-      const shot = [...(c.images || []), ...(product.images || []).filter((i) => i.productColorId === c.id)]
-        .filter((i) => i.role === 'gallery' && !!i.url)
-        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))[0];
+      const shot = this.firstShot(product, c);
       if (shot) return this.normalizeMediaUrl(shot.url);
     }
-    return '';
+    return this.cardImageUrl(product);
+  }
+
+  /** One colour's own main image: its first web shoot photo, else its colour image; empty when it has neither. */
+  colourMainUrl(product: Product, colorId: string): string {
+    const colour = (product.colors || []).find((c) => c.id === colorId);
+    if (!colour) return '';
+    const pick =
+      this.firstShot(product, colour) ||
+      this.colourImages(product, colour).find((i) => i.role === 'card' && !!i.url);
+    return pick ? this.normalizeMediaUrl(pick.url) : '';
   }
 
   /**

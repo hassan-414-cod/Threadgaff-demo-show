@@ -23,7 +23,6 @@ import { HttpEventType, HttpResponse } from '@angular/common/http';
 import { firstValueFrom, forkJoin, from, of, timer, throwError, timeout } from 'rxjs';
 import { catchError, filter, map, switchMap, retry, tap } from 'rxjs/operators';
 import { UploadGate } from '../../core/utils/upload-gate';
-import { MAIN_IMAGE_ALT } from '../../core/services/catalog.service';
 import { AuthService } from '../../core/services/auth.service';
 import {
   BUILTIN_FILTERS,
@@ -838,61 +837,6 @@ const DEFAULT_BRAND_NAMES = [
         </div>
 
         <div class="product-main" [class.step-off]="step() !== 4">
-          <section class="ui-card" id="mainImageCard">
-            <div class="ui-card-h tight">
-              <div>
-                <h2>Main image</h2>
-                <p>
-                  The only picture of this variant on the products page. Every other picture (its colours, models,
-                  web shoot and angles, set below) opens in the Custom Designer.
-                </p>
-              </div>
-            </div>
-            <div class="thumb-row">
-              @if (form.cardImageUrl.trim()) {
-                <img [src]="shown(form.cardImageUrl)" alt="Main image" loading="lazy" decoding="async" />
-              } @else {
-                <div class="thumb-placeholder">No main image yet</div>
-              }
-              <div>
-                <label class="btn btn-ghost file-btn">
-                  Upload main image
-                  <input type="file" accept="image/*" hidden (change)="onDefaultCardImage($event)" />
-                </label>
-                <button type="button" class="btn btn-ghost" [disabled]="!form.cardImageUrl.trim()" (click)="clearMainImage()">
-                  Clear
-                </button>
-              </div>
-            </div>
-            @if (mainImageOptions().length) {
-              <label>Or choose one of this variant's pictures</label>
-              <div class="pick-grid">
-                @for (o of mainImageOptions(); track o.key) {
-                  <button
-                    type="button"
-                    [class.is-on]="isMainImage(o.url)"
-                    [title]="o.label"
-                    [attr.aria-label]="'Use ' + o.label + ' as the main image'"
-                    (click)="setMainImage(o.url)"
-                  >
-                    <img [src]="shown(o.url)" [alt]="o.label" loading="lazy" decoding="async" />
-                  </button>
-                }
-              </div>
-            }
-            @if (uploadInfo(-1, 'card', 0); as u) {
-              <div class="slot-status" [class.is-failed]="u.status === 'failed'" role="status">
-                @if (u.status === 'uploading') {
-                  {{ u.progress && u.progress < 100 ? 'Uploading ' + u.progress + '%' : u.progress === 100 ? 'Saving the photo…' : 'Uploading…' }}
-                  <span class="slot-bar"><i [style.width.%]="u.progress || 4"></i></span>
-                } @else {
-                  Upload failed{{ u.message ? ': ' + u.message : '' }}
-                  <button type="button" class="retry" (click)="retrySlot(-1, 'card', 0)">Retry</button>
-                }
-              </div>
-            }
-          </section>
-
           <section class="ui-card" id="cardVariants">
             @if (hexNotice()) {
               <p class="hex-notice" role="status">{{ hexNotice() }}</p>
@@ -1121,24 +1065,27 @@ const DEFAULT_BRAND_NAMES = [
                       <h2 class="side-h">Web shoot ({{ c.webShoot.length }})</h2>
                     </div>
                     <p class="fn angles-note">
-                      The model and web shoot photos of this colour. They open in the <strong>Custom Designer</strong>,
-                      after the angles. The products page shows only the variant's main image: press
-                      <strong>Set as main</strong> on a photo to make it that picture.
+                      The model and web shoot photos of this colour. The first one is the colour's
+                      <strong>main image</strong>: the picture the products page shows for it. Press
+                      <strong>Make main</strong> on a photo to move it first, then Save. All of them open in the
+                      <strong>Custom Designer</strong>, after the angles.
                     </p>
                     <div class="angle-grid web-shoot-grid">
                       @for (g of c.webShoot; track $index; let gi = $index) {
-                        <div class="angle-slot web-shot" [class.is-main]="isMainImage(g.url)">
-                          <span class="slot-tag">{{ isMainImage(g.url) ? 'Main · products page' : 'Photo ' + (gi + 1) }}</span>
+                        <div class="angle-slot web-shot" [class.is-main]="gi === 0">
+                          <span class="slot-tag">{{ gi === 0 ? 'Main image' : 'Photo ' + (gi + 1) }}</span>
                           <img [src]="shown(g.url)" alt="" loading="lazy" decoding="async" />
                           <div class="slot-actions">
-                            <button
-                              type="button"
-                              class="btn btn-ghost"
-                              [disabled]="g.url.startsWith('data:') || isMainImage(g.url)"
-                              (click)="setMainImage(g.url)"
-                            >
-                              Set as main
-                            </button>
+                            @if (gi > 0) {
+                              <button
+                                type="button"
+                                class="btn btn-ghost"
+                                [disabled]="webShootPending(c)"
+                                (click)="makeFirstWebShot(focusedIndex(), gi)"
+                              >
+                                Make main
+                              </button>
+                            }
                             <button type="button" class="btn btn-danger" (click)="removeWebShot(focusedIndex(), gi)">
                               Delete
                             </button>
@@ -1281,7 +1228,7 @@ const DEFAULT_BRAND_NAMES = [
                       <h2 class="side-h">Colour image</h2>
                       <span class="meta-soft">{{ fc.name || 'Untitled' }}</span>
                     </div>
-                    <p class="fn">This colour's picture and swatch when a customer expands the variant on the products page.</p>
+                    <p class="fn">This colour's own picture. It is its main image until the colour has web shoot photos.</p>
                     <div class="swatch-full" [class.is-empty]="!fc.cardImage">
                       @if (fc.cardImage) {
                         <img [src]="shown(fc.cardImage)" [alt]="(fc.name || 'Variant') + ' card image'" loading="lazy" decoding="async" />
@@ -2176,8 +2123,6 @@ export class AdminProductEditorComponent implements OnChanges {
   /** Up to three uploads at a time; the same slot is never sent twice at once. */
   private readonly gate = new UploadGate(3);
   private readonly slotJobs = new Map<string, Promise<void>>();
-  /** True when the main image was set on purpose (it is saved with a tag; see MAIN_IMAGE_ALT). */
-  mainImageChosen = false;
   /** What the Save button says while it works ("" = plain "Saving…"). */
   readonly saveNote = signal('');
   /** Ids of the images the product has on the server, so a new upload can be told apart without asking again. */
@@ -2453,16 +2398,14 @@ export class AdminProductEditorComponent implements OnChanges {
     return c?.views[0]?.src?.trim() || c?.cardImage?.trim() || '';
   }
 
-  /** The variant's card on the products page: its main image, else a colour picture or model. */
+  /** The colour's picture on the products page: its main image (first web shoot photo), else its colour image or first angle. */
   previewUrl(): string {
-    const main = this.form.cardImageUrl.trim();
-    if (main) return main;
     const c = this.focusedColor();
-    const fromVariant = c?.cardImage?.trim() || c?.views[0]?.src?.trim() || '';
+    const fromVariant = c?.webShoot[0]?.url?.trim() || c?.cardImage?.trim() || c?.views[0]?.src?.trim() || '';
     if (fromVariant) return fromVariant;
     const fromDefaultAngle = this.defaultAngles[0]?.src?.trim() || '';
     if (fromDefaultAngle) return fromDefaultAngle;
-    // Only an added angle is left: better than a blank, but never ahead of a card or main image.
+    // Only an added angle is left: better than a blank, but never ahead of a colour image.
     return (
       c?.views.find((v) => v.src?.trim())?.src ||
       this.defaultAngles.find((v) => v.src?.trim())?.src ||
@@ -3246,39 +3189,17 @@ export class AdminProductEditorComponent implements OnChanges {
     });
   }
 
-  onDefaultCardImage(event: Event) {
-    this.readImage(event, 640, 0.62).then((src) => {
-      this.form.cardImageUrl = src;
-      this.mainImageChosen = true;
-      void this.persistProductImageNow(src, {
-        role: 'card',
-        angle: 'front',
-        sortOrder: 0,
-        altText: MAIN_IMAGE_ALT,
-      });
-    });
+  /** Moves a web shoot photo to the front: the first photo is the colour's main image. Applies on Save. */
+  makeFirstWebShot(ci: number, index: number) {
+    const row = this.colors[ci];
+    if (!row || index < 1 || this.webShootPending(row)) return;
+    row.webShoot.unshift(...row.webShoot.splice(index, 1));
+    row.webShoot.forEach((g, i) => (g.sortOrder = i + 1));
   }
 
-  /** Makes one of the variant's saved pictures its main image: the one the products page shows. */
-  setMainImage(url: string) {
-    if (!url || url.startsWith('data:')) return;
-    this.form.cardImageUrl = url;
-    this.mainImageChosen = true;
-  }
-
-  isMainImage(url: string): boolean {
-    const file = (u: string) => u.replace(/^https?:\/\/[^/]+/i, '').split('?')[0];
-    return !!url && !!this.form.cardImageUrl && file(url) === file(this.form.cardImageUrl);
-  }
-
-  /** The variant's saved pictures its main image can be picked from. */
-  mainImageOptions() {
-    return this.variantImageOptions().filter((o) => !o.url.startsWith('data:'));
-  }
-
-  clearMainImage() {
-    this.form.cardImageUrl = '';
-    this.mainImageChosen = false;
+  /** True while a web shoot photo of the colour is still on its way up (the order cannot change then). */
+  webShootPending(c: ColorFormRow): boolean {
+    return c.webShoot.some((g) => g.url.startsWith('data:'));
   }
 
   onDefaultAngleImage(event: Event, i: number) {
@@ -3365,11 +3286,7 @@ export class AdminProductEditorComponent implements OnChanges {
 
   /** True while the slot still shows the local photo that is being uploaded (not replaced, cleared or removed). */
   private slotHolds(ci: number, role: string, sortOrder: number, dataUrl: string): boolean {
-    if (ci < 0) {
-      return role === 'card'
-        ? this.form.cardImageUrl === dataUrl
-        : this.defaultAngles[sortOrder - 1]?.src === dataUrl;
-    }
+    if (ci < 0) return this.defaultAngles[sortOrder - 1]?.src === dataUrl;
     const row = this.colors[ci];
     if (role === 'card') return row?.cardImage === dataUrl;
     if (role === 'gallery') return !!row?.webShoot.some((g) => g.sortOrder === sortOrder && g.url === dataUrl);
@@ -3387,8 +3304,7 @@ export class AdminProductEditorComponent implements OnChanges {
     this.rememberPreview(url, dataUrl);
     if (!this.slotHolds(ci, meta.role, meta.sortOrder, dataUrl)) return true;
     if (ci < 0) {
-      if (meta.role === 'card') this.form.cardImageUrl = url;
-      else this.defaultAngles[meta.sortOrder - 1].src = url;
+      this.defaultAngles[meta.sortOrder - 1].src = url;
     } else if (meta.role === 'card') {
       this.colors[ci].cardImage = url;
     } else if (meta.role === 'gallery') {
@@ -3687,14 +3603,6 @@ export class AdminProductEditorComponent implements OnChanges {
     priorIds: Set<string>,
     dataUrl: string,
   ): boolean {
-    if (meta.role === 'card') {
-      const card =
-        this.newestImage(
-          (fresh.images || []).filter((im) => im.role === 'card' && !im.productColorId),
-          priorIds,
-        )?.url || this.catalog.cardImageUrl(fresh);
-      return this.putUploadedUrl(-1, meta, card, dataUrl);
-    }
     const match = this.newestImage(
       (fresh.images || []).filter(
         (im) =>
@@ -3923,13 +3831,13 @@ export class AdminProductEditorComponent implements OnChanges {
     const runSave = () => {
       const colors = this.buildColorInputs();
       const productImages: ProductWritePayload['images'] = [];
+      // the product's own card image is not set here any more; one that is stored stays as it is
       if (this.form.cardImageUrl.trim() && !this.form.cardImageUrl.startsWith('data:')) {
         productImages.push({
           url: this.form.cardImageUrl.trim(),
           role: 'card',
           angle: 'front',
           sortOrder: 0,
-          ...(this.mainImageChosen ? { altText: MAIN_IMAGE_ALT } : {}),
         });
       }
       this.defaultAngles.forEach((v, i) => {
@@ -4207,9 +4115,6 @@ export class AdminProductEditorComponent implements OnChanges {
     this.pendingAttrProduct = p;
     this.knownImageIds = new Set();
     this.rememberImageIds(p);
-    this.mainImageChosen = (p.images || []).some(
-      (i) => i.role === 'card' && !i.productColorId && i.altText === MAIN_IMAGE_ALT,
-    );
     const fromAttrs = this.merchFromAttributes(p);
     const merch = this.parseMerch(p.shortDescription || '');
     this.form = {
@@ -4232,7 +4137,7 @@ export class AdminProductEditorComponent implements OnChanges {
       basePrice: p.basePrice ?? '',
       isActive: p.isActive !== false,
       isFeatured: !!p.isFeatured,
-      cardImageUrl: this.catalog.mainImageUrl(p),
+      cardImageUrl: this.ownCardImage(p),
       decoration: fromAttrs.decoration.length ? fromAttrs.decoration : merch.decoration,
       sustainability: fromAttrs.sustainability.length
         ? fromAttrs.sustainability
@@ -4309,6 +4214,12 @@ export class AdminProductEditorComponent implements OnChanges {
     }
     this.liveAngleIndex.set(0);
     this.hydrateDefaultAngles(p);
+  }
+
+  /** The product's own card image as it is stored (kept as it is on Save; it is no longer set in this editor). */
+  private ownCardImage(p: Product): string {
+    const own = (p.images || []).filter((i) => i.role === 'card' && !i.productColorId && !!i.url);
+    return (own.find((i) => i.url.includes('/uploads/')) || own[0])?.url || '';
   }
 
   private isHoodieLike(p: Product): boolean {
@@ -4581,7 +4492,6 @@ export class AdminProductEditorComponent implements OnChanges {
   private hasPendingImages(): boolean {
     const local = (s: string | undefined) => !!s && s.startsWith('data:');
     return (
-      local(this.form.cardImageUrl) ||
       this.defaultAngles.some((v) => local(v.src)) ||
       this.colors.some(
         (c) => local(c.cardImage) || c.views.some((v) => local(v.src)) || c.webShoot.some((g) => local(g.url)),
@@ -4657,14 +4567,6 @@ export class AdminProductEditorComponent implements OnChanges {
       );
     };
 
-    if (this.form.cardImageUrl.startsWith('data:')) {
-      queue(this.form.cardImageUrl, {
-        role: 'card',
-        angle: 'front',
-        sortOrder: 0,
-        ...(this.mainImageChosen ? { altText: MAIN_IMAGE_ALT } : {}),
-      });
-    }
     this.defaultAngles.forEach((v, i) => {
       if (v.src.startsWith('data:')) {
         queue(v.src, {
