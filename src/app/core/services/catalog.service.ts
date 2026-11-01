@@ -20,9 +20,6 @@ import {
   ProductTag,
 } from '../models/catalog.models';
 
-/** The collections the home page lists first, in this order. */
-export const HOME_PREFERRED_ORDER = ['hoodies', 't-shirts', 'sweatshirts', 'joggers', 'polo-shirts', 'sets'];
-
 /** Slug of the hidden system product that stores category cover images. */
 export const COVER_STORE_SLUG = 'category-cover-images';
 /** Slug of the hidden system product that stores the editable site texts (Home page → Texts). */
@@ -736,7 +733,6 @@ export class CatalogService {
     cats: Category[],
     products: Product[],
   ): Array<{ slug: string; name: string; imageUrl: string }> {
-    const bySlug = new Map(cats.map((c) => [c.slug, c]));
     const photos = new Map<string, string>();
     const ranked = [...products].sort((a, b) => {
       const feat = Number(b.isFeatured) - Number(a.isFeatured);
@@ -747,35 +743,18 @@ export class CatalogService {
       const photo = this.productPhotoUrl(p);
       if (slug && photo && !photos.has(slug)) photos.set(slug, photo);
     }
-    const order = [
-      ...HOME_PREFERRED_ORDER.filter((s) => bySlug.has(s) || photos.has(s)),
-      ...cats.map((c) => c.slug).filter((s) => !HOME_PREFERRED_ORDER.includes(s)),
-    ];
-    const cards = [...new Set(order)].slice(0, 8).map((slug) => {
-      const raw = bySlug.get(slug)?.imageUrl || photos.get(slug) || '';
+    // The categories arrive in the sequence set in the admin, and the cards keep it: a category with no
+    // picture yet keeps its place (it is not moved to the end).
+    return cats.slice(0, 8).map((c) => {
+      const raw = c.imageUrl || photos.get(c.slug) || '';
       return {
-        slug,
-        name: slug === 'sets' ? 'Sets/Co-ords' : bySlug.get(slug)?.name || this.labelForSlug(slug),
+        slug: c.slug,
+        name: c.slug === 'sets' ? 'Sets/Co-ords' : c.name,
         imageUrl: raw ? this.normalizeMediaUrl(raw) : '',
       };
     });
-    // collections that have a picture first, in the usual order
-    return cards.sort((a, b) => Number(!!b.imageUrl) - Number(!!a.imageUrl));
   }
 
-  private labelForSlug(slug: string): string {
-    const labels: Record<string, string> = {
-      hoodies: 'Hoodies',
-      't-shirts': 'T-Shirts',
-      sweatshirts: 'Sweatshirts',
-      joggers: 'Joggers',
-      'polo-shirts': 'Polo Shirts',
-      sets: 'Sets/Co-ords',
-      tracksuits: 'Tracksuits',
-      jackets: 'Jackets',
-    };
-    return labels[slug] || slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  }
 
   colorCardImageUrl(
     product: Product,
