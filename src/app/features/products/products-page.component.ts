@@ -12,9 +12,10 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AttributeDefinition, CatalogService } from '../../core/services/catalog.service';
 import { AttributeImagesService } from '../../core/services/attribute-images.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
+import { VariantGendersService } from '../../core/services/variant-genders.service';
 import { FadeInDirective } from '../../shared/fade-in.directive';
 import { Category, Product } from '../../core/models/catalog.models';
-import { genderMatchesFilter } from '../../core/utils/gender';
+import { genderLabelForKey, genderMatchesFilter } from '../../core/utils/gender';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
 import {
   BUILTIN_FILTERS,
@@ -66,6 +67,8 @@ interface Tile {
   colorName: string;
   hex: string;
   pic: string;
+  /** Men's, Women's or Unisex: the variant's own category, else its product's. */
+  gender: string;
   /** The first colour of its product: it carries the product's anchor and attribute pictures. */
   first: boolean;
 }
@@ -205,7 +208,7 @@ interface Shot {
           <div class="alert alert-error">{{ error() }}</div>
         }
 
-        @if (!loading() && !filtered().length && !error()) {
+        @if (!loading() && !tiles().length && !error()) {
           <p class="empty">
             @if (chips().length) {
               No variants match these filters.
@@ -572,6 +575,7 @@ export class ProductsPageComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly attrImages = inject(AttributeImagesService);
+  private readonly variants = inject(VariantGendersService);
   readonly catalog = inject(CatalogService);
   readonly site = inject(SiteSettingsService);
 
@@ -639,13 +643,11 @@ export class ProductsPageComponent implements OnInit {
   readonly filtered = computed<Product[]>(() => {
     let list = [...this.products()];
     for (const g of this.groups()) {
+      // Gender is decided per colour variant (see tiles), not per product.
+      if (g.code === 'gender') continue;
       const wanted = [...(this.picked()[g.code] || [])];
       if (!wanted.length) continue;
-      list = list.filter((p) =>
-        g.code === 'gender'
-          ? wanted.some((sel) => genderMatchesFilter(this.attrLabels(p, 'gender')[0] || '', sel))
-          : this.matches(this.attrLabels(p, g.code), wanted),
-      );
+      list = list.filter((p) => this.matches(this.attrLabels(p, g.code), wanted));
     }
     switch (this.sort()) {
       case 'price-asc':
@@ -695,6 +697,12 @@ export class ProductsPageComponent implements OnInit {
   /** The variants in one run, catalogue by catalogue in the admin order, with nothing between them. */
   readonly ordered = computed<Product[]>(() => this.sections().flatMap((s) => s.items));
 
+  /** The Men's / Women's / Unisex category of a colour variant: its own, else its product's. */
+  private genderOf(p: Product, colourName: string): string {
+    const own = this.variants.genderOf(p.id, colourName);
+    return own ? genderLabelForKey(own) : this.attrLabels(p, 'gender')[0] || '';
+  }
+
   /**
    * One tile per colour of a product, in the admin order: the colour's own main picture (its first
    * web shoot photo, else its colour image or first angle). A colour with no picture is left out; a
@@ -712,15 +720,32 @@ export class ProductsPageComponent implements OnInit {
         colorName: c.name || '',
         hex: /^#[0-9a-f]{3,8}$/i.test(c.hex || '') ? c.hex : '#9ca3af',
         pic,
+        gender: this.genderOf(p, c.name || ''),
         first: i === 0,
       }));
     return tiles.length
       ? tiles
-      : [{ key: p.id, product: p, colorId: '', colorName: '', hex: '', pic: this.catalog.mainImageUrl(p), first: true }];
+      : [
+          {
+            key: p.id,
+            product: p,
+            colorId: '',
+            colorName: '',
+            hex: '',
+            pic: this.catalog.mainImageUrl(p),
+            gender: this.genderOf(p, ''),
+            first: true,
+          },
+        ];
   }
 
   /** The tiles of the shown variants, and of all of them (for the "of N" in the count). */
-  readonly tiles = computed<Tile[]>(() => this.ordered().flatMap((p) => this.tilesOf(p)));
+  readonly tiles = computed<Tile[]>(() => {
+    const all = this.ordered().flatMap((p) => this.tilesOf(p));
+    // Gender is decided per colour variant, so it is filtered here and not per product.
+    const wanted = [...(this.picked()['gender'] || [])];
+    return wanted.length ? all.filter((t) => wanted.some((sel) => genderMatchesFilter(t.gender, sel))) : all;
+  });
   readonly allTiles = computed<Tile[]>(() => this.products().flatMap((p) => this.tilesOf(p)));
 
   /** The attribute values of each shown variant that have a picture. */

@@ -27,6 +27,12 @@ export interface AttributeImage {
   imageUrl: string;
 }
 
+/** The Men's / Women's / Unisex category of one colour variant (see variantGenderKey). */
+export interface VariantGender {
+  key: string;
+  gender: 'mens' | 'womens' | 'unisex';
+}
+
 /** Texts the admin can change on the Site Outlook page, plus the home page pictures. */
 export interface SiteSettings {
   bannerVisible: boolean;
@@ -43,6 +49,8 @@ export interface SiteSettings {
   homeSlides: HomeSlide[] | null;
   /** Pictures attached to attribute values; shown when a customer clicks that value. */
   attributeImages: AttributeImage[];
+  /** Men's / Women's / Unisex set on single colour variants; a colour with none follows its product. */
+  variantGenders: VariantGender[];
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
@@ -56,6 +64,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   homeCatalogues: null,
   homeSlides: null,
   attributeImages: [],
+  variantGenders: [],
 };
 
 const CACHE_KEY = 'tg_site_settings';
@@ -191,6 +200,7 @@ export class SiteSettingsService {
         homeCatalogues: this.parseCards<HomeCatalogue>(raw.homeCatalogues, true),
         homeSlides: this.parseCards<HomeSlide>(raw.homeSlides, false),
         attributeImages: this.parseAttributeImages(raw.attributeImages),
+        variantGenders: this.parseVariantGenders(raw.variantGenders),
         bannerVisible: pick('bannerVisible'),
         bannerText: pick('bannerText'),
         heroTagline: pick('heroTagline'),
@@ -214,6 +224,15 @@ export class SiteSettingsService {
       }))
       .filter((i) => i.key && i.imageUrl)
       .slice(0, 400);
+  }
+
+  private parseVariantGenders(raw: unknown): VariantGender[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((v): v is Record<string, unknown> => !!v && typeof v === 'object')
+      .map((v) => ({ key: typeof v['key'] === 'string' ? v['key'].slice(0, 200) : '', gender: v['gender'] }))
+      .filter((v): v is VariantGender => !!v.key && (v.gender === 'mens' || v.gender === 'womens' || v.gender === 'unisex'))
+      .slice(0, 2000);
   }
 
   /** A saved list of home cards, cleaned up; null when none was ever saved. */

@@ -31,6 +31,7 @@ import {
   isCustomFilterCode,
 } from '../../core/utils/filters';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
+import { VariantGendersService } from '../../core/services/variant-genders.service';
 
 /** An image slot's upload: `progress` is 0–100 of the bytes sent. */
 interface UploadSlotState {
@@ -73,6 +74,8 @@ interface ColorFormRow {
   cardImage: string;
   /** Web shoot photos: what the products page shows for this colour (the designer lists them after the angles). */
   webShoot: WebShot[];
+  /** Men's / Women's / Unisex for this colour only: 'mens', 'womens', 'unisex', or '' to follow the product. */
+  gender: string;
   views: AngleSlot[];
   selected: boolean;
 }
@@ -873,14 +876,6 @@ const DEFAULT_BRAND_NAMES = [
                     <button type="button" class="btn btn-ghost" (click)="applyBulkPrice()">
                       Apply price
                     </button>
-                    <button
-                      type="button"
-                      class="btn btn-ghost"
-                      (click)="bulkSetDefault()"
-                      [disabled]="selectedCount() !== 1"
-                    >
-                      Set as default
-                    </button>
                     <button type="button" class="btn btn-danger" (click)="bulkDelete()">
                       Delete selected
                     </button>
@@ -890,7 +885,6 @@ const DEFAULT_BRAND_NAMES = [
                 @if (focusedColor(); as c) {
                   <div
                     class="ui-card color-block"
-                    [class.is-default]="c.isDefault"
                     [class.is-picked]="c.selected"
                   >
                     <div class="ui-card-h">
@@ -905,13 +899,6 @@ const DEFAULT_BRAND_NAMES = [
                           <input type="checkbox" [(ngModel)]="c.selected" [name]="'sel' + c.id" />
                           Select
                         </label>
-                        @if (c.isDefault) {
-                          <span class="variant-default-flag">Default</span>
-                        } @else {
-                          <button type="button" class="btn btn-ghost" (click)="setDefaultColor(focusedIndex())">
-                            Set as default
-                          </button>
-                        }
                         <button type="button" class="btn btn-danger" (click)="removeColor(focusedIndex())">
                           Delete
                         </button>
@@ -991,6 +978,18 @@ const DEFAULT_BRAND_NAMES = [
                           }
                         </select>
                       </div>
+                    </div>
+                    <div class="row-gap">
+                      <label>Category</label>
+                      <select [(ngModel)]="c.gender" [name]="'cgender' + c.id">
+                        <option value="">Same as the product{{ form.gender ? ' (' + form.gender + ')' : '' }}</option>
+                        <option value="mens">Men's</option>
+                        <option value="womens">Women's</option>
+                        <option value="unisex">Unisex</option>
+                      </select>
+                      <p class="field-hint">
+                        Men's, Women's or Unisex for this colour only. The shop's Gender filter uses it.
+                      </p>
                     </div>
                     <div class="row-gap">
                       <label>Colour description</label>
@@ -1210,10 +1209,7 @@ const DEFAULT_BRAND_NAMES = [
                         }
                         <span class="variant-list-meta">
                           <strong>{{ c.name || 'Untitled' }}</strong>
-                          <span
-                            >{{ normalizeHexInput(c.hex) ? normalizedHex(c.hex) : 'No colour'
-                            }}{{ c.isDefault ? ' · Default' : '' }}</span
-                          >
+                          <span>{{ normalizeHexInput(c.hex) ? normalizedHex(c.hex) : 'No colour' }}</span>
                         </span>
                       </button>
                     } @empty {
@@ -2005,14 +2001,9 @@ const DEFAULT_BRAND_NAMES = [
       border: 1px solid #e4e0d6; border-radius: 12px;
       padding: 20px 22px 24px; margin: 0; background: #fff; min-height: 520px;
     }
-    .color-block.is-default { border-color: #3d4b37; box-shadow: 0 0 0 1px rgba(61,75,55,.15); }
     .color-block.is-picked { box-shadow: inset 3px 0 0 #3d4b37; }
     .variant-h { font-size: 0.95rem !important; margin: 0; }
     .variant-sub { margin: 4px 0 0; color: #6b6f63; font-size: 0.78rem; max-width: none; }
-    .variant-default-flag {
-      background: #3d4b37; color: #fff; border-radius: 999px; padding: 5px 9px;
-      font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-    }
     .mini-check {
       display: inline-flex; align-items: center; gap: 6px;
       text-transform: none; letter-spacing: 0; font-size: 0.8rem; font-weight: 600;
@@ -2145,6 +2136,7 @@ export class AdminProductEditorComponent implements OnChanges {
   /** Ticked items per added filter, keyed by attribute code. */
   customFilterValues: Record<string, string[]> = {};
   private readonly site = inject(SiteSettingsService);
+  private readonly variantGenders = inject(VariantGendersService);
 
   readonly filterPickerOpen = signal(false);
   /** Working copy edited in the popup; copied into the form only when Save is pressed. */
@@ -3046,6 +3038,7 @@ export class AdminProductEditorComponent implements OnChanges {
       isDefault: this.colors.length === 0,
       cardImage: '',
       webShoot: [],
+      gender: '',
       views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
       selected: false,
     });
@@ -3063,10 +3056,6 @@ export class AdminProductEditorComponent implements OnChanges {
     this.focusedIndex.set(Math.min(i, Math.max(0, this.colors.length - 1)));
   }
 
-  setDefaultColor(i: number) {
-    this.colors.forEach((c, idx) => (c.isDefault = idx === i));
-  }
-
   copyFromVariant(fromIdx: string) {
     const j = Number(fromIdx);
     const src = this.colors[j];
@@ -3075,6 +3064,7 @@ export class AdminProductEditorComponent implements OnChanges {
     dest.hex = src.hex;
     dest.priceOverride = src.priceOverride;
     dest.description = src.description;
+    dest.gender = src.gender;
     dest.cardImage = src.cardImage;
     dest.views = src.views.map((v) => ({ ...v }));
   }
@@ -3086,11 +3076,6 @@ export class AdminProductEditorComponent implements OnChanges {
       return;
     }
     this.colors.filter((c) => c.selected).forEach((c) => (c.priceOverride = String(n)));
-  }
-
-  bulkSetDefault() {
-    const i = this.colors.findIndex((c) => c.selected);
-    if (i >= 0) this.setDefaultColor(i);
   }
 
   bulkDelete() {
@@ -3941,7 +3926,9 @@ export class AdminProductEditorComponent implements OnChanges {
             this.persistedId = fresh.id;
             this.loadedProductId = fresh.id;
             this.syncLocalColorIds(fresh);
-            this.applyProduct(fresh, false);
+            const genders = this.colors.map((c, i) => ({ name: this.colourName(c, i), gender: c.gender }));
+            this.applyProduct(fresh, false, genders);
+            void this.saveVariantGenders(fresh.id, genders);
             if (!uploadOk) {
               this.formError.set(
                 'Details saved, but some images failed to upload. Fix media and hit Save again.',
@@ -4071,6 +4058,7 @@ export class AdminProductEditorComponent implements OnChanges {
         isDefault: true,
         cardImage: '',
         webShoot: [],
+        gender: '',
         views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
         selected: false,
       },
@@ -4111,7 +4099,7 @@ export class AdminProductEditorComponent implements OnChanges {
     });
   }
 
-  private applyProduct(p: Product, asClone: boolean) {
+  private applyProduct(p: Product, asClone: boolean, genders?: Array<{ name: string; gender: string }>) {
     this.pendingAttrProduct = p;
     this.knownImageIds = new Set();
     this.rememberImageIds(p);
@@ -4199,6 +4187,7 @@ export class AdminProductEditorComponent implements OnChanges {
         isDefault: !!c.isDefault,
         cardImage: card,
         webShoot: galleries.map((g) => ({ url: g.url, angle: g.angle || 'other', sortOrder: g.sortOrder ?? 1 })),
+        gender: '',
         views: views.length
           ? views
           : DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
@@ -4214,6 +4203,42 @@ export class AdminProductEditorComponent implements OnChanges {
     }
     this.liveAngleIndex.set(0);
     this.hydrateDefaultAngles(p);
+    // each colour's Men's / Women's / Unisex category lives in the site settings, by colour name
+    if (genders) this.applyGenders(genders);
+    else void this.loadVariantGenders(p.id);
+  }
+
+  /** The name a colour is saved under (the same fallback as in the colours sent on Save). */
+  private colourName(c: ColorFormRow, i: number): string {
+    return c.name.trim() || `Colour ${i + 1}`;
+  }
+
+  /** Puts Men's / Women's / Unisex categories onto the colour rows, matched by colour name. */
+  private applyGenders(list: Array<{ name: string; gender: string }>) {
+    const norm = (n: string) => n.toLowerCase().replace(/\s+/g, ' ').trim();
+    const byName = new Map(list.map((g) => [norm(g.name), g.gender]));
+    this.colors.forEach((c, i) => (c.gender = byName.get(norm(this.colourName(c, i))) ?? ''));
+  }
+
+  private async loadVariantGenders(productId: string) {
+    const rows = this.colors;
+    try {
+      const saved = await this.variantGenders.savedFor(productId);
+      // the form may have moved on to another product meanwhile
+      if (this.colors === rows) this.applyGenders([...saved].map(([name, gender]) => ({ name, gender })));
+    } catch {
+      /* the colours stay "same as the product" */
+    }
+  }
+
+  private async saveVariantGenders(productId: string, rows: Array<{ name: string; gender: string }>) {
+    try {
+      await this.variantGenders.saveFor(productId, rows);
+    } catch {
+      this.formError.set(
+        "The product was saved, but the Men's / Women's / Unisex category of its colours could not be saved. Press Save again.",
+      );
+    }
   }
 
   /** The product's own card image as it is stored (kept as it is on Save; it is no longer set in this editor). */

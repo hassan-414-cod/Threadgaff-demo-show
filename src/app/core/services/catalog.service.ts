@@ -680,14 +680,13 @@ export class CatalogService {
   }
 
   /**
-   * A variant's picture on the products page (a variant is a product inside a catalogue): the main
-   * image (first web shoot photo) of its default colour, else of the first colour that has one. A
-   * variant with no web shoot yet keeps the picture it already showed.
+   * A product's picture where one picture stands for the whole product (lists in the admin, the
+   * designer's garment picker): the main image (first web shoot photo) of its first colour that has
+   * one, in the admin order. No colour is kept as "the default": the products page shows every
+   * colour on its own. A product with no web shoot yet keeps the picture it already showed.
    */
   mainImageUrl(product: Product): string {
-    const colours = [...(product.colors || [])].sort(
-      (a, b) => Number(!!b.isDefault) - Number(!!a.isDefault) || (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
-    );
+    const colours = [...(product.colors || [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     for (const c of colours) {
       const shot = this.firstShot(product, c);
       if (shot) return this.normalizeMediaUrl(shot.url);
