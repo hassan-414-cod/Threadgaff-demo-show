@@ -59,12 +59,14 @@ interface Pill {
   url: string;
 }
 
-/** One colour of a product in a tile's swatch row, with its first web shoot photo. */
+/** One colour of a product in a tile's swatch row, with its first web shoot photo and its Front angle. */
 interface Swatch {
   id: string;
   name: string;
   hex: string;
   pic: string;
+  /** The colour's Front angle (no model): what a tile shows when this colour is picked from its dots. */
+  front: string;
 }
 
 /** One colour variant of a product, shown with its own main picture. */
@@ -92,7 +94,8 @@ interface Shot {
  * The shop. Home sends a customer here by catalogue; this page shows every colour variant of every
  * product (catalogue by catalogue in the admin order, in one continuous grid), each as its own
  * main picture (its first web shoot photo) with the product name, colour and price; the colour dots
- * under a tile switch that tile to another colour of the product. Everything
+ * under a tile switch that tile to another colour of the product, showing that colour's Front angle
+ * (its model photos are already tiles of their own). Everything
  * else (the other models, web shoot photos and angles) is in the Custom Designer, which a click
  * on a variant opens in that colour. Attribute values that have a picture show it when clicked.
  * Catalogue tabs, filters and sort are here too.
@@ -745,12 +748,16 @@ export class ProductsPageComponent implements OnInit {
   /** The colour a customer clicked in a tile's swatch row, by tile. */
   private readonly clicked = signal<Record<string, string>>({});
 
-  /** What a tile shows now: its own colour, or the colour picked in its swatch row (with that colour's first photo). */
+  /**
+   * What a tile shows now: its own colour with its first web shoot photo, or the colour picked in its swatch
+   * row. The model photos of the other colours already have a tile of their own, so a picked colour shows only
+   * its Front angle from the Angles section (its web shoot photo only if it has no angle at all).
+   */
   viewOf(t: Tile): { colorId: string; colorName: string; hex: string; pic: string } {
     const id = this.clicked()[t.key];
-    const s = id ? t.swatches.find((x) => x.id === id) : undefined;
+    const s = id && id !== t.colorId ? t.swatches.find((x) => x.id === id) : undefined;
     return s
-      ? { colorId: s.id, colorName: s.name, hex: s.hex, pic: s.pic }
+      ? { colorId: s.id, colorName: s.name, hex: s.hex, pic: s.front || s.pic }
       : { colorId: t.colorId, colorName: t.colorName, hex: t.hex, pic: t.pic };
   }
 
@@ -790,6 +797,7 @@ export class ProductsPageComponent implements OnInit {
         name: c.name || '',
         hex: /^#[0-9a-f]{3,8}$/i.test(c.hex || '') ? c.hex : '#9ca3af',
         pic: this.catalog.colourMainUrl(p, c.id),
+        front: this.catalog.colourFrontUrl(p, c.id),
       }))
       .filter((x) => !!x.pic);
     const tiles = coloured.map(
