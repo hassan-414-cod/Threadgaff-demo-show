@@ -1066,7 +1066,19 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     if (this.pickListLoaded) return;
     this.pickListLoaded = true;
     this.catalog.getProducts({ limit: 48, isActive: true }).subscribe({
-      next: (res) => this.pickList.set((res.items || []).filter((p) => p.isActive !== false)),
+      next: (res) => {
+        this.pickList.set((res.items || []).filter((p) => p.isActive !== false && p.category?.isActive !== false));
+        // products of a category that is off the site (or inside one) are not offered either
+        this.catalog.getVisibleCategoryIds().subscribe({
+          next: (ids) =>
+            this.pickList.update((list) =>
+              list.filter((p) => {
+                const cid = p.categoryId || p.category?.id;
+                return !cid || ids.has(cid);
+              }),
+            ),
+        });
+      },
       error: () => {
         this.pickListLoaded = false;
         this.error.set('Could not load catalogue. Is the Nest API running?');

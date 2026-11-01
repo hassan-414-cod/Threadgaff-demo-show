@@ -12,10 +12,10 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AttributeDefinition, CatalogService } from '../../core/services/catalog.service';
 import { AttributeImagesService } from '../../core/services/attribute-images.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
-import { VariantGendersService } from '../../core/services/variant-genders.service';
+import { VariantFiltersService } from '../../core/services/variant-filters.service';
 import { FadeInDirective } from '../../shared/fade-in.directive';
 import { Category, Product } from '../../core/models/catalog.models';
-import { genderLabelForKey, genderMatchesFilter } from '../../core/utils/gender';
+import { genderMatchesFilter } from '../../core/utils/gender';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
 import {
   BUILTIN_FILTERS,
@@ -59,6 +59,14 @@ interface Pill {
   url: string;
 }
 
+/** One colour of a product in a tile's swatch row, with its first web shoot photo. */
+interface Swatch {
+  id: string;
+  name: string;
+  hex: string;
+  pic: string;
+}
+
 /** One colour variant of a product, shown with its own main picture. */
 interface Tile {
   key: string;
@@ -67,8 +75,8 @@ interface Tile {
   colorName: string;
   hex: string;
   pic: string;
-  /** Men's, Women's or Unisex: the variant's own category, else its product's. */
-  gender: string;
+  /** Every colour of its product that has a picture: the row of colour dots under the tile. */
+  swatches: Swatch[];
   /** The first colour of its product: it carries the product's anchor and attribute pictures. */
   first: boolean;
 }
@@ -83,7 +91,8 @@ interface Shot {
 /**
  * The shop. Home sends a customer here by catalogue; this page shows every colour variant of every
  * product (catalogue by catalogue in the admin order, in one continuous grid), each as its own
- * main picture (its first web shoot photo) with the product name, colour and price. Everything
+ * main picture (its first web shoot photo) with the product name, colour and price; the colour dots
+ * under a tile switch that tile to another colour of the product. Everything
  * else (the other models, web shoot photos and angles) is in the Custom Designer, which a click
  * on a variant opens in that colour. Attribute values that have a picture show it when clicked.
  * Catalogue tabs, filters and sort are here too.
@@ -168,7 +177,7 @@ interface Shot {
       <section class="shop-body">
         <div class="shop-toolbar">
           <span class="count" aria-live="polite">
-            @if (loading()) {
+            @if (busy()) {
               Loading variants…
             } @else {
               {{ tiles().length }} {{ tiles().length === 1 ? 'variant' : 'variants' }}
@@ -208,7 +217,7 @@ interface Shot {
           <div class="alert alert-error">{{ error() }}</div>
         }
 
-        @if (!loading() && !tiles().length && !error()) {
+        @if (!busy() && !tiles().length && !error()) {
           <p class="empty">
             @if (chips().length) {
               No variants match these filters.
@@ -222,29 +231,46 @@ interface Shot {
         <div class="grid">
           @for (t of tiles(); track t.key) {
             <article class="prod" [attr.id]="t.first ? 'p-' + t.product.id : null" [class.flash]="t.first && flashId() === t.product.id">
+              @let v = viewOf(t);
               <a
                 class="prod-pic"
                 [routerLink]="['/designer']"
-                [queryParams]="designerParams(t.product, t.colorId)"
-                [attr.aria-label]="'Customise ' + t.product.name + (t.colorName ? ' in ' + t.colorName : '')"
+                [queryParams]="designerParams(t.product, v.colorId)"
+                [attr.aria-label]="'Customise ' + t.product.name + (v.colorName ? ' in ' + v.colorName : '')"
                 (pointerenter)="catalog.prefetchProduct(t.product.id)"
                 (touchstart)="catalog.prefetchProduct(t.product.id)"
               >
                 <span class="prod-frame">
-                  @if (t.pic) {
-                    <img tgFadeIn [src]="t.pic" [alt]="t.product.name + (t.colorName ? ' ' + t.colorName : '')" loading="lazy" decoding="async" />
+                  @if (v.pic) {
+                    <img tgFadeIn [src]="v.pic" [alt]="t.product.name + (v.colorName ? ' ' + v.colorName : '')" loading="lazy" decoding="async" />
                   } @else {
                     <span class="prod-empty">No picture yet</span>
                   }
                 </span>
               </a>
               <h3 class="prod-name">
-                <a [routerLink]="['/designer']" [queryParams]="designerParams(t.product, t.colorId)">{{ t.product.name }}</a>
+                <a [routerLink]="['/designer']" [queryParams]="designerParams(t.product, v.colorId)">{{ t.product.name }}</a>
               </h3>
-              @if (t.colorName) {
-                <div class="prod-colour"><span class="sw-dot" [style.background]="t.hex"></span>{{ t.colorName }}</div>
+              @if (v.colorName) {
+                <div class="prod-colour"><span class="sw-dot" [style.background]="v.hex"></span>{{ v.colorName }}</div>
               }
-              <div class="prod-price">{{ priceLabel(t.product, t.colorId) }}</div>
+              <div class="prod-price">{{ priceLabel(t.product, v.colorId) }}</div>
+              @if (t.swatches.length > 1) {
+                <div class="swatches" role="group" aria-label="Colours">
+                  @for (x of t.swatches; track x.id) {
+                    <button
+                      type="button"
+                      class="sw"
+                      [class.on]="x.id === v.colorId"
+                      [style.background]="x.hex"
+                      [attr.title]="x.name"
+                      [attr.aria-label]="x.name"
+                      [attr.aria-pressed]="x.id === v.colorId"
+                      (click)="pickColour(t, x.id)"
+                    ></button>
+                  }
+                </div>
+              }
 
               @if (t.first && pillsOf(t.product).length) {
                 <div class="pills" aria-label="Attributes">
@@ -441,27 +467,28 @@ interface Shot {
     .empty { color: var(--muted); font-size: 0.9rem; margin: 28px 0; }
 
     /* the catalogue: one main picture per variant, five across, name / price / colours underneath */
-    .grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 46px 26px; margin-top: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 48px 28px; align-items: start; margin-top: 18px; }
     .prod { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
     .prod-pic { display: block; width: 100%; }
-    .prod-frame { display: block; aspect-ratio: 1 / 1; overflow: hidden; background: #ececee; }
+    /* the window is as big as its picture, whatever its proportions: the whole picture shows, nothing is cropped */
+    .prod-frame { display: block; overflow: hidden; background: #ececee; }
     .prod-frame img {
-      width: 100%;
-      height: 100%;
       display: block;
-      object-fit: cover;
-      object-position: 50% 22%;
+      width: 100%;
+      height: auto;
       transition: transform 0.35s ease, opacity 0.4s ease;
     }
     .prod-frame img.tg-pending { opacity: 0; }
+    /* while the picture is on its way the window holds a portrait place, so the page does not jump */
     .prod-frame:has(img.tg-pending) {
+      aspect-ratio: 4 / 5;
       background: linear-gradient(100deg, #e8e8ea 30%, #f4f4f5 50%, #e8e8ea 70%) 0 0 / 220% 100%;
       animation: shotShimmer 1.4s linear infinite;
     }
     @keyframes shotShimmer { to { background-position: -120% 0; } }
     .prod-pic:hover img { transform: scale(1.04); }
     .prod-pic:focus-visible { outline: 2px solid var(--forest); outline-offset: 4px; }
-    .prod-empty { display: grid; place-items: center; height: 100%; color: var(--muted); font-size: 0.78rem; }
+    .prod-empty { display: grid; place-items: center; aspect-ratio: 4 / 5; color: var(--muted); font-size: 0.78rem; }
     .prod-name {
       margin: 14px 0 0;
       padding: 2px 6px;
@@ -480,7 +507,20 @@ interface Shot {
     .prod.flash .prod-name { background: color-mix(in srgb, var(--forest) 14%, transparent); }
     .prod-price { margin-top: 6px; font-size: 0.74rem; color: var(--muted); }
     .prod-colour { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.72rem; color: var(--muted); }
-    .sw-dot { flex: none; width: 10px; height: 10px; border: 1px solid rgba(0, 0, 0, 0.18); }
+    .sw-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.18); }
+    .swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 100%; margin-top: 12px; }
+    .sw {
+      flex: none;
+      width: 16px;
+      height: 16px;
+      padding: 0;
+      border-radius: 50%;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .sw:hover, .sw:focus-visible { transform: scale(1.2); border-color: var(--ink); outline: none; }
+    .sw.on { box-shadow: 0 0 0 2px var(--paper), 0 0 0 3px var(--ink); }
 
     .pills { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 14px 0 0; }
     .pill {
@@ -556,6 +596,9 @@ interface Shot {
     .lb-cap span { color: var(--muted); font-size: 0.82rem; }
     .lb-cap em { font-style: normal; color: var(--muted); font-size: 0.74rem; }
 
+    @media (max-width: 1100px) {
+      .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px 22px; }
+    }
     @media (max-width: 900px) {
       .shop-tabs-inner, .shop-head, .shop-body, .shop-filters-inner { padding-left: 18px; padding-right: 18px; }
       .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 14px; }
@@ -575,13 +618,21 @@ export class ProductsPageComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly attrImages = inject(AttributeImagesService);
-  private readonly variants = inject(VariantGendersService);
+  private readonly variants = inject(VariantFiltersService);
   readonly catalog = inject(CatalogService);
   readonly site = inject(SiteSettingsService);
 
   readonly collections = signal<Category[]>([]);
   readonly selectedSlug = signal<string | null>(null);
   readonly products = signal<Product[]>([]);
+  /** Ids of the categories the site shows; null when they could not be read (nothing is left out then). */
+  private readonly visibleCats = signal<Set<string> | null>(null);
+  /** True once the shown categories are known (or could not be read). */
+  private readonly catsKnown = signal(false);
+  /** Products whose category is off the site are not shown (nothing is deleted). */
+  private readonly shown = computed(() => (this.catsKnown() ? this.products().filter((p) => this.isShown(p)) : []));
+  /** True while the list or the shown categories are still on their way. */
+  readonly busy = computed(() => this.loading() || !this.catsKnown());
   readonly loading = signal(true);
   readonly error = signal('');
   readonly attrDefs = signal<AttributeDefinition[]>([]);
@@ -613,7 +664,7 @@ export class ProductsPageComponent implements OnInit {
   /** The checklists: the managed filters (unless hidden), fit / sleeve / style, and added ones. */
   readonly groups = computed<FilterGroup[]>(() => {
     const defs = this.attrDefs();
-    const labels = (code: string) => filterOptionLabels(defs.find((d) => d.code === code));
+    const labels = (code: string) => this.withOwn(code, filterOptionLabels(defs.find((d) => d.code === code)));
     const out: FilterGroup[] = [];
     for (const b of BUILTIN_FILTERS) {
       if (this.site.isFilterHidden(b.code)) continue;
@@ -626,7 +677,7 @@ export class ProductsPageComponent implements OnInit {
     }
     for (const d of customFilterDefinitions(defs)) {
       if (this.site.isFilterHidden(d.code)) continue;
-      const options = filterOptionLabels(d);
+      const options = this.withOwn(d.code, filterOptionLabels(d));
       if (options.length) out.push({ code: d.code, title: d.name, options });
     }
     return out;
@@ -641,14 +692,8 @@ export class ProductsPageComponent implements OnInit {
   });
 
   readonly filtered = computed<Product[]>(() => {
-    let list = [...this.products()];
-    for (const g of this.groups()) {
-      // Gender is decided per colour variant (see tiles), not per product.
-      if (g.code === 'gender') continue;
-      const wanted = [...(this.picked()[g.code] || [])];
-      if (!wanted.length) continue;
-      list = list.filter((p) => this.matches(this.attrLabels(p, g.code), wanted));
-    }
+    let list = [...this.shown()];
+    // The filters are applied per colour variant (see tiles), so every product is kept here.
     switch (this.sort()) {
       case 'price-asc':
         return list.sort((a, b) => Number(a.basePrice) - Number(b.basePrice));
@@ -697,10 +742,39 @@ export class ProductsPageComponent implements OnInit {
   /** The variants in one run, catalogue by catalogue in the admin order, with nothing between them. */
   readonly ordered = computed<Product[]>(() => this.sections().flatMap((s) => s.items));
 
-  /** The Men's / Women's / Unisex category of a colour variant: its own, else its product's. */
-  private genderOf(p: Product, colourName: string): string {
-    const own = this.variants.genderOf(p.id, colourName);
-    return own ? genderLabelForKey(own) : this.attrLabels(p, 'gender')[0] || '';
+  /** The colour a customer clicked in a tile's swatch row, by tile. */
+  private readonly clicked = signal<Record<string, string>>({});
+
+  /** What a tile shows now: its own colour, or the colour picked in its swatch row (with that colour's first photo). */
+  viewOf(t: Tile): { colorId: string; colorName: string; hex: string; pic: string } {
+    const id = this.clicked()[t.key];
+    const s = id ? t.swatches.find((x) => x.id === id) : undefined;
+    return s
+      ? { colorId: s.id, colorName: s.name, hex: s.hex, pic: s.pic }
+      : { colorId: t.colorId, colorName: t.colorName, hex: t.hex, pic: t.pic };
+  }
+
+  pickColour(t: Tile, colorId: string) {
+    this.clicked.update((c) => ({ ...c, [t.key]: colorId }));
+  }
+
+  /** The values of a filter for one tile: what is ticked on its colour variant, else what its product has. */
+  private labelsOf(t: Tile, code: string): string[] {
+    const own = this.variants.valuesOf(t.product.id, t.colorName)[code];
+    if (own?.length) return own;
+    const fromProduct = this.attrLabels(t.product, code);
+    const more = (this.variants.productValues(t.product.id)[code] || []).filter(
+      (m) => !fromProduct.some((x) => this.normalize(x) === this.normalize(m)),
+    );
+    return [...fromProduct, ...more];
+  }
+
+  /** A filter's checklist: its options, plus the values added on colour variants. */
+  private withOwn(code: string, labels: string[]): string[] {
+    const extra = this.variants
+      .extraOptions(code)
+      .filter((m) => !labels.some((x) => this.normalize(x) === this.normalize(m)));
+    return [...labels, ...extra];
   }
 
   /**
@@ -709,20 +783,27 @@ export class ProductsPageComponent implements OnInit {
    * product whose colours have none keeps one tile of its own, so no product goes missing.
    */
   private tilesOf(p: Product): Tile[] {
-    const tiles = [...(p.colors || [])]
+    const coloured: Swatch[] = [...(p.colors || [])]
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-      .map((c) => ({ c, pic: this.catalog.colourMainUrl(p, c.id) }))
-      .filter((x) => !!x.pic)
-      .map(({ c, pic }, i): Tile => ({
-        key: `${p.id}:${c.id}`,
-        product: p,
-        colorId: c.id,
-        colorName: c.name || '',
+      .map((c) => ({
+        id: c.id,
+        name: c.name || '',
         hex: /^#[0-9a-f]{3,8}$/i.test(c.hex || '') ? c.hex : '#9ca3af',
-        pic,
-        gender: this.genderOf(p, c.name || ''),
+        pic: this.catalog.colourMainUrl(p, c.id),
+      }))
+      .filter((x) => !!x.pic);
+    const tiles = coloured.map(
+      (x, i): Tile => ({
+        key: `${p.id}:${x.id}`,
+        product: p,
+        colorId: x.id,
+        colorName: x.name,
+        hex: x.hex,
+        pic: x.pic,
+        swatches: coloured,
         first: i === 0,
-      }));
+      }),
+    );
     return tiles.length
       ? tiles
       : [
@@ -733,7 +814,7 @@ export class ProductsPageComponent implements OnInit {
             colorName: '',
             hex: '',
             pic: this.catalog.mainImageUrl(p),
-            gender: this.genderOf(p, ''),
+            swatches: [],
             first: true,
           },
         ];
@@ -742,11 +823,21 @@ export class ProductsPageComponent implements OnInit {
   /** The tiles of the shown variants, and of all of them (for the "of N" in the count). */
   readonly tiles = computed<Tile[]>(() => {
     const all = this.ordered().flatMap((p) => this.tilesOf(p));
-    // Gender is decided per colour variant, so it is filtered here and not per product.
-    const wanted = [...(this.picked()['gender'] || [])];
-    return wanted.length ? all.filter((t) => wanted.some((sel) => genderMatchesFilter(t.gender, sel))) : all;
+    // Every filter is judged per colour variant: a colour can have its own ticks.
+    const active = this.groups()
+      .map((g) => ({ code: g.code, wanted: [...(this.picked()[g.code] || [])] }))
+      .filter((a) => a.wanted.length);
+    if (!active.length) return all;
+    return all.filter((t) =>
+      active.every((a) => {
+        const labels = this.labelsOf(t, a.code);
+        return a.code === 'gender'
+          ? a.wanted.some((sel) => labels.some((l) => genderMatchesFilter(l, sel)))
+          : this.matches(labels, a.wanted);
+      }),
+    );
   });
-  readonly allTiles = computed<Tile[]>(() => this.products().flatMap((p) => this.tilesOf(p)));
+  readonly allTiles = computed<Tile[]>(() => this.shown().flatMap((p) => this.tilesOf(p)));
 
   /** The attribute values of each shown variant that have a picture. */
 
@@ -779,7 +870,22 @@ export class ProductsPageComponent implements OnInit {
     else if (event.key === 'ArrowLeft') this.step(-1);
   }
 
+  /** A product is shown unless its category (or a parent of it) is off the site. */
+  private isShown(p: Product): boolean {
+    if (p.category?.isActive === false) return false;
+    const ids = this.visibleCats();
+    const cid = p.categoryId || p.category?.id;
+    return !ids || !cid || ids.has(cid);
+  }
+
   ngOnInit() {
+    this.catalog.getVisibleCategoryIds().subscribe({
+      next: (ids) => {
+        this.visibleCats.set(ids);
+        this.catsKnown.set(true);
+      },
+      error: () => this.catsKnown.set(true),
+    });
     this.site.load();
     this.catalog.getAttributes().subscribe({
       next: (defs) => this.attrDefs.set(defs.filter((d) => d.isActive !== false)),

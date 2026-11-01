@@ -507,6 +507,22 @@ export class CatalogService {
     );
   }
 
+  /** Ids of every category the site shows: the live ones, inside live parents (a category that is off hides its products). */
+  getVisibleCategoryIds(): Observable<Set<string>> {
+    return this.getCategoryTree(true).pipe(
+      map((roots) => {
+        const ids = new Set<string>();
+        const walk = (c: Category) => {
+          if (c.isActive === false) return;
+          ids.add(c.id);
+          (c.children || []).forEach(walk);
+        };
+        roots.forEach(walk);
+        return ids;
+      }),
+    );
+  }
+
   getApparelRootId(): Observable<string | null> {
     return this.getCategoryTree(false).pipe(
       map((roots) => {

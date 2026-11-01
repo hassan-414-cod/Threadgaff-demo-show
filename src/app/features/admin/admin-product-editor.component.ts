@@ -31,7 +31,7 @@ import {
   isCustomFilterCode,
 } from '../../core/utils/filters';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
-import { VariantGendersService } from '../../core/services/variant-genders.service';
+import { VariantFiltersService } from '../../core/services/variant-filters.service';
 
 /** An image slot's upload: `progress` is 0–100 of the bytes sent. */
 interface UploadSlotState {
@@ -45,11 +45,16 @@ type ImageRow = NonNullable<Product['images']>[number];
 interface PickerGroup {
   code: string;
   title: string;
-  /** Material and Gender hold one value; the rest are checklists. */
-  kind: 'single' | 'multi';
   options: string[];
   hidden: boolean;
 }
+
+/** Filters a colour variant can have its own ticks for, besides the ones in the picker above (they live in Specifications). */
+const EXTRA_FILTER_GROUPS = [
+  { code: 'fit', title: 'Fit' },
+  { code: 'sleeve', title: 'Sleeve' },
+  { code: 'style', title: 'Style' },
+];
 
 interface AngleSlot {
   label: string;
@@ -74,8 +79,8 @@ interface ColorFormRow {
   cardImage: string;
   /** Web shoot photos: what the products page shows for this colour (the designer lists them after the angles). */
   webShoot: WebShot[];
-  /** Men's / Women's / Unisex for this colour only: 'mens', 'womens', 'unisex', or '' to follow the product. */
-  gender: string;
+  /** This colour's own ticks by filter code (Material, Gender, Fit, …). A filter with none ticked follows the product. */
+  filters: Record<string, string[]>;
   views: AngleSlot[];
   selected: boolean;
 }
@@ -979,17 +984,26 @@ const DEFAULT_BRAND_NAMES = [
                         </select>
                       </div>
                     </div>
-                    <div class="row-gap">
-                      <label>Category</label>
-                      <select [(ngModel)]="c.gender" [name]="'cgender' + c.id">
-                        <option value="">Same as the product{{ form.gender ? ' (' + form.gender + ')' : '' }}</option>
-                        <option value="mens">Men's</option>
-                        <option value="womens">Women's</option>
-                        <option value="unisex">Unisex</option>
-                      </select>
-                      <p class="field-hint">
-                        Men's, Women's or Unisex for this colour only. The shop's Gender filter uses it.
-                      </p>
+                    <div class="row-gap filters-block">
+                      <div class="filters-head">
+                        <label>Filters for this colour</label>
+                        <button type="button" class="btn btn-ghost filters-btn" (click)="openVariantFilters(focusedIndex())">
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+                          Filters
+                          @if (colourFilterCount(c)) {
+                            <span class="filters-count">{{ colourFilterCount(c) }}</span>
+                          }
+                        </button>
+                      </div>
+                      @if (colourFilterGroups(c).length) {
+                        <div class="filter-chips">
+                          @for (g of colourFilterGroups(c); track g.title) {
+                            <span class="fchip"><b>{{ g.title }}</b>{{ g.values.join(', ') }}</span>
+                          }
+                        </div>
+                      } @else {
+                        <p class="field-hint">Nothing ticked: this colour follows the product's filters.</p>
+                      }
                     </div>
                     <div class="row-gap">
                       <label>Colour description</label>
@@ -1363,20 +1377,27 @@ const DEFAULT_BRAND_NAMES = [
       <div class="modal-bg open" (click)="closeFilterPicker()">
         <div class="modal modal-filters" (click)="$event.stopPropagation()" role="dialog" aria-label="Select filters">
           <header>
-            <h2>Select filters</h2>
+            <h2>{{ filterTarget() === 'product' ? 'Select filters' : 'Filters for this colour' }}</h2>
             <button type="button" class="btn btn-ghost" (click)="closeFilterPicker()" aria-label="Close">×</button>
           </header>
           <div class="body fp-body">
-            <p class="fp-note">
-              Only the filters set on the Filters page can be selected here. To add, remove or rename them, go to Home page → Filters.
-              <button type="button" class="mini-link" (click)="goFilters()">Edit filters →</button>
-            </p>
+            @if (filterTarget() === 'product') {
+              <p class="fp-note">
+                Tick as many as apply in each group. Only the filters set on the Filters page can be selected here. To add,
+                remove or rename them, go to Home page → Filters.
+                <button type="button" class="mini-link" (click)="goFilters()">Edit filters →</button>
+              </p>
+            } @else {
+              <p class="fp-note">
+                Tick as many as apply to this colour in each group, or add your own. A group with nothing ticked follows the
+                product. Values you add are kept with the site settings and offered to the other colours.
+              </p>
+            }
             <div class="fp-grid">
               @for (g of pickerGroups(); track g.code) {
                 <section class="fp-group">
                   <div class="fg-title">
                     {{ g.title }}
-                    @if (g.kind === 'single') { <span class="fp-tag">pick one</span> }
                     @if (g.hidden) { <span class="fp-tag fp-tag-off">hidden on shop</span> }
                   </div>
                   @if (g.options.length) {
@@ -1394,6 +1415,19 @@ const DEFAULT_BRAND_NAMES = [
                     </div>
                   } @else {
                     <p class="field-hint">No items yet.</p>
+                  }
+                  @if (filterTarget() !== 'product') {
+                    <div class="fp-own">
+                      <input
+                        type="text"
+                        maxlength="60"
+                        placeholder="Add your own…"
+                        [value]="ownDraft[g.code] || ''"
+                        (input)="ownDraft[g.code] = $any($event.target).value"
+                        (keydown.enter)="$event.preventDefault(); addOwnValue(g)"
+                      />
+                      <button type="button" class="btn btn-ghost" (click)="addOwnValue(g)">+ Add</button>
+                    </div>
                   }
                 </section>
               }
@@ -1629,6 +1663,9 @@ const DEFAULT_BRAND_NAMES = [
     .fp-checks label:hover { background: #f5f3ef; }
     .fp-checks label.on { background: #eef2ea; }
     .fp-checks input { width: auto; margin: 0; accent-color: #3d4b37; }
+    .fp-own { display: flex; gap: 6px; margin-top: 8px; }
+    .fp-own input { flex: 1; min-width: 0; padding: 6px 9px; font-size: 0.78rem; }
+    .fp-own .btn { padding: 6px 10px; font-size: 0.74rem; }
     @media (max-width: 620px) { .fp-grid { grid-template-columns: 1fr; } }
     .mini-link {
       border: 1px solid #d4cec0; background: #fff; color: #3d4b37; font: inherit; font-size: 0.72rem;
@@ -2135,37 +2172,46 @@ export class AdminProductEditorComponent implements OnChanges {
   readonly customFilters = computed(() => customFilterDefinitions(this.attrDefs()));
   /** Ticked items per added filter, keyed by attribute code. */
   customFilterValues: Record<string, string[]> = {};
+  /** Ticks of Material and Gender beyond the first (the product's own attribute holds one): kept in the site settings. */
+  productExtras: Record<string, string[]> = {};
   private readonly site = inject(SiteSettingsService);
-  private readonly variantGenders = inject(VariantGendersService);
+  private readonly variantFilters = inject(VariantFiltersService);
 
   readonly filterPickerOpen = signal(false);
-  /** Working copy edited in the popup; copied into the form only when Save is pressed. */
-  filterDraft = {
-    material: '',
-    gender: '',
-    sustainability: [] as string[],
-    custom: {} as Record<string, string[]>,
-  };
+  /** What the popup is editing: the product, or one colour (its index). */
+  readonly filterTarget = signal<'product' | number>('product');
+  /** Working copy edited in the popup (ticked values by filter code); copied back only when Save is pressed. */
+  filterDraft: Record<string, string[]> = {};
+  /** What is typed in the "add your own" boxes, by filter code. */
+  ownDraft: Record<string, string> = {};
+  /** Values added in the popup this time, offered in their group until it closes. */
+  private readonly ownOptions = signal<Record<string, string[]>>({});
 
-  /** Every filter that can be picked: the existing three, then the ones added on the Filters page. */
+  /**
+   * Every filter that can be picked: the existing three, then the ones added on the Filters page. For a
+   * colour also Fit, Sleeve and Style, and the values other colours added.
+   */
   readonly pickerGroups = computed((): PickerGroup[] => {
     const defs = this.attrDefs();
     const hidden = this.site.settings().hiddenFilters;
-    const builtin = BUILTIN_FILTERS.map((b) => ({
-      code: b.code,
-      title: b.title,
-      kind: (b.code === 'sustainability' ? 'multi' : 'single') as 'single' | 'multi',
-      options: filterOptionLabels(defs.find((d) => d.code === b.code)),
-      hidden: hidden.includes(b.code),
-    }));
-    const custom = customFilterDefinitions(defs).map((d) => ({
-      code: d.code,
-      title: d.name,
-      kind: 'multi' as const,
-      options: filterOptionLabels(d),
-      hidden: hidden.includes(d.code),
-    }));
-    return [...builtin, ...custom];
+    const forColour = this.filterTarget() !== 'product';
+    const added = this.ownOptions();
+    const group = (code: string, title: string, options: string[]): PickerGroup => ({
+      code,
+      title,
+      hidden: hidden.includes(code),
+      options: forColour
+        ? this.uniqueLabels([...options, ...this.variantFilters.extraOptions(code), ...(added[code] || [])])
+        : options,
+    });
+    const builtin = BUILTIN_FILTERS.map((b) =>
+      group(b.code, b.title, filterOptionLabels(defs.find((d) => d.code === b.code))),
+    );
+    const extra = forColour
+      ? EXTRA_FILTER_GROUPS.map((e) => group(e.code, e.title, this.attrOptionLabels(e.code)))
+      : [];
+    const custom = customFilterDefinitions(defs).map((d) => group(d.code, d.name, filterOptionLabels(d)));
+    return [...builtin, ...extra, ...custom];
   });
   readonly sizeOptions = signal<CatalogSize[]>([]);
   readonly styleOptsBusy = signal(false);
@@ -2447,6 +2493,32 @@ export class AdminProductEditorComponent implements OnChanges {
     return (this.customFilterValues[code] ||= []);
   }
 
+  /** The product's ticked values for Material or Gender: the first is its attribute, the rest are extras. */
+  private productValues(code: 'material' | 'gender'): string[] {
+    const first = this.form[code];
+    return [...(first ? [first] : []), ...(this.productExtras[code] || [])];
+  }
+
+  /** The ticks of the single-value filters worth keeping in the site settings: only where there is more than one. */
+  private productOverlay(): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    for (const code of ['material', 'gender'] as const) {
+      const all = this.productValues(code);
+      if (all.length > 1) out[code] = all;
+    }
+    return out;
+  }
+
+  private uniqueLabels(list: string[]): string[] {
+    const seen = new Set<string>();
+    return list.filter((x) => {
+      const k = x.toLowerCase();
+      if (!x || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
   /** Filters chosen for this product, grouped by heading (shown next to the Filters button). */
   selectedFilterGroups(): Array<{ title: string; values: string[] }> {
     const out: Array<{ title: string; values: string[] }> = [];
@@ -2454,8 +2526,8 @@ export class AdminProductEditorComponent implements OnChanges {
       if (values.length) out.push({ title, values });
     };
     add('Sustainability & Ethics', this.form.sustainability);
-    add('Material', this.form.material ? [this.form.material] : []);
-    add('Gender', this.form.gender ? [this.form.gender] : []);
+    add('Material', this.productValues('material'));
+    add('Gender', this.productValues('gender'));
     for (const d of this.customFilters()) add(d.name, this.customFilterValues[d.code] || []);
     return out;
   }
@@ -2464,15 +2536,47 @@ export class AdminProductEditorComponent implements OnChanges {
     return this.selectedFilterGroups().reduce((n, g) => n + g.values.length, 0);
   }
 
+  /** Heading of a filter by its code. */
+  private filterTitleOf(code: string): string {
+    return (
+      BUILTIN_FILTERS.find((b) => b.code === code)?.title ||
+      EXTRA_FILTER_GROUPS.find((e) => e.code === code)?.title ||
+      this.attrDefs().find((d) => d.code === code)?.name ||
+      code
+    );
+  }
+
+  /** A colour's own ticks as chips: heading and values. */
+  colourFilterGroups(c: ColorFormRow): Array<{ title: string; values: string[] }> {
+    return Object.entries(c.filters)
+      .filter(([, values]) => values.length)
+      .map(([code, values]) => ({ title: this.filterTitleOf(code), values }));
+  }
+
+  colourFilterCount(c: ColorFormRow): number {
+    return this.colourFilterGroups(c).reduce((n, g) => n + g.values.length, 0);
+  }
+
   openFilterPicker() {
+    this.filterTarget.set('product');
+    this.ownDraft = {};
     this.filterDraft = {
-      material: this.form.material,
-      gender: this.form.gender,
+      material: this.productValues('material'),
+      gender: this.productValues('gender'),
       sustainability: [...this.form.sustainability],
-      custom: Object.fromEntries(
-        Object.entries(this.customFilterValues).map(([k, v]) => [k, [...v]]),
-      ),
+      ...Object.fromEntries(Object.entries(this.customFilterValues).map(([k, v]) => [k, [...v]])),
     };
+    this.filterPickerOpen.set(true);
+  }
+
+  /** The same popup for one colour: its own ticks, or none to follow the product. */
+  openVariantFilters(ci: number) {
+    const row = this.colors[ci];
+    if (!row) return;
+    this.filterTarget.set(ci);
+    this.ownDraft = {};
+    this.ownOptions.set({});
+    this.filterDraft = Object.fromEntries(Object.entries(row.filters).map(([k, v]) => [k, [...v]]));
     this.filterPickerOpen.set(true);
   }
 
@@ -2480,33 +2584,48 @@ export class AdminProductEditorComponent implements OnChanges {
     this.filterPickerOpen.set(false);
   }
 
-  /** Save in the popup: copy the picks into the product and show them next to the button. */
+  /** Save in the popup: copy the picks into the product (or the colour) and show them next to the button. */
   saveFilterPicker() {
     const d = this.filterDraft;
-    this.form.material = d.material;
-    this.form.gender = d.gender;
-    this.form.sustainability = [...d.sustainability];
-    this.customFilterValues = Object.fromEntries(
-      Object.entries(d.custom).map(([k, v]) => [k, [...v]]),
-    );
+    const target = this.filterTarget();
+    if (target === 'product') {
+      const [material = '', ...moreMaterial] = d['material'] || [];
+      const [gender = '', ...moreGender] = d['gender'] || [];
+      this.form.material = material;
+      this.form.gender = gender;
+      this.productExtras = { material: moreMaterial, gender: moreGender };
+      this.form.sustainability = [...(d['sustainability'] || [])];
+      this.customFilterValues = Object.fromEntries(
+        Object.entries(d)
+          .filter(([code]) => isCustomFilterCode(code))
+          .map(([code, v]) => [code, [...v]]),
+      );
+    } else if (this.colors[target]) {
+      this.colors[target].filters = Object.fromEntries(
+        Object.entries(d)
+          .filter(([, v]) => v.length)
+          .map(([code, v]) => [code, [...v]]),
+      );
+    }
     this.filterPickerOpen.set(false);
   }
 
   pickerChecked(g: PickerGroup, option: string): boolean {
-    const d = this.filterDraft;
-    if (g.code === 'material') return d.material === option;
-    if (g.code === 'gender') return d.gender === option;
-    if (g.code === 'sustainability') return d.sustainability.includes(option);
-    return (d.custom[g.code] || []).includes(option);
+    return (this.filterDraft[g.code] || []).includes(option);
   }
 
   pickerToggle(g: PickerGroup, option: string, event: Event) {
-    const on = (event.target as HTMLInputElement).checked;
-    const d = this.filterDraft;
-    if (g.code === 'material') d.material = on ? option : '';
-    else if (g.code === 'gender') d.gender = on ? option : '';
-    else if (g.code === 'sustainability') this.toggleCheck(d.sustainability, option, event);
-    else this.toggleCheck((d.custom[g.code] ||= []), option, event);
+    this.toggleCheck((this.filterDraft[g.code] ||= []), option, event);
+  }
+
+  /** A colour's own value, typed in the popup: ticked at once and offered in its group. */
+  addOwnValue(g: PickerGroup) {
+    const label = (this.ownDraft[g.code] || '').trim().slice(0, 60);
+    if (!label) return;
+    const list = (this.filterDraft[g.code] ||= []);
+    if (!list.some((x) => x.toLowerCase() === label.toLowerCase())) list.push(label);
+    this.ownOptions.update((o) => ({ ...o, [g.code]: this.uniqueLabels([...(o[g.code] || []), label]) }));
+    this.ownDraft[g.code] = '';
   }
 
   /** Mini button in the filter popup: open Home page → Filters. */
@@ -3038,7 +3157,7 @@ export class AdminProductEditorComponent implements OnChanges {
       isDefault: this.colors.length === 0,
       cardImage: '',
       webShoot: [],
-      gender: '',
+      filters: {},
       views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
       selected: false,
     });
@@ -3064,7 +3183,7 @@ export class AdminProductEditorComponent implements OnChanges {
     dest.hex = src.hex;
     dest.priceOverride = src.priceOverride;
     dest.description = src.description;
-    dest.gender = src.gender;
+    dest.filters = Object.fromEntries(Object.entries(src.filters).map(([k, v]) => [k, [...v]]));
     dest.cardImage = src.cardImage;
     dest.views = src.views.map((v) => ({ ...v }));
   }
@@ -3926,9 +4045,13 @@ export class AdminProductEditorComponent implements OnChanges {
             this.persistedId = fresh.id;
             this.loadedProductId = fresh.id;
             this.syncLocalColorIds(fresh);
-            const genders = this.colors.map((c, i) => ({ name: this.colourName(c, i), gender: c.gender }));
-            this.applyProduct(fresh, false, genders);
-            void this.saveVariantGenders(fresh.id, genders);
+            const keep = {
+              rows: this.colors.map((c, i) => ({ name: this.colourName(c, i), filters: c.filters })),
+              extras: this.productExtras,
+            };
+            const overlay = this.productOverlay();
+            this.applyProduct(fresh, false, keep);
+            void this.saveVariantFilters(fresh.id, keep.rows, overlay);
             if (!uploadOk) {
               this.formError.set(
                 'Details saved, but some images failed to upload. Fix media and hit Save again.',
@@ -4038,6 +4161,7 @@ export class AdminProductEditorComponent implements OnChanges {
   private resetNew() {
     this.serviceAddOns = {};
     this.customFilterValues = {};
+    this.productExtras = {};
     this.form = { ...this.emptyForm(), categoryId: this.categoryId || '' };
     this.standalone = this.startStandalone && !this.categoryId;
     this.slugTouched = false;
@@ -4058,7 +4182,7 @@ export class AdminProductEditorComponent implements OnChanges {
         isDefault: true,
         cardImage: '',
         webShoot: [],
-        gender: '',
+        filters: {},
         views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
         selected: false,
       },
@@ -4099,7 +4223,11 @@ export class AdminProductEditorComponent implements OnChanges {
     });
   }
 
-  private applyProduct(p: Product, asClone: boolean, genders?: Array<{ name: string; gender: string }>) {
+  private applyProduct(
+    p: Product,
+    asClone: boolean,
+    keep?: { rows: Array<{ name: string; filters: Record<string, string[]> }>; extras: Record<string, string[]> },
+  ) {
     this.pendingAttrProduct = p;
     this.knownImageIds = new Set();
     this.rememberImageIds(p);
@@ -4140,6 +4268,7 @@ export class AdminProductEditorComponent implements OnChanges {
     };
     this.serviceAddOns = { ...fromAttrs.serviceAddOns, ...merch.serviceAddOns };
     this.customFilterValues = { ...fromAttrs.customFilters };
+    this.productExtras = {};
     this.extraAttrs = merch.extra;
     const primaryId = p.categoryId || p.category?.id || this.categoryId || '';
     const extras = [...(p.extraCategoryIds || []), ...merch.categoryIds].filter(Boolean);
@@ -4187,7 +4316,7 @@ export class AdminProductEditorComponent implements OnChanges {
         isDefault: !!c.isDefault,
         cardImage: card,
         webShoot: galleries.map((g) => ({ url: g.url, angle: g.angle || 'other', sortOrder: g.sortOrder ?? 1 })),
-        gender: '',
+        filters: {},
         views: views.length
           ? views
           : DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
@@ -4203,9 +4332,9 @@ export class AdminProductEditorComponent implements OnChanges {
     }
     this.liveAngleIndex.set(0);
     this.hydrateDefaultAngles(p);
-    // each colour's Men's / Women's / Unisex category lives in the site settings, by colour name
-    if (genders) this.applyGenders(genders);
-    else void this.loadVariantGenders(p.id);
+    // each colour's own filters (and the product's extra ticks) live in the site settings, by colour name
+    if (keep) this.applyKept(keep.rows, keep.extras);
+    else void this.loadVariantFilters(p.id);
   }
 
   /** The name a colour is saved under (the same fallback as in the colours sent on Save). */
@@ -4213,30 +4342,55 @@ export class AdminProductEditorComponent implements OnChanges {
     return c.name.trim() || `Colour ${i + 1}`;
   }
 
-  /** Puts Men's / Women's / Unisex categories onto the colour rows, matched by colour name. */
-  private applyGenders(list: Array<{ name: string; gender: string }>) {
+  /** Puts what was just edited back onto the rebuilt colour rows (matched by colour name). */
+  private applyKept(
+    rows: Array<{ name: string; filters: Record<string, string[]> }>,
+    extras: Record<string, string[]>,
+  ) {
     const norm = (n: string) => n.toLowerCase().replace(/\s+/g, ' ').trim();
-    const byName = new Map(list.map((g) => [norm(g.name), g.gender]));
-    this.colors.forEach((c, i) => (c.gender = byName.get(norm(this.colourName(c, i))) ?? ''));
+    const byName = new Map(rows.map((r) => [norm(r.name), r.filters]));
+    this.colors.forEach((c, i) => (c.filters = byName.get(norm(this.colourName(c, i))) ?? {}));
+    this.productExtras = extras;
   }
 
-  private async loadVariantGenders(productId: string) {
-    const rows = this.colors;
-    try {
-      const saved = await this.variantGenders.savedFor(productId);
-      // the form may have moved on to another product meanwhile
-      if (this.colors === rows) this.applyGenders([...saved].map(([name, gender]) => ({ name, gender })));
-    } catch {
-      /* the colours stay "same as the product" */
+  /** Puts the saved filter ticks onto the colour rows (matched by colour name) and the product's extras. */
+  private applyFilters(saved: {
+    variants: Map<string, Record<string, string[]>>;
+    product: Record<string, string[]>;
+  }) {
+    const norm = (n: string) => n.toLowerCase().replace(/\s+/g, ' ').trim();
+    this.colors.forEach((c, i) => {
+      const own = saved.variants.get(norm(this.colourName(c, i))) ?? {};
+      c.filters = Object.fromEntries(Object.entries(own).map(([k, v]) => [k, [...v]]));
+    });
+    this.productExtras = {};
+    for (const code of ['material', 'gender'] as const) {
+      const more = (saved.product[code] || []).filter((v) => v.toLowerCase() !== this.form[code].toLowerCase());
+      if (more.length) this.productExtras[code] = more;
     }
   }
 
-  private async saveVariantGenders(productId: string, rows: Array<{ name: string; gender: string }>) {
+  private async loadVariantFilters(productId: string) {
+    const rows = this.colors;
     try {
-      await this.variantGenders.saveFor(productId, rows);
+      const saved = await this.variantFilters.savedFor(productId);
+      // the form may have moved on to another product meanwhile
+      if (this.colors === rows) this.applyFilters(saved);
+    } catch {
+      /* the colours follow the product */
+    }
+  }
+
+  private async saveVariantFilters(
+    productId: string,
+    rows: Array<{ name: string; filters: Record<string, string[]> }>,
+    overlay: Record<string, string[]>,
+  ) {
+    try {
+      await this.variantFilters.saveFor(productId, rows, overlay);
     } catch {
       this.formError.set(
-        "The product was saved, but the Men's / Women's / Unisex category of its colours could not be saved. Press Save again.",
+        'The product was saved, but the filters set on its colours could not be saved. Press Save again.',
       );
     }
   }

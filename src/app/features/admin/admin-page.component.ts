@@ -532,13 +532,25 @@ interface CategoryTreeListRow {
                             <span class="col-count">{{ productCountFor(row.category) }}</span>
                           </td>
                           <td>
-                            <span
-                              class="status"
-                              [class.live]="row.category.isActive"
-                              [class.hidden]="!row.category.isActive"
+                            <button
+                              type="button"
+                              class="live-toggle"
+                              [class.on]="row.category.isActive"
+                              [class.off]="!row.category.isActive"
+                              [disabled]="catBusy().has(row.category.id)"
+                              (click)="toggleCategoryLive(row.category, $event)"
+                              [attr.aria-pressed]="row.category.isActive"
+                              [attr.title]="
+                                row.category.isActive
+                                  ? 'Live on the site — click to take it off the site (nothing is deleted)'
+                                  : 'Off the site — click to put it live'
+                              "
                             >
-                              {{ row.category.isActive ? 'Live' : 'Hidden' }}
-                            </span>
+                              <span class="live-toggle-track" aria-hidden="true">
+                                <span class="live-toggle-knob"></span>
+                              </span>
+                              <span class="live-toggle-label">{{ row.category.isActive ? 'Live' : 'Off' }}</span>
+                            </button>
                           </td>
                           <td>
                             <div class="row-actions" (click)="$event.stopPropagation()">
@@ -561,7 +573,7 @@ interface CategoryTreeListRow {
                   </table>
                 </div>
                 <div class="table-foot">
-                  <span>Open a category to edit it, set its image, or view its products.</span>
+                  <span>Open a category to edit it, set its image, or view its products. Off = the category and its products are not shown on the site (nothing is deleted).</span>
                   <span>Showing {{ categoryTreeRows().length }} rows</span>
                 </div>
               </div>
@@ -2489,6 +2501,47 @@ export class AdminPageComponent implements OnInit {
     void run.finally(() => {
       if (this.statusQueue.get(p.id) === run) this.statusQueue.delete(p.id);
     });
+  }
+
+  /** Categories whose Live / Off change is being saved (their switch is disabled meanwhile). */
+  readonly catBusy = signal<ReadonlySet<string>>(new Set());
+
+  private setCategoryActive(id: string, active: boolean) {
+    const walk = (list: Category[]): Category[] =>
+      list.map((c) => ({
+        ...c,
+        isActive: c.id === id ? active : c.isActive,
+        children: c.children ? walk(c.children) : c.children,
+      }));
+    this.collections.update(walk);
+  }
+
+  /** Flips a category Live / Off on the spot; the save runs in the background and is undone if it fails. */
+  async toggleCategoryLive(c: Category, event: Event) {
+    event.stopPropagation();
+    if (this.catBusy().has(c.id)) return;
+    const next = !c.isActive;
+    this.error.set('');
+    this.setCategoryActive(c.id, next);
+    this.catBusy.update((s) => new Set(s).add(c.id));
+    try {
+      await firstValueFrom(
+        this.auth
+          .ensureFreshAccessToken()
+          .pipe(switchMap(() => this.catalog.updateCategory(c.id, { isActive: next }))),
+      );
+      this.toast(next ? `“${c.name}” is live on the site` : `“${c.name}” is off the site`);
+    } catch (err) {
+      this.setCategoryActive(c.id, !next);
+      const msg = (err as { error?: { message?: string | string[] } })?.error?.message;
+      this.error.set(Array.isArray(msg) ? msg.join(', ') : msg || 'Could not update the category');
+    } finally {
+      this.catBusy.update((s) => {
+        const n = new Set(s);
+        n.delete(c.id);
+        return n;
+      });
+    }
   }
 
   cancelDeleteProduct() {

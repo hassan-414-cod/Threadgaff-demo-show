@@ -815,6 +815,15 @@ export class HomePageComponent implements OnInit {
   private readonly collections = signal<Category[]>([]);
   private readonly products = signal<Product[]>([]);
   private readonly catsLoaded = signal(false);
+  /** Slugs of the categories that are live; null when they could not be read (every card is shown then). */
+  private readonly liveSlugs = signal<Set<string> | null>(null);
+  private readonly liveKnown = signal(false);
+
+  /** A card that opens a category which is off the site is not shown (an empty slug opens all products). */
+  private onlyLive(cards: HomeCard[]): HomeCard[] {
+    const live = this.liveSlugs();
+    return live ? cards.filter((c) => !c.slug || live.has(c.slug)) : cards;
+  }
   private readonly productsLoaded = signal(false);
 
   /**
@@ -835,34 +844,38 @@ export class HomePageComponent implements OnInit {
 
   /** True until what the slider needs has come back from the server. */
   readonly slidesLoading = computed(
-    () => !this.site.ready() || (this.site.settings().homeSlides === null && !this.derivedReady()),
+    () => !this.site.ready() || !this.liveKnown() || (this.site.settings().homeSlides === null && !this.derivedReady()),
   );
   readonly slides = computed<HomeCard[]>(() => {
     if (this.slidesLoading()) return [];
     const saved = this.site.settings().homeSlides;
     return saved
-      ? saved.map((s) => ({
-          key: s.id,
-          slug: s.slug,
-          name: s.title,
-          image: s.imageUrl ? this.catalog.normalizeMediaUrl(s.imageUrl) : null,
-        }))
+      ? this.onlyLive(
+          saved.map((s) => ({
+            key: s.id,
+            slug: s.slug,
+            name: s.title,
+            image: s.imageUrl ? this.catalog.normalizeMediaUrl(s.imageUrl) : null,
+          })),
+        )
       : this.derived();
   });
 
   readonly cataloguesLoading = computed(
-    () => !this.site.ready() || (this.site.settings().homeCatalogues === null && !this.derivedReady()),
+    () => !this.site.ready() || !this.liveKnown() || (this.site.settings().homeCatalogues === null && !this.derivedReady()),
   );
   readonly catalogues = computed<HomeCard[]>(() => {
     if (this.cataloguesLoading()) return [];
     const saved = this.site.settings().homeCatalogues;
     return saved
-      ? saved.map((c) => ({
-          key: c.id,
-          slug: c.slug,
-          name: c.name,
-          image: c.imageUrl ? this.catalog.normalizeMediaUrl(c.imageUrl) : null,
-        }))
+      ? this.onlyLive(
+          saved.map((c) => ({
+            key: c.id,
+            slug: c.slug,
+            name: c.name,
+            image: c.imageUrl ? this.catalog.normalizeMediaUrl(c.imageUrl) : null,
+          })),
+        )
       : this.derived();
   });
 
@@ -883,6 +896,13 @@ export class HomePageComponent implements OnInit {
 
   ngOnInit() {
     this.site.load();
+    this.catalog.getCollectionCategories().subscribe({
+      next: (cats) => {
+        this.liveSlugs.set(new Set(cats.map((c) => c.slug)));
+        this.liveKnown.set(true);
+      },
+      error: () => this.liveKnown.set(true),
+    });
   }
 
   private loadCollections() {

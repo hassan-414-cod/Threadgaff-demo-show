@@ -33,6 +33,12 @@ export interface VariantGender {
   gender: 'mens' | 'womens' | 'unisex';
 }
 
+/** Ticked filter values by filter code, for one colour variant (key = product + colour name) or one product (key = product id). */
+export interface FilterValues {
+  key: string;
+  values: Record<string, string[]>;
+}
+
 /** Texts the admin can change on the Site Outlook page, plus the home page pictures. */
 export interface SiteSettings {
   bannerVisible: boolean;
@@ -49,8 +55,12 @@ export interface SiteSettings {
   homeSlides: HomeSlide[] | null;
   /** Pictures attached to attribute values; shown when a customer clicks that value. */
   attributeImages: AttributeImage[];
-  /** Men's / Women's / Unisex set on single colour variants; a colour with none follows its product. */
+  /** Older list of Men's / Women's / Unisex set on single colours; now read as part of variantFilters. */
   variantGenders: VariantGender[];
+  /** The filters ticked on single colour variants; a filter with none ticked follows the product. */
+  variantFilters: FilterValues[];
+  /** Extra ticks of the single-value filters (Material, Gender) on a product: its own attribute holds one value. */
+  productFilters: FilterValues[];
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
@@ -65,6 +75,8 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   homeSlides: null,
   attributeImages: [],
   variantGenders: [],
+  variantFilters: [],
+  productFilters: [],
 };
 
 const CACHE_KEY = 'tg_site_settings';
@@ -201,6 +213,8 @@ export class SiteSettingsService {
         homeSlides: this.parseCards<HomeSlide>(raw.homeSlides, false),
         attributeImages: this.parseAttributeImages(raw.attributeImages),
         variantGenders: this.parseVariantGenders(raw.variantGenders),
+        variantFilters: this.parseFilterValues(raw.variantFilters),
+        productFilters: this.parseFilterValues(raw.productFilters),
         bannerVisible: pick('bannerVisible'),
         bannerText: pick('bannerText'),
         heroTagline: pick('heroTagline'),
@@ -224,6 +238,29 @@ export class SiteSettingsService {
       }))
       .filter((i) => i.key && i.imageUrl)
       .slice(0, 400);
+  }
+
+  private parseFilterValues(raw: unknown): FilterValues[] {
+    if (!Array.isArray(raw)) return [];
+    const out: FilterValues[] = [];
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const r = entry as Record<string, unknown>;
+      const key = typeof r['key'] === 'string' ? r['key'].slice(0, 200) : '';
+      const src = r['values'];
+      if (!key || !src || typeof src !== 'object' || Array.isArray(src)) continue;
+      const values: Record<string, string[]> = {};
+      for (const [code, list] of Object.entries(src as Record<string, unknown>)) {
+        if (!Array.isArray(list)) continue;
+        const labels = list
+          .filter((x): x is string => typeof x === 'string' && !!x.trim())
+          .map((x) => x.trim().slice(0, 80));
+        if (labels.length) values[code.slice(0, 80)] = [...new Set(labels)].slice(0, 60);
+      }
+      if (Object.keys(values).length) out.push({ key, values });
+      if (out.length >= 2000) break;
+    }
+    return out;
   }
 
   private parseVariantGenders(raw: unknown): VariantGender[] {
