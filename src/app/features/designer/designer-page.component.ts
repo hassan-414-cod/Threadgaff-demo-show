@@ -12,6 +12,8 @@ import {
   formatGbp,
   priceLabel as formatProductPrice,
 } from '../../core/utils/price';
+import { AttributeTemplatesService } from '../../core/services/attribute-templates.service';
+import { SiteSettingsService } from '../../core/services/site-settings.service';
 import { hasDisplayHex } from '../../core/utils/hex';
 import { cardDescription } from '../../core/utils/description';
 import {
@@ -819,6 +821,8 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   readonly saveMsg = signal('');
   readonly privateLabelValues = signal<string[]>([]);
   private readonly designUpload = inject(DesignUploadStore);
+  private readonly templates = inject(AttributeTemplatesService);
+  private readonly site = inject(SiteSettingsService);
   readonly plFile = signal<File | null>(null);
   /** Object URL of the uploaded design when it is an image, so it can be drawn on the garment. */
   readonly designPreviewUrl = signal<string | null>(null);
@@ -988,8 +992,37 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
       : card
         ? [{ key: 'card', label: 'Front', url: this.catalog.normalizeMediaUrl(card), angle: 'front' }]
         : [];
-    return [...lead, ...shoot].filter((v) => !!v.url);
+    return this.withTemplates([...lead, ...shoot].filter((v) => !!v.url));
   });
+
+  /** The chosen options that can have a template, as [attribute code, label], in the order they are listed. */
+  private chosenOptions(): Array<[string, string]> {
+    const of = (code: string, values: string[], opts: AttrOpt[]): Array<[string, string]> =>
+      values.map((v) => [code, opts.find((o) => o.value === v || o.label === v)?.label || v]);
+    return [
+      ...of('sleeve', this.sleeveValues(), this.sleeveOptions()),
+      ...of('style', this.styleValues(), this.styleOptions()),
+      ...of('material', this.fabricValues(), this.fabricOptions()),
+      ...of('gsm', this.gsmValues(), this.gsmOptions()),
+    ];
+  }
+
+  /**
+   * A chosen option with a template (Sleeve: Short, Style: V-Neck, …) shows its own picture for an angle
+   * in place of the garment's picture for that angle; an angle the template has no picture for keeps the
+   * garment's own.
+   */
+  private withTemplates(views: OutlookView[]): OutlookView[] {
+    const chosen = this.chosenOptions();
+    if (!chosen.length) return views;
+    return views.map((v) => {
+      for (const [code, label] of chosen) {
+        const url = this.templates.pictureFor(code, label, v.angle);
+        if (url) return { ...v, url };
+      }
+      return v;
+    });
+  }
 
   readonly sizeCodes = computed(() => {
     const sizes = this.product()?.sizes || [];
@@ -1008,6 +1041,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    this.site.load(); // the templates of attribute options live in the site settings
     // Bring back the uploads saved from an earlier visit (design file + logo).
     void this.designUpload.restore().then((f) => {
       if (f && !this.plFile()) this.applyPlFile(f);

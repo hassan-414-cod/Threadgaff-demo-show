@@ -7,7 +7,6 @@ import { firstValueFrom, forkJoin, of } from 'rxjs';
 import { catchError, switchMap } from 'rxjs/operators';
 import { Category, Product, ProductTag } from '../../core/models/catalog.models';
 import {
-  AttributeDefinition,
   CatalogService,
   COVER_STORE_SLUG,
   Enquiry,
@@ -15,7 +14,7 @@ import {
 import { AuthService } from '../../core/services/auth.service';
 import { AdminProductEditorComponent } from './admin-product-editor.component';
 import { AdminHomeComponent, HomeSection } from './admin-home.component';
-import { AttrImageComponent } from '../../shared/attr-image.component';
+import { AdminAttributesComponent } from './admin-attributes.component';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
 
 type AdminView =
@@ -59,7 +58,7 @@ interface CategoryTreeListRow {
     AdminProductEditorComponent,
     AdminSalesDeskComponent,
     AdminHomeComponent,
-    AttrImageComponent,
+    AdminAttributesComponent,
   ],
   template: `
     <div class="shell">
@@ -871,69 +870,7 @@ interface CategoryTreeListRow {
         }
 
         @if (view() === 'attributes') {
-          <div class="topbar">
-            <div>
-              <p class="page-kicker">01 / Attributes</p>
-              <h1>Attributes</h1>
-              <p>Product attribute definitions. Edit Style to add/remove Pullover, Zip-Up, Crew, V-Neck, Collar, etc. Those options appear in Variant Details and the Custom Designer.</p>
-            </div>
-            <div class="toolbar">
-              <button type="button" class="btn btn-ghost" (click)="loadAttributes()">Refresh</button>
-              <button type="button" class="btn btn-gold" (click)="openAttrModal()">+ Add Attribute</button>
-            </div>
-          </div>
-          <div class="panel">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Code</th>
-                    <th>Type</th>
-                    <th>Options</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (a of attributes(); track a.id) {
-                    <tr>
-                      <td><span class="prod-name">{{ a.name }}</span></td>
-                      <td><span class="mono">{{ a.code }}</span></td>
-                      <td><span class="cat">{{ a.valueType }}</span></td>
-                      <td>
-                        @if (a.options?.length) {
-                          <span class="opt-chips">
-                            @for (o of a.options; track o.id) {
-                              <span class="opt-chip opt-chip-img">
-                                {{ o.label }}
-                                <tg-attr-image [code]="a.code" [label]="o.label" />
-                              </span>
-                            }
-                          </span>
-                        } @else {
-                          <span class="muted-sm">None</span>
-                        }
-                      </td>
-                      <td>
-                        <div class="row-actions">
-                          <button type="button" class="btn btn-ghost" (click)="openAttrModal(a)">
-                            Edit
-                          </button>
-                          <button type="button" class="btn btn-danger" (click)="deleteAttribute(a)">
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  } @empty {
-                    <tr>
-                      <td colspan="5"><div class="empty">No attributes yet.</div></td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <tg-admin-attributes />
         }
 
         @if (view() === 'enquiries') {
@@ -1113,70 +1050,6 @@ interface CategoryTreeListRow {
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" (click)="brandModalOpen.set(false)">Cancel</button>
             <button type="button" class="btn btn-gold" (click)="saveBrand()">Save</button>
-          </div>
-        </div>
-      </div>
-    }
-
-    @if (attrModalOpen()) {
-      <div class="modal-bg open" (click)="attrModalOpen.set(false)">
-        <div class="modal modal-wide" (click)="$event.stopPropagation()">
-          <header>
-            <h2>{{ editingAttrId() ? 'Edit attribute' : 'Add attribute' }}</h2>
-            <button type="button" class="btn btn-ghost" (click)="attrModalOpen.set(false)">Close</button>
-          </header>
-          <div class="body">
-            @if (attrModalError()) {
-              <div class="alert">{{ attrModalError() }}</div>
-            }
-            <label>Name</label>
-            <input type="text" [(ngModel)]="attrForm.name" placeholder="Sleeve" />
-            <label>Code</label>
-            <input
-              type="text"
-              [(ngModel)]="attrForm.code"
-              placeholder="sleeve"
-              [disabled]="!!editingAttrId()"
-            />
-            <label>Type</label>
-            <select [(ngModel)]="attrForm.valueType">
-              <option value="text">Text</option>
-              <option value="number">Number</option>
-              <option value="select">Select</option>
-              <option value="multiselect">Multi-select</option>
-              <option value="boolean">Boolean</option>
-            </select>
-            @if (attrForm.valueType === 'select' || attrForm.valueType === 'multiselect') {
-              <label>Options</label>
-              <p class="muted-sm">These appear in product editing and storefront filters.</p>
-              @for (opt of attrForm.options; track $index; let i = $index) {
-                <div class="attr-opt-row">
-                  <input
-                    type="text"
-                    [(ngModel)]="opt.label"
-                    [name]="'optLabel' + i"
-                    placeholder="Label e.g. Long"
-                    (ngModelChange)="onAttrOptionLabel(i)"
-                  />
-                  <input
-                    type="text"
-                    [(ngModel)]="opt.value"
-                    [name]="'optValue' + i"
-                    placeholder="value e.g. long"
-                  />
-                  <button type="button" class="btn btn-danger" (click)="attrForm.options.splice(i, 1)">
-                    Remove
-                  </button>
-                </div>
-              }
-              <button type="button" class="btn btn-ghost" (click)="addAttrOption()">
-                + Add option
-              </button>
-            }
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="btn btn-ghost" (click)="attrModalOpen.set(false)">Cancel</button>
-            <button type="button" class="btn btn-gold" (click)="saveAttribute()">Save</button>
           </div>
         </div>
       </div>
@@ -2041,7 +1914,6 @@ export class AdminPageComponent implements OnInit {
   readonly products = signal<Product[]>([]);
   readonly collections = signal<Category[]>([]);
   readonly brands = signal<ProductTag[]>([]);
-  readonly attributes = signal<AttributeDefinition[]>([]);
   readonly salesStore = inject(SalesDeskStore);
   readonly enquiries = signal<Enquiry[]>([]);
   newEnquiryCount(): number {
@@ -2069,12 +1941,9 @@ export class AdminPageComponent implements OnInit {
   readonly deleteError = signal('');
   readonly colModalOpen = signal(false);
   readonly brandModalOpen = signal(false);
-  readonly attrModalOpen = signal(false);
-  readonly editingAttrId = signal<string | null>(null);
   readonly editingCollectionId = signal<string | null>(null);
   readonly colModalError = signal('');
   readonly brandModalError = signal('');
-  readonly attrModalError = signal('');
   readonly apparelRootId = signal<string | null>(null);
 
   colForm = {
@@ -2086,12 +1955,6 @@ export class AdminPageComponent implements OnInit {
     imageUrl: '',
   };
   brandFormName = '';
-  attrForm = {
-    name: '',
-    code: '',
-    valueType: 'text' as 'text' | 'number' | 'select' | 'multiselect' | 'boolean',
-    options: [] as Array<{ value: string; label: string; sortOrder: number }>,
-  };
 
   siteName = 'Threadgaff';
   defaultMoq = 150;
@@ -2231,7 +2094,6 @@ export class AdminPageComponent implements OnInit {
     this.editor.set(null);
     if (this.isProductsSectionView(v)) this.productsNavOpen.set(true);
     if (v === 'brands') this.loadBrands();
-    if (v === 'attributes') this.loadAttributes();
     if (v === 'enquiries' || v === 'overview') this.loadEnquiries();
     this.syncAdminUrl();
   }
@@ -2317,7 +2179,6 @@ export class AdminPageComponent implements OnInit {
       this.catalogMode.set('collections');
     } else if (tab === 'attributes') {
       this.view.set('attributes');
-      this.loadAttributes();
     }
     this.syncAdminUrl();
   }
@@ -3053,128 +2914,10 @@ export class AdminPageComponent implements OnInit {
     });
   }
 
-  openAttrModal(existing?: AttributeDefinition) {
-    if (existing) {
-      this.editingAttrId.set(existing.id);
-      this.attrForm = {
-        name: existing.name || '',
-        code: existing.code || '',
-        valueType: (existing.valueType as typeof this.attrForm.valueType) || 'text',
-        options: (existing.options || []).map((o, i) => ({
-          value: o.value,
-          label: o.label,
-          sortOrder: o.sortOrder ?? i,
-        })),
-      };
-    } else {
-      this.editingAttrId.set(null);
-      this.attrForm = {
-        name: '',
-        code: '',
-        valueType: 'select',
-        options: [{ value: '', label: '', sortOrder: 0 }],
-      };
-    }
-    this.attrModalError.set('');
-    this.attrModalOpen.set(true);
-  }
-
-  addAttrOption() {
-    this.attrForm.options.push({
-      value: '',
-      label: '',
-      sortOrder: this.attrForm.options.length,
-    });
-  }
-
-  onAttrOptionLabel(i: number) {
-    const opt = this.attrForm.options[i];
-    if (!opt) return;
-    if (!opt.value.trim() && opt.label.trim()) {
-      opt.value = opt.label
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
-    }
-  }
-
-  saveAttribute() {
-    const name = this.attrForm.name.trim();
-    const code =
-      this.attrForm.code.trim() ||
-      name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    if (!name) {
-      this.attrModalError.set('Name is required');
-      return;
-    }
-    const needsOptions =
-      this.attrForm.valueType === 'select' || this.attrForm.valueType === 'multiselect';
-    const options = this.attrForm.options
-      .map((o, i) => ({
-        label: o.label.trim(),
-        value:
-          o.value.trim() ||
-          o.label
-            .trim()
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-|-$/g, ''),
-        sortOrder: i,
-      }))
-      .filter((o) => o.label && o.value);
-    if (needsOptions && !options.length) {
-      this.attrModalError.set('Add at least one option for select attributes');
-      return;
-    }
-    const payload = {
-      name,
-      code,
-      valueType: this.attrForm.valueType,
-      options: needsOptions ? options : undefined,
-    };
-    const id = this.editingAttrId();
-    const req$ = id
-      ? this.catalog.updateAttribute(id, payload)
-      : this.catalog.createAttribute(payload);
-    req$.subscribe({
-      next: () => {
-        this.attrModalOpen.set(false);
-        this.editingAttrId.set(null);
-        this.toast(id ? 'Attribute updated' : 'Attribute created');
-        this.loadAttributes();
-      },
-      error: (err) => {
-        const msg = err?.error?.message;
-        this.attrModalError.set(
-          Array.isArray(msg) ? msg.join(', ') : msg || 'Save failed',
-        );
-      },
-    });
-  }
-
-  deleteAttribute(a: AttributeDefinition) {
-    if (!confirm(`Delete attribute “${a.name}”?`)) return;
-    this.catalog.deleteAttribute(a.id).subscribe({
-      next: () => {
-        this.toast('Attribute deleted');
-        this.loadAttributes();
-      },
-      error: (err) =>
-        this.error.set(err?.error?.message || 'Delete failed'),
-    });
-  }
-
   loadBrands() {
     this.catalog.getBrands().subscribe({
       next: (list) => this.brands.set(list),
       error: () => this.error.set('Failed to load brands'),
-    });
-  }
-
-  loadAttributes() {
-    this.catalog.getAttributes().subscribe({
-      next: (list) => this.attributes.set(list),
-      error: () => this.error.set('Failed to load attributes'),
     });
   }
 
@@ -3510,7 +3253,6 @@ export class AdminPageComponent implements OnInit {
       if (view === 'products') this.catalogMode.set('extras');
       if (view === 'categories') this.catalogMode.set('collections');
       if (view === 'brands') this.loadBrands();
-      if (view === 'attributes') this.loadAttributes();
       if (view === 'enquiries' || view === 'overview') this.loadEnquiries();
 
       const collectionId = params.get('collection');

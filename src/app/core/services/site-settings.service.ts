@@ -39,6 +39,18 @@ export interface FilterValues {
   values: Record<string, string[]>;
 }
 
+/** A picture of the garment from one angle (front, back, …) for an attribute option. */
+export interface TemplateView {
+  angle: string;
+  imageUrl: string;
+}
+
+/** The template of an attribute option (see attributeImageKey): the pictures the designer shows when it is picked. */
+export interface AttributeTemplate {
+  key: string;
+  views: TemplateView[];
+}
+
 /** Texts the admin can change on the Site Outlook page, plus the home page pictures. */
 export interface SiteSettings {
   bannerVisible: boolean;
@@ -55,6 +67,8 @@ export interface SiteSettings {
   homeSlides: HomeSlide[] | null;
   /** Pictures attached to attribute values; shown when a customer clicks that value. */
   attributeImages: AttributeImage[];
+  /** Templates of attribute options (Sleeve, Style, …): garment pictures per angle, shown in the designer when picked. */
+  attributeTemplates: AttributeTemplate[];
   /** Older list of Men's / Women's / Unisex set on single colours; now read as part of variantFilters. */
   variantGenders: VariantGender[];
   /** The filters ticked on single colour variants; a filter with none ticked follows the product. */
@@ -74,6 +88,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   homeCatalogues: null,
   homeSlides: null,
   attributeImages: [],
+  attributeTemplates: [],
   variantGenders: [],
   variantFilters: [],
   productFilters: [],
@@ -212,6 +227,7 @@ export class SiteSettingsService {
         homeCatalogues: this.parseCards<HomeCatalogue>(raw.homeCatalogues, true),
         homeSlides: this.parseCards<HomeSlide>(raw.homeSlides, false),
         attributeImages: this.parseAttributeImages(raw.attributeImages),
+        attributeTemplates: this.parseTemplates(raw.attributeTemplates),
         variantGenders: this.parseVariantGenders(raw.variantGenders),
         variantFilters: this.parseFilterValues(raw.variantFilters),
         productFilters: this.parseFilterValues(raw.productFilters),
@@ -226,6 +242,28 @@ export class SiteSettingsService {
     } catch {
       return { ...DEFAULT_SITE_SETTINGS };
     }
+  }
+
+  private parseTemplates(raw: unknown): AttributeTemplate[] {
+    if (!Array.isArray(raw)) return [];
+    const out: AttributeTemplate[] = [];
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const r = entry as Record<string, unknown>;
+      const key = typeof r['key'] === 'string' ? r['key'].slice(0, 160) : '';
+      if (!key || !Array.isArray(r['views'])) continue;
+      const views: TemplateView[] = [];
+      for (const v of r['views'] as unknown[]) {
+        if (!v || typeof v !== 'object') continue;
+        const o = v as Record<string, unknown>;
+        const angle = typeof o['angle'] === 'string' ? o['angle'].slice(0, 40) : '';
+        const imageUrl = typeof o['imageUrl'] === 'string' ? o['imageUrl'].slice(0, 500) : '';
+        if (angle && imageUrl && !views.some((x) => x.angle === angle)) views.push({ angle, imageUrl });
+      }
+      if (views.length) out.push({ key, views: views.slice(0, 12) });
+      if (out.length >= 400) break;
+    }
+    return out;
   }
 
   private parseAttributeImages(raw: unknown): AttributeImage[] {
