@@ -58,6 +58,18 @@ interface Pill {
   url: string;
 }
 
+/** One colour variant of a product, shown with its own main picture. */
+interface Tile {
+  key: string;
+  product: Product;
+  colorId: string;
+  colorName: string;
+  hex: string;
+  pic: string;
+  /** The first colour of its product: it carries the product's anchor and attribute pictures. */
+  first: boolean;
+}
+
 /** One picture in the viewer. */
 interface Shot {
   url: string;
@@ -66,12 +78,12 @@ interface Shot {
 }
 
 /**
- * The shop. Home sends a customer here by catalogue; this page lists the variants (catalogue by
- * catalogue in the admin order, in one continuous grid), each as one picture (the main image chosen in the admin) with
- * its name, price and colours (hovering a colour shows that colour's own main image: its first
- * web shoot photo). Everything else (the other colours, models, web shoot photos and
- * angles) is in the Custom Designer, which a click on a variant or a colour opens. Attribute
- * values that have a picture show it when clicked. Catalogue tabs, filters and sort are here too.
+ * The shop. Home sends a customer here by catalogue; this page shows every colour variant of every
+ * product (catalogue by catalogue in the admin order, in one continuous grid), each as its own
+ * main picture (its first web shoot photo) with the product name, colour and price. Everything
+ * else (the other models, web shoot photos and angles) is in the Custom Designer, which a click
+ * on a variant opens in that colour. Attribute values that have a picture show it when clicked.
+ * Catalogue tabs, filters and sort are here too.
  */
 @Component({
   selector: 'tg-products-page',
@@ -147,7 +159,7 @@ interface Shot {
       <header class="shop-head">
         <span class="kicker">Wholesale apparel manufacturing</span>
         <h1>{{ rangeTitle() }}</h1>
-        <p class="lede">Each variant with its main picture and its colours. Open one to see all its models and photos in the Custom Designer.</p>
+        <p class="lede">Every colour of every product, each with its first photo. Open one to see all its models and photos in the Custom Designer.</p>
       </header>
 
       <section class="shop-body">
@@ -156,9 +168,9 @@ interface Shot {
             @if (loading()) {
               Loading variants…
             } @else {
-              {{ filtered().length }} {{ filtered().length === 1 ? 'variant' : 'variants' }}
-              @if (chips().length && filtered().length !== products().length) {
-                <span class="of">of {{ products().length }}</span>
+              {{ tiles().length }} {{ tiles().length === 1 ? 'variant' : 'variants' }}
+              @if (chips().length && tiles().length !== allTiles().length) {
+                <span class="of">of {{ allTiles().length }}</span>
               }
             }
             @if (attrPending() && chips().length) {
@@ -205,52 +217,36 @@ interface Shot {
         }
 
         <div class="grid">
-          @for (p of ordered(); track p.id) {
-            <article class="prod" [id]="'p-' + p.id" [class.flash]="flashId() === p.id">
+          @for (t of tiles(); track t.key) {
+            <article class="prod" [attr.id]="t.first ? 'p-' + t.product.id : null" [class.flash]="t.first && flashId() === t.product.id">
               <a
                 class="prod-pic"
                 [routerLink]="['/designer']"
-                [queryParams]="designerParams(p)"
-                [attr.aria-label]="'Customise ' + p.name"
-                (pointerenter)="catalog.prefetchProduct(p.id)"
-                (touchstart)="catalog.prefetchProduct(p.id)"
+                [queryParams]="designerParams(t.product, t.colorId)"
+                [attr.aria-label]="'Customise ' + t.product.name + (t.colorName ? ' in ' + t.colorName : '')"
+                (pointerenter)="catalog.prefetchProduct(t.product.id)"
+                (touchstart)="catalog.prefetchProduct(t.product.id)"
               >
                 <span class="prod-frame">
-                  @if (mainOf(p)) {
-                    <img tgFadeIn [src]="mainOf(p)" [alt]="p.name" loading="lazy" decoding="async" />
+                  @if (t.pic) {
+                    <img tgFadeIn [src]="t.pic" [alt]="t.product.name + (t.colorName ? ' ' + t.colorName : '')" loading="lazy" decoding="async" />
                   } @else {
                     <span class="prod-empty">No picture yet</span>
                   }
                 </span>
               </a>
               <h3 class="prod-name">
-                <a [routerLink]="['/designer']" [queryParams]="designerParams(p)">{{ p.name }}</a>
+                <a [routerLink]="['/designer']" [queryParams]="designerParams(t.product, t.colorId)">{{ t.product.name }}</a>
               </h3>
-              <div class="prod-price">{{ priceLabel(p) }}</div>
-
-              @if (swatchesOf(p).length) {
-                <div class="swatches" aria-label="Colours">
-                  @for (c of swatchesOf(p); track c.id) {
-                    <a
-                      class="sw"
-                      [routerLink]="['/designer']"
-                      [queryParams]="designerParams(p, c.id)"
-                      [style.background]="c.hex"
-                      (pointerenter)="showColour(p, c.pic)"
-                      (pointerleave)="hideColour(p)"
-                      (focus)="showColour(p, c.pic)"
-                      (blur)="hideColour(p)"
-                      [attr.title]="c.name"
-                      [attr.aria-label]="c.name + ' — customise in this colour'"
-                    ></a>
-                  }
-                </div>
+              @if (t.colorName) {
+                <div class="prod-colour"><span class="sw-dot" [style.background]="t.hex"></span>{{ t.colorName }}</div>
               }
+              <div class="prod-price">{{ priceLabel(t.product, t.colorId) }}</div>
 
-              @if (pillsOf(p).length) {
+              @if (t.first && pillsOf(t.product).length) {
                 <div class="pills" aria-label="Attributes">
-                  @for (pl of pillsOf(p); track pl.key) {
-                    <button type="button" class="pill" (click)="openAttribute(p, pl)" [attr.aria-label]="pl.title + ': ' + pl.label + ' — show picture'">
+                  @for (pl of pillsOf(t.product); track pl.key) {
+                    <button type="button" class="pill" (click)="openAttribute(t.product, pl)" [attr.aria-label]="pl.title + ': ' + pl.label + ' — show picture'">
                       <img [src]="pl.url" alt="" loading="lazy" decoding="async" />
                       <span><b>{{ pl.title }}</b> {{ pl.label }}</span>
                     </button>
@@ -480,9 +476,8 @@ interface Shot {
     .prod-name a:hover { text-decoration: underline; text-underline-offset: 3px; }
     .prod.flash .prod-name { background: color-mix(in srgb, var(--forest) 14%, transparent); }
     .prod-price { margin-top: 6px; font-size: 0.74rem; color: var(--muted); }
-    .swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 100%; margin-top: 14px; }
-    .sw { display: block; width: 13px; height: 13px; border: 1px solid rgba(0, 0, 0, 0.16); transition: transform 0.15s ease; }
-    .sw:hover, .sw:focus-visible { transform: scale(1.35); border-color: var(--ink); outline: none; }
+    .prod-colour { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.72rem; color: var(--muted); }
+    .sw-dot { flex: none; width: 10px; height: 10px; border: 1px solid rgba(0, 0, 0, 0.18); }
 
     .pills { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 14px 0 0; }
     .pill {
@@ -700,28 +695,33 @@ export class ProductsPageComponent implements OnInit {
   /** The variants in one run, catalogue by catalogue in the admin order, with nothing between them. */
   readonly ordered = computed<Product[]>(() => this.sections().flatMap((s) => s.items));
 
-  /** The main picture of each shown variant (the one chosen in the admin). */
-  private readonly mains = computed(
-    () => new Map(this.filtered().map((p) => [p.id, this.catalog.mainImageUrl(p)])),
-  );
+  /**
+   * One tile per colour of a product, in the admin order: the colour's own main picture (its first
+   * web shoot photo, else its colour image or first angle). A colour with no picture is left out; a
+   * product whose colours have none keeps one tile of its own, so no product goes missing.
+   */
+  private tilesOf(p: Product): Tile[] {
+    const tiles = [...(p.colors || [])]
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+      .map((c) => ({ c, pic: this.catalog.colourMainUrl(p, c.id) }))
+      .filter((x) => !!x.pic)
+      .map(({ c, pic }, i): Tile => ({
+        key: `${p.id}:${c.id}`,
+        product: p,
+        colorId: c.id,
+        colorName: c.name || '',
+        hex: /^#[0-9a-f]{3,8}$/i.test(c.hex || '') ? c.hex : '#9ca3af',
+        pic,
+        first: i === 0,
+      }));
+    return tiles.length
+      ? tiles
+      : [{ key: p.id, product: p, colorId: '', colorName: '', hex: '', pic: this.catalog.mainImageUrl(p), first: true }];
+  }
 
-  /** The colours of each shown variant, in the admin order. */
-  private readonly swatches = computed(
-    () =>
-      new Map(
-        this.filtered().map((p) => [
-          p.id,
-          [...(p.colors || [])]
-            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-            .map((c) => ({
-              id: c.id,
-              name: c.name || 'Colour',
-              hex: /^#[0-9a-f]{3,8}$/i.test(c.hex || '') ? c.hex : '#9ca3af',
-              pic: this.catalog.colourMainUrl(p, c.id),
-            })),
-        ]),
-      ),
-  );
+  /** The tiles of the shown variants, and of all of them (for the "of N" in the count). */
+  readonly tiles = computed<Tile[]>(() => this.ordered().flatMap((p) => this.tilesOf(p)));
+  readonly allTiles = computed<Tile[]>(() => this.products().flatMap((p) => this.tilesOf(p)));
 
   /** The attribute values of each shown variant that have a picture. */
 
@@ -741,29 +741,6 @@ export class ProductsPageComponent implements OnInit {
     return out;
   });
 
-  /** The picture a hovered colour swatch shows in place of the variant's main picture, by variant. */
-  private readonly hovered = signal<Record<string, string>>({});
-
-  mainOf(p: Product): string {
-    return this.hovered()[p.id] || this.mains().get(p.id) || '';
-  }
-
-  /** Hovering a colour shows that colour's own main image (a colour with none changes nothing). */
-  showColour(p: Product, pic: string) {
-    if (pic) this.hovered.update((h) => ({ ...h, [p.id]: pic }));
-  }
-
-  hideColour(p: Product) {
-    this.hovered.update((h) => {
-      if (!(p.id in h)) return h;
-      const { [p.id]: _gone, ...rest } = h;
-      return rest;
-    });
-  }
-
-  swatchesOf(p: Product) {
-    return this.swatches().get(p.id) ?? [];
-  }
 
   pillsOf(p: Product): Pill[] {
     return this.pills().get(p.id) ?? [];
@@ -988,8 +965,8 @@ export class ProductsPageComponent implements OnInit {
     });
   }
 
-  priceLabel(p: Product): string {
-    return formatProductPrice(p, null, { from: true });
+  priceLabel(p: Product, colorId?: string): string {
+    return formatProductPrice(p, colorId || null, { from: true });
   }
 
   /** Opens the Custom Designer on this variant (and colour). */

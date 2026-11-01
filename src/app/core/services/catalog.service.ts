@@ -695,13 +695,20 @@ export class CatalogService {
     return this.cardImageUrl(product);
   }
 
-  /** One colour's own main image: its first web shoot photo, else its colour image; empty when it has neither. */
+  /**
+   * One colour's own main image: its first web shoot photo, else its colour image, else its first
+   * angle; empty when it has no picture at all.
+   */
   colourMainUrl(product: Product, colorId: string): string {
     const colour = (product.colors || []).find((c) => c.id === colorId);
     if (!colour) return '';
+    const own = this.colourImages(product, colour);
     const pick =
       this.firstShot(product, colour) ||
-      this.colourImages(product, colour).find((i) => i.role === 'card' && !!i.url);
+      own.find((i) => i.role === 'card' && !!i.url) ||
+      own
+        .filter((i) => i.role === 'view' && !!i.url)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))[0];
     return pick ? this.normalizeMediaUrl(pick.url) : '';
   }
 
