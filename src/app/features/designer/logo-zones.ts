@@ -55,6 +55,6 @@ export function viewIndexFor(views: ReadonlyArray<{ angle: string }>, want: Zone
   const angle = (v: { angle: string }) => (v.angle || '').trim().toLowerCase();
   const named = views.findIndex((v) => angle(v) === want);
   if (named >= 0 || want === 'back') return named;
-  const closeUps = ['back', 'sleeve', 'collar', 'side', 'neck', 'detail'];
+  const closeUps = ['back', 'sleeve', 'collar', 'side', 'neck', 'detail', 'shoot'];
   return views.findIndex((v) => !closeUps.includes(angle(v)));
 }

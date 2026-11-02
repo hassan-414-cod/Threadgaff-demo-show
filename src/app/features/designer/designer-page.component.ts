@@ -14,6 +14,7 @@ import {
 } from '../../core/utils/price';
 import { AttributeTemplatesService } from '../../core/services/attribute-templates.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
+import { SwatchVisibilityService } from '../../core/services/swatch-visibility.service';
 import { LEFT_CHEST, logoZoneFor, viewIndexFor } from './logo-zones';
 import { hasDisplayHex } from '../../core/utils/hex';
 import { cardDescription } from '../../core/utils/description';
@@ -148,9 +149,9 @@ const PLACEMENT_KEY = 'tg_logo_placement';
                     </button>
                   }
                 </aside>
-                <div class="stage-wrap">
-                  <div class="stage" [style.transform]="'scale(' + zoom() / 100 + ')'">
-                    <img class="stage-img" [src]="previewSrc()" [alt]="product()!.name" />
+                <div class="stage-wrap" [style.max-width.px]="stageMaxWidth()">
+                  <div class="stage" [style.aspect-ratio]="stageRatio()" [style.transform]="'scale(' + zoom() / 100 + ')'">
+                    <img class="stage-img" [src]="previewSrc()" [alt]="product()!.name" (load)="onStageLoad($event)" />
                     @if (designPreviewUrl()) {
                       <div class="stage-design" [class.blend]="designIsJpeg()">
                         <img [src]="designPreviewUrl()!" alt="Your uploaded design" />
@@ -172,6 +173,11 @@ const PLACEMENT_KEY = 'tg_logo_placement';
               </div>
               @if (logoNote()) {
                 <p class="logo-note" role="status">{{ logoNote() }}</p>
+              } @else if (logoPreview() && !logoOnView()) {
+                <p class="logo-note" role="status">
+                  Your logo is placed on the {{ logoSpot().view }} view.
+                  <button type="button" class="linkish" (click)="showLogoView()">Show it on the garment</button>
+                </p>
               }
               @if (plFile(); as f) {
                 <div class="design-file">
@@ -267,7 +273,9 @@ const PLACEMENT_KEY = 'tg_logo_placement';
                   </div>
                 }
               </div>
-              @if (displayColors().length) {
+              @if (swatchesHidden()) {
+                <!-- the colour swatches are switched off for this product in the admin -->
+              } @else if (displayColors().length) {
                 <div class="field">
                   <div class="lbl">Garment Colour</div>
                   <div class="swatches">
@@ -549,18 +557,20 @@ const PLACEMENT_KEY = 'tg_logo_placement';
       overflow: hidden; cursor: pointer; font: inherit; color: inherit;
     }
     .thumb.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
-    .thumb img { width: 100%; aspect-ratio: 1; object-fit: contain; display: block; background: #fff; }
+    .thumb img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; display: block; background: #fff; }
     .thumb span {
       display: block; text-align: center; font-size: 0.58rem; font-weight: 700;
       text-transform: uppercase; padding: 3px; border-top: 1px solid var(--line); color: var(--muted);
     }
+    /* The preview box takes the proportions of the picture it shows (set from the picture itself, 4:5 until it
+       loads) and hugs it: the whole picture fills the box, nothing is cropped and there are no white bars,
+       however many thumbnails stand beside it. */
     .stage-wrap {
+      width: 100%; justify-self: center; align-self: start; box-sizing: border-box;
       border: 1px solid var(--line); border-radius: 8px; background: #fff;
       display: grid; place-items: center; overflow: hidden;
     }
-    /* The picture fills a white 4:5 box and is never cropped, so the whole garment is visible
-       (landscape or portrait). */
-    .stage { position: relative; width: 100%; aspect-ratio: 4 / 5; max-height: 660px; background: #fff; transition: transform 0.15s ease; }
+    .stage { position: relative; width: 100%; aspect-ratio: 4 / 5; background: #fff; transition: transform 0.15s ease; }
     .stage-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; z-index: 1; }
     /* the logo is laid over the static garment picture at its placement (left, top and width are set per placement) */
     .stage-logo {
@@ -825,6 +835,17 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   readonly styleValues = signal<string[]>([]);
   readonly selectedColorId = signal('');
   readonly outlookIndex = signal(0);
+  /** Width / height of the picture in the preview box: the box takes its proportions (4:5 until a picture has loaded). */
+  readonly stageRatio = signal(4 / 5);
+  /** The preview box is at most this wide, so it is never taller than 660px (and no wider than its picture needs). */
+  readonly stageMaxWidth = computed(() => Math.round(660 * this.stageRatio()) + 2);
+
+  onStageLoad(event: Event) {
+    const img = event.target as HTMLImageElement;
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      this.stageRatio.set(Math.min(2, Math.max(0.5, img.naturalWidth / img.naturalHeight)));
+    }
+  }
   readonly qtyMap = signal<Record<string, number>>({ M: 50 });
   readonly brandText = signal('');
   readonly logoPreview = signal<string | null>(null);
@@ -854,6 +875,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   private readonly designUpload = inject(DesignUploadStore);
   private readonly templates = inject(AttributeTemplatesService);
   private readonly site = inject(SiteSettingsService);
+  private readonly swatchVis = inject(SwatchVisibilityService);
   readonly plFile = signal<File | null>(null);
   /** Object URL of the uploaded design when it is an image, so it can be drawn on the garment. */
   readonly designPreviewUrl = signal<string | null>(null);
@@ -878,6 +900,12 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   readonly formatGbp = formatGbp;
 
   readonly colors = computed(() => this.product()?.colors || []);
+
+  /** True when the admin switched off the Garment Colour swatches for this product. */
+  readonly swatchesHidden = computed(() => {
+    const p = this.product();
+    return !!p && this.swatchVis.hiddenInDesigner(p.id);
+  });
 
   /** Swatches only when a real hex is set — blank colours stay hidden. */
   readonly displayColors = computed(() =>
@@ -1026,8 +1054,8 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
       );
     }
 
-    // The designer preview has its own pictures: the angles uploaded for it, then the web shoot
-    // photos of the colour. The shop card image is a separate setting and is not listed here.
+    // The designer opens on the web shoot photos of the colour (the models), then come the angles uploaded
+    // for it. The shop card image is a separate setting and is not listed here.
     const ordered = (role: string) =>
       merged
         .filter((im) => !!im.url && im.role === role)
@@ -1042,7 +1070,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
       key: im.id || `${im.role}-${im.angle}-${i}`,
       label: 'Photo ' + (i + 1),
       url: this.catalog.normalizeMediaUrl(im.url),
-      angle: im.angle || 'other',
+      angle: 'shoot', // a model photo: never stands in for a garment angle (templates, logo placement)
     }));
 
     // With no angles the card image leads, as before.
@@ -1052,7 +1080,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
       : card
         ? [{ key: 'card', label: 'Front', url: this.catalog.normalizeMediaUrl(card), angle: 'front' }]
         : [];
-    return this.withTemplates([...lead, ...shoot].filter((v) => !!v.url));
+    return this.withTemplates([...shoot, ...lead].filter((v) => !!v.url));
   });
 
   /** The chosen options that can have a template, as [attribute code, label], in the order they are listed. */
@@ -1113,7 +1141,6 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
         if (this.logoPreview()) return;
         this.logoName.set(f.name);
         this.logoPreview.set(String(reader.result || ''));
-        this.showLogoView();
       };
       reader.readAsDataURL(f);
     });
@@ -1228,7 +1255,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   }
 
   /** Turns the preview to the view the logo belongs to (the back for a back placement), so it is seen at once. */
-  private showLogoView() {
+  showLogoView() {
     const at = this.logoViewIndex();
     if (at >= 0) this.outlookIndex.set(at);
   }
@@ -1446,8 +1473,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
 
   selectColor(c: ProductColor) {
     this.selectedColorId.set(c.id);
-    this.outlookIndex.set(0);
-    if (this.logoPreview()) this.showLogoView(); // the new colour opens on the view the logo is on
+    this.outlookIndex.set(0); // a colour opens on its first picture: its web shoot photo
     this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { color: c.id },
@@ -1696,7 +1722,6 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     }
     const first = placements.find((o) => o.label === remembered) || placements[0];
     this.placementValue.set(first?.value || '');
-    if (this.logoPreview()) this.showLogoView(); // a saved logo opens on the view it belongs to
 
     const privateLabels = this.valuesFromProduct(p, 'private_label');
     this.productPrivateLabelOpts.set(privateLabels);
