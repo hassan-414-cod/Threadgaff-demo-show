@@ -15,6 +15,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { AdminProductEditorComponent } from './admin-product-editor.component';
 import { AdminHomeComponent, HomeSection } from './admin-home.component';
 import { AdminAttributesComponent } from './admin-attributes.component';
+import { SwatchToggleComponent } from '../../shared/swatch-toggle.component';
 import { priceLabel as formatProductPrice } from '../../core/utils/price';
 
 type AdminView =
@@ -59,6 +60,7 @@ interface CategoryTreeListRow {
     AdminSalesDeskComponent,
     AdminHomeComponent,
     AdminAttributesComponent,
+    SwatchToggleComponent,
   ],
   template: `
     <div class="shell">
@@ -619,6 +621,7 @@ interface CategoryTreeListRow {
                         <th>Template</th>
                         <th>SKU / price</th>
                         <th>Status</th>
+                        <th>Colour swatches</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -682,6 +685,9 @@ interface CategoryTreeListRow {
                             </button>
                           </td>
                           <td>
+                            <tg-swatch-toggle [productId]="p.id" [colours]="variantCount(p)" />
+                          </td>
+                          <td>
                             <div class="row-actions">
                               <button type="button" class="btn btn-ghost" (click)="editProduct(p)">
                                 Edit
@@ -694,7 +700,7 @@ interface CategoryTreeListRow {
                         </tr>
                       } @empty {
                         <tr>
-                          <td colspan="6"><div class="empty">No products found.</div></td>
+                          <td colspan="7"><div class="empty">No products found.</div></td>
                         </tr>
                       }
                     </tbody>

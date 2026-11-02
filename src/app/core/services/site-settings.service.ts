@@ -51,6 +51,13 @@ export interface AttributeTemplate {
   views: TemplateView[];
 }
 
+/** A product whose colour swatches are hidden (key = product id): on the products page, in the Custom Designer, or both. */
+export interface HiddenSwatches {
+  key: string;
+  shop: boolean;
+  designer: boolean;
+}
+
 /** Texts the admin can change on the Site Outlook page, plus the home page pictures. */
 export interface SiteSettings {
   bannerVisible: boolean;
@@ -75,6 +82,8 @@ export interface SiteSettings {
   variantFilters: FilterValues[];
   /** Extra ticks of the single-value filters (Material, Gender) on a product: its own attribute holds one value. */
   productFilters: FilterValues[];
+  /** Products whose colour swatches are hidden on the products page and / or in the Custom Designer. */
+  hiddenSwatches: HiddenSwatches[];
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
@@ -92,6 +101,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   variantGenders: [],
   variantFilters: [],
   productFilters: [],
+  hiddenSwatches: [],
 };
 
 const CACHE_KEY = 'tg_site_settings';
@@ -231,6 +241,7 @@ export class SiteSettingsService {
         variantGenders: this.parseVariantGenders(raw.variantGenders),
         variantFilters: this.parseFilterValues(raw.variantFilters),
         productFilters: this.parseFilterValues(raw.productFilters),
+        hiddenSwatches: this.parseHiddenSwatches(raw.hiddenSwatches),
         bannerVisible: pick('bannerVisible'),
         bannerText: pick('bannerText'),
         heroTagline: pick('heroTagline'),
@@ -242,6 +253,21 @@ export class SiteSettingsService {
     } catch {
       return { ...DEFAULT_SITE_SETTINGS };
     }
+  }
+
+  private parseHiddenSwatches(raw: unknown): HiddenSwatches[] {
+    if (!Array.isArray(raw)) return [];
+    const out: HiddenSwatches[] = [];
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const r = entry as Record<string, unknown>;
+      const key = typeof r['key'] === 'string' ? r['key'].slice(0, 120) : '';
+      const shop = r['shop'] === true;
+      const designer = r['designer'] === true;
+      if (key && (shop || designer) && !out.some((x) => x.key === key)) out.push({ key, shop, designer });
+      if (out.length >= 1000) break;
+    }
+    return out;
   }
 
   private parseTemplates(raw: unknown): AttributeTemplate[] {

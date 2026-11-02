@@ -149,6 +149,7 @@ export class AdminSiteOutlookComponent implements OnInit {
       | 'variantFilters'
       | 'productFilters'
       | 'attributeTemplates'
+      | 'hiddenSwatches'
     > = {
       bannerVisible: !!f.bannerVisible,
       bannerText: f.bannerText.trim(),
