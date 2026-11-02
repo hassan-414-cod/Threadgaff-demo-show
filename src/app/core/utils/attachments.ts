@@ -5,7 +5,7 @@
  * One file is stored exactly as before (a plain data URL), so older records keep working.
  */
 
-export type AttachmentRole = 'design' | 'logo' | 'sample';
+export type AttachmentRole = 'design' | 'logo' | 'sample' | 'snapshot';
 
 export interface Attachment {
   role: AttachmentRole;
@@ -14,6 +14,8 @@ export interface Attachment {
   /** Size of the file in bytes (approximate for data stored before sizes were kept). */
   size: number;
   dataUrl: string;
+  /** For a logo placement picture that is only the logo layer: the address of the garment picture it goes on. */
+  garment?: string;
 }
 
 export const BUNDLE_PREFIX = 'data:application/json;tgbundle=1,';
@@ -23,7 +25,7 @@ export const MAX_FILE_CHARS = 3_400_000;
 export const MAX_TOTAL_CHARS = 4_600_000;
 
 export function roleLabel(role: AttachmentRole): string {
-  return role === 'design' ? 'Design file' : role === 'logo' ? 'Logo' : 'Sample';
+  return role === 'design' ? 'Design file' : role === 'logo' ? 'Logo' : role === 'snapshot' ? 'Logo placement preview' : 'Sample';
 }
 
 export function sizeLabel(bytes: number): string {
@@ -118,7 +120,7 @@ export async function compressImageFile(file: File): Promise<{ dataUrl: string; 
 
 /** Keeps files in priority order while they fit; the rest are reported back. */
 export function fitAttachments(list: Attachment[]): { send: Attachment[]; skipped: Attachment[] } {
-  const order: AttachmentRole[] = ['design', 'logo', 'sample'];
+  const order: AttachmentRole[] = ['design', 'logo', 'snapshot', 'sample'];
   const sorted = [...list].sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role));
   const send: Attachment[] = [];
   const skipped: Attachment[] = [];
@@ -136,8 +138,8 @@ export function fitAttachments(list: Attachment[]): { send: Attachment[]; skippe
 
 export function packAttachments(list: Attachment[]): { sampleName: string; sampleDataUrl: string } | null {
   if (!list.length) return null;
-  if (list.length === 1) return { sampleName: list[0].name, sampleDataUrl: list[0].dataUrl };
-  const files = list.map((a) => ({ role: a.role, name: a.name, type: a.type, size: a.size, dataUrl: a.dataUrl }));
+  if (list.length === 1 && !list[0].garment) return { sampleName: list[0].name, sampleDataUrl: list[0].dataUrl };
+  const files = list.map((a) => ({ role: a.role, name: a.name, type: a.type, size: a.size, dataUrl: a.dataUrl, garment: a.garment }));
   return {
     sampleName: list.map((a) => a.name).join(' + ').slice(0, 200),
     sampleDataUrl: BUNDLE_PREFIX + JSON.stringify({ v: 1, files }),
@@ -154,11 +156,12 @@ export function unpackAttachments(sampleName?: string | null, sampleDataUrl?: st
       return (data.files || [])
         .filter((f) => typeof f.dataUrl === 'string' && f.dataUrl)
         .map((f) => ({
-          role: (f.role === 'design' || f.role === 'logo' ? f.role : 'sample') as AttachmentRole,
+          role: (f.role === 'design' || f.role === 'logo' || f.role === 'snapshot' ? f.role : 'sample') as AttachmentRole,
           name: String(f.name || 'file'),
           type: String(f.type || mimeOf(f.dataUrl as string)),
           size: Number(f.size) || bytesOf(f.dataUrl as string),
           dataUrl: f.dataUrl as string,
+          garment: typeof f.garment === 'string' && /^https?:/i.test(f.garment) ? f.garment : undefined,
         }));
     } catch {
       return [];

@@ -1,0 +1,134 @@
+import { LogoZone, ZoneView } from './logo-zones';
+
+/**
+ * A logo laid on one of the garment's angle pictures. It starts at the spot of a placement (Left Chest,
+ * Back Centre …), is moved and resized by the customer, and is locked with "Fix". Positions are in % of
+ * the preview, which has the proportions of the picture, so they map exactly onto it.
+ */
+export interface LogoPlacement {
+  id: string;
+  /** The placement it started from (Left Chest, Back Centre …). */
+  label: string;
+  /** The angle picture it sits on. */
+  view: ZoneView;
+  /** Centre of the logo, as a % of the preview's width. */
+  x: number;
+  /** Top of the logo, as a % of the preview's height. */
+  y: number;
+  /** Width of the logo, as a % of the preview's width. */
+  w: number;
+  fixed: boolean;
+}
+
+export const MIN_LOGO_W = 4;
+export const MAX_LOGO_W = 90;
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+export function newPlacement(label: string, zone: LogoZone): LogoPlacement {
+  return {
+    id: 'lp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    label,
+    view: zone.view,
+    x: zone.x,
+    y: zone.y,
+    w: zone.w,
+    fixed: false,
+  };
+}
+
+/** Height of a logo as a % of the preview's height (logoRatio and stageRatio are width / height). */
+export function heightPct(w: number, logoRatio: number, stageRatio: number): number {
+  return (w * stageRatio) / Math.max(0.05, logoRatio);
+}
+
+/** Keeps a placement inside the preview, whole. */
+export function keepInside(p: LogoPlacement, logoRatio: number, stageRatio: number): LogoPlacement {
+  const tallest = (100 * Math.max(0.05, logoRatio)) / stageRatio; // the widest it can be before it is taller than the preview
+  const w = clamp(p.w, MIN_LOGO_W, Math.max(MIN_LOGO_W, Math.min(MAX_LOGO_W, tallest)));
+  const h = heightPct(w, logoRatio, stageRatio);
+  return { ...p, w, x: clamp(p.x, w / 2, 100 - w / 2), y: clamp(p.y, 0, Math.max(0, 100 - h)) };
+}
+
+function loadPicture(url: string, anonymous: boolean): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (anonymous) img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('The picture could not be loaded'));
+    img.src = url;
+  });
+}
+
+/** A saved picture of the placements on one side of the garment. */
+export interface RenderedSnapshot {
+  blob: Blob;
+  /**
+   * Set when the browser would not let the garment picture be copied (it comes from another site): the
+   * picture is then only the logo layer, the size of the garment picture, and this is the garment
+   * picture's address, to be shown underneath it.
+   */
+  garment?: string;
+}
+
+function toBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    try {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not save the picture'))), type, quality);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+/**
+ * Draws the placements on the garment picture and returns it as a picture (JPEG) for the enquiry. A
+ * garment picture from another site cannot be copied into a saved picture unless that site allows it, so
+ * then the logo layer alone is saved (a PNG the size of the garment picture) with the garment picture's
+ * address: shown one on top of the other, it looks the same and needs no permission.
+ */
+export async function renderSnapshot(
+  garmentUrl: string,
+  logoUrl: string,
+  logoRatio: number,
+  placements: LogoPlacement[],
+): Promise<RenderedSnapshot> {
+  const remote = /^https?:/i.test(garmentUrl);
+  const logo = await loadPicture(logoUrl, false);
+  // The picture, readable for copying only when its site allows it; its size can always be read.
+  const readable = remote ? await loadPicture(garmentUrl, true).catch(() => null) : await loadPicture(garmentUrl, false).catch(() => null);
+  const sized = readable ?? (await loadPicture(garmentUrl, false).catch(() => null));
+  const natW = sized?.naturalWidth || 1000;
+  const natH = sized?.naturalHeight || 1250;
+  const W = Math.min(1000, natW);
+  const H = Math.round((W * natH) / natW);
+
+  const draw = (withGarment: HTMLImageElement | null) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('No canvas');
+    if (withGarment) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.drawImage(withGarment, 0, 0, W, H);
+    }
+    for (const p of placements) {
+      const lw = (p.w / 100) * W;
+      const lh = lw / Math.max(0.05, logoRatio);
+      ctx.drawImage(logo, (p.x / 100) * W - lw / 2, (p.y / 100) * H, lw, lh);
+    }
+    return canvas;
+  };
+
+  if (readable) {
+    try {
+      return { blob: await toBlob(draw(readable), 'image/jpeg', 0.86) };
+    } catch {
+      /* the garment picture taints the canvas: save the logo layer instead */
+    }
+  }
+  const layer = await toBlob(draw(null), 'image/png');
+  return remote ? { blob: layer, garment: garmentUrl } : { blob: layer };
+}

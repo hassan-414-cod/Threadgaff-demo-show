@@ -21,6 +21,39 @@ const DB_NAME = 'tg-design-draft';
 const STORE = 'files';
 const KEY_DESIGN = 'design';
 const KEY_LOGO = 'logo';
+const KEY_PLACEMENTS = 'placements';
+const KEY_SNAPSHOTS = 'snapshots';
+
+/** One logo placement on the garment, as kept with the saved design (see the designer). */
+export interface SavedPlacement {
+  id: string;
+  label: string;
+  view: 'front' | 'back';
+  /** Centre of the logo, as a % of the preview's width. */
+  x: number;
+  /** Top of the logo, as a % of the preview's height. */
+  y: number;
+  /** Width of the logo, as a % of the preview's width. */
+  w: number;
+  /** True once the customer pressed Fix on it. */
+  fixed: boolean;
+}
+
+/** The logo placements of one garment. */
+export interface PlacementDraft {
+  productId: string;
+  placements: SavedPlacement[];
+}
+
+/** A picture of the garment with the logo placed on it, saved with the design and sent with the enquiry. */
+export interface PlacementSnapshot {
+  id: string;
+  label: string;
+  name: string;
+  blob: Blob;
+  /** Set when the picture is only the logo layer: the garment picture it goes on. */
+  garment?: string;
+}
 
 /**
  * Keeps the customer's uploads (the Private Label design file and the Branding logo) so they
@@ -34,6 +67,8 @@ const KEY_LOGO = 'logo';
 export class DesignUploadStore {
   private design: File | null = null;
   private logo: File | null = null;
+  private placements: PlacementDraft | null = null;
+  private snapshots: PlacementSnapshot[] = [];
   private db: Promise<IDBDatabase | null> | null = null;
 
   /** Returns an error message, or null when the file is acceptable. */
@@ -73,10 +108,42 @@ export class DesignUploadStore {
     return this.logo;
   }
 
-  /** Removes both uploads, e.g. once an enquiry has been sent. */
+  /** Saves (or, with null, removes) where the logo is placed on the garment. */
+  setPlacements(draft: PlacementDraft | null): void {
+    this.placements = draft;
+    void this.write(KEY_PLACEMENTS, draft);
+  }
+
+  async restorePlacements(): Promise<PlacementDraft | null> {
+    if (!this.placements) {
+      const v = (await this.readRaw(KEY_PLACEMENTS)) as PlacementDraft | null;
+      this.placements = v && Array.isArray(v.placements) && typeof v.productId === 'string' ? v : null;
+    }
+    return this.placements;
+  }
+
+  /** Saves the pictures of the fixed placements (an empty list removes them). */
+  setSnapshots(list: PlacementSnapshot[]): void {
+    this.snapshots = list;
+    void this.write(KEY_SNAPSHOTS, list.length ? list : null);
+  }
+
+  async restoreSnapshots(): Promise<PlacementSnapshot[]> {
+    if (!this.snapshots.length) {
+      const v = await this.readRaw(KEY_SNAPSHOTS);
+      this.snapshots = Array.isArray(v)
+        ? (v as PlacementSnapshot[]).filter((x) => x && x.blob instanceof Blob && typeof x.name === 'string')
+        : [];
+    }
+    return this.snapshots;
+  }
+
+  /** Removes the uploads and the placements, e.g. once an enquiry has been sent. */
   clear(): void {
     this.set(null);
     this.setLogo(null);
+    this.setPlacements(null);
+    this.setSnapshots([]);
   }
 
   private open(): Promise<IDBDatabase | null> {
@@ -96,7 +163,7 @@ export class DesignUploadStore {
     return this.db;
   }
 
-  private async write(key: string, file: File | null): Promise<void> {
+  private async write(key: string, file: unknown | null): Promise<void> {
     const db = await this.open();
     if (!db) return;
     await new Promise<void>((resolve) => {
@@ -109,6 +176,20 @@ export class DesignUploadStore {
         tx.onabort = () => resolve();
       } catch {
         resolve();
+      }
+    });
+  }
+
+  private async readRaw(key: string): Promise<unknown> {
+    const db = await this.open();
+    if (!db) return null;
+    return new Promise<unknown>((resolve) => {
+      try {
+        const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
       }
     });
   }
