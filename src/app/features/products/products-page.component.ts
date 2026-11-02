@@ -257,7 +257,7 @@ interface Shot {
               <h3 class="prod-name">
                 <a [routerLink]="['/designer']" [queryParams]="designerParams(t.product, v.colorId)">{{ t.product.name }}</a>
               </h3>
-              @if (v.colorName) {
+              @if (v.colorName && !swatchVis.hiddenOnShop(t.product.id)) {
                 <div class="prod-colour"><span class="sw-dot" [style.background]="v.hex"></span>{{ v.colorName }}</div>
               }
               <div class="prod-price">{{ priceLabel(t.product, v.colorId) }}</div>
