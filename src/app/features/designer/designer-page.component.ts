@@ -15,9 +15,11 @@ import {
 import { AttributeTemplatesService } from '../../core/services/attribute-templates.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
 import { SwatchVisibilityService } from '../../core/services/swatch-visibility.service';
-import { LEFT_CHEST, logoZoneFor, viewIndexFor } from './logo-zones';
+import { LEFT_CHEST, logoZoneFor } from './logo-zones';
 import { LOGO_ACCEPT, LOGO_RULES, checkLogo } from './logo-rules';
-import { LogoPlacement, keepInside, newPlacement, renderSnapshot } from './logo-placement';
+import { LogoPlacement, Spot, keepInside, newPlacement, renderSnapshot, spotOf } from './logo-placement';
+import { LogoLayerComponent } from './logo-layer.component';
+import { MultiSelectComponent } from '../../shared/multi-select.component';
 import { PlacementPictureComponent } from '../../shared/placement-picture.component';
 import { hasDisplayHex } from '../../core/utils/hex';
 import { cardDescription } from '../../core/utils/description';
@@ -45,13 +47,13 @@ interface OutlookView {
 
 const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
-/** Where the last chosen logo placement is remembered in this browser (with the saved logo). */
-const PLACEMENT_KEY = 'tg_logo_placement';
+/** Where the ticked logo placements are remembered in this browser (with the saved logo). */
+const TICKS_KEY = 'tg_logo_ticks';
 
 @Component({
   selector: 'tg-designer-page',
   standalone: true,
-  imports: [RouterLink, FormsModule, PlacementPictureComponent],
+  imports: [RouterLink, FormsModule, PlacementPictureComponent, LogoLayerComponent, MultiSelectComponent],
   template: `
     <div class="des-page" [class.is-picking]="!product()">
       @if (!product() && loadingProduct()) {
@@ -134,91 +136,75 @@ const PLACEMENT_KEY = 'tg_logo_placement';
 
           <div class="studio-grid">
             <section class="preview-col" aria-label="Live preview">
-              <div class="preview-top">
-                <div class="view-tabs">
-                  @for (view of outlookViews(); track view.key; let i = $index) {
-                    <button type="button" class="view-tab" [class.on]="outlookIndex() === i" (click)="outlookIndex.set(i)">
-                      {{ view.label }}
-                    </button>
-                  }
-                </div>
-              </div>
-              <div class="preview-main" [class.no-rail]="!hasShootPhotos()">
-                @if (hasShootPhotos()) {
-                  <aside class="thumb-rail" aria-label="Web shoot photos">
-                    @for (view of outlookViews(); track view.key; let i = $index) {
-                      @if (view.angle === 'shoot') {
-                        <button type="button" class="thumb" [class.on]="currentViewIndex() === i" (click)="outlookIndex.set(i)">
-                          <img [src]="view.url" [alt]="view.label" />
-                          <span>{{ view.label }}</span>
-                        </button>
-                      }
-                    }
-                  </aside>
-                }
-                <div class="stage-col">
-                <div class="stage-wrap" [style.max-width.px]="stageMaxWidth()">
-                  <div class="stage" [style.aspect-ratio]="stageRatio()" [style.transform]="'scale(' + zoom() / 100 + ')'">
-                    <img class="stage-img" [src]="previewSrc()" [alt]="product()!.name" (load)="onStageLoad($event)" />
-                    @if (designPreviewUrl()) {
-                      <div class="stage-design" [class.blend]="designIsJpeg()">
-                        <img [src]="designPreviewUrl()!" alt="Your uploaded design" />
-                      </div>
-                    }
-                    @for (p of shownPlacements(); track p.id) {
-                      <div
-                        class="stage-logo"
-                        [class.draft]="!p.fixed"
-                        [class.blend]="logoIsJpeg()"
-                        [class.below]="p.y < 9"
-                        [style.left.%]="p.x"
-                        [style.top.%]="p.y"
-                        [style.width.%]="p.w"
-                        [style.aspect-ratio]="logoRatio()"
-                        [attr.tabindex]="p.fixed ? null : 0"
-                        [attr.aria-label]="p.fixed ? null : 'Your logo at ' + p.label + '. Drag it to move, or use the arrow keys.'"
-                        (pointerdown)="startMove($event, p)"
-                        (pointermove)="onDrag($event)"
-                        (pointerup)="endDrag($event)"
-                        (pointercancel)="endDrag($event)"
-                        (keydown)="onNudge($event, p)"
-                      >
-                        <img [src]="logoPreview()!" [alt]="'Your logo at ' + p.label" draggable="false" />
-                        @if (!p.fixed) {
-                          <span
-                            class="logo-handle"
-                            role="presentation"
-                            title="Drag to resize"
-                            (pointerdown)="startResize($event, p)"
-                            (pointermove)="onDrag($event)"
-                            (pointerup)="endDrag($event)"
-                            (pointercancel)="endDrag($event)"
-                          ></span>
-                          <button type="button" class="logo-fix" (pointerdown)="$event.stopPropagation()" (click)="fixPlacement(p)">Fix</button>
+              <div class="preview-main" [class.no-rail]="!outlookViews().length">
+                <aside class="rail" aria-label="Pictures of this garment">
+                  <div class="rail-scroll">
+                    @if (hasShootPhotos()) {
+                      <p class="rail-h">Photos</p>
+                      @for (view of outlookViews(); track view.key; let i = $index) {
+                        @if (view.angle === 'shoot') {
+                          <button type="button" class="thumb" [class.on]="currentViewIndex() === i" (click)="outlookIndex.set(i)" [attr.aria-label]="view.label">
+                            <img [src]="view.url" [alt]="view.label" />
+                            <span>{{ view.label }}</span>
+                          </button>
                         }
-                      </div>
+                      }
                     }
-                  </div>
-                </div>
-                @if (hasAnglePictures()) {
-                  <div class="angle-row" aria-label="Angle pictures">
-                    @for (view of outlookViews(); track view.key; let i = $index) {
-                      @if (view.angle !== 'shoot') {
-                        <button type="button" class="thumb" [class.on]="currentViewIndex() === i" (click)="outlookIndex.set(i)">
-                          <img [src]="view.url" [alt]="view.label" />
-                          <span>{{ view.label }}</span>
-                        </button>
+                    @if (hasAnglePictures()) {
+                      <p class="rail-h">Angles</p>
+                      @for (view of outlookViews(); track view.key; let i = $index) {
+                        @if (view.angle !== 'shoot') {
+                          <button type="button" class="thumb" [class.on]="currentViewIndex() === i" (click)="outlookIndex.set(i)" [attr.aria-label]="view.label + ' angle'">
+                            <span class="thumb-pic">
+                              <img [src]="view.url" [alt]="view.label" />
+                              @if (logoPreview()) {
+                                @for (p of placements(); track p.id) {
+                                  @let s = spotFor(p, i);
+                                  <img class="mini-logo" [src]="logoPreview()!" alt="" [style.left.%]="s.x" [style.top.%]="s.y" [style.width.%]="s.w" />
+                                }
+                              }
+                            </span>
+                            <span>{{ view.label }}</span>
+                          </button>
+                        }
                       }
                     }
                   </div>
-                }
+                </aside>
+                <div class="stage-col">
+                  <div class="stage-wrap" [style.max-width.px]="stageMaxWidth()">
+                    <span class="stage-tag">{{ currentViewLabel() }}</span>
+                    <div class="stage" [style.aspect-ratio]="stageRatio()" [style.transform]="'scale(' + zoom() / 100 + ')'">
+                      <img class="stage-img" [src]="previewSrc()" [alt]="product()!.name" (load)="onStageLoad($event)" />
+                      @if (designPreviewUrl()) {
+                        <div class="stage-design" [class.blend]="designIsJpeg()">
+                          <img [src]="designPreviewUrl()!" alt="Your uploaded design" />
+                        </div>
+                      }
+                      @if (showLogoLayer()) {
+                        <tg-logo-layer
+                          [placements]="placements()"
+                          [viewKey]="currentAngleKey()"
+                          [logoUrl]="logoPreview()!"
+                          [logoRatio]="logoRatio()"
+                          [stageRatio]="stageRatio()"
+                          [selectedId]="selectedId()"
+                          [blend]="logoIsJpeg()"
+                          (place)="onLogoPlace($event)"
+                          (commit)="onLogoCommit()"
+                          (picked)="selectedId.set($event)"
+                          (fix)="fixPlacement($event)"
+                        />
+                      }
+                    </div>
+                  </div>
                 </div>
               </div>
               @if (logoHint(); as h) {
                 <p class="logo-note" role="status">
                   {{ h.text }}
                   @if (h.go) {
-                    <button type="button" class="linkish" (click)="goToPlacementView()">{{ h.go }}</button>
+                    <button type="button" class="linkish" (click)="goToAngle()">{{ h.go }}</button>
                   }
                 </p>
               }
@@ -370,42 +356,50 @@ const PLACEMENT_KEY = 'tg_logo_placement';
                 }
               </div>
               <div class="field">
-                <span class="lbl">Logo Placement</span>
+                <span class="lbl">Logo placements</span>
                 @if (placementOptions().length) {
-                  <div class="chips">
-                    @for (p of placementOptions(); track p.value) {
-                      <button type="button" class="chip" [class.on]="placementValue() === p.value" (click)="setPlacement(p.value)">{{ p.label }}</button>
-                    }
-                  </div>
-                  @if (!logoPreview()) {
-                    <p class="hint">Upload a logo above to place it on the garment pictures.</p>
-                  }
+                  <tg-multi-select
+                    [options]="placementOptions()"
+                    [selected]="tickedValues()"
+                    placeholder="Choose where the logo goes"
+                    ariaLabel="Logo placements"
+                    (toggled)="onTick($event.value, $event.checked)"
+                    (all)="tickAll()"
+                    (none)="untickAll()"
+                  />
+                  <p class="hint">
+                    {{ logoPreview() ? 'Each ticked placement gets its own copy of your logo, shown on every angle picture.' : 'Tick where the logo goes. Upload your logo and it is placed there for you.' }}
+                  </p>
                 } @else {
                   <p class="hint">Set logo placement options in admin Attributes / product.</p>
                 }
               </div>
-              @if (logoPreview()) {
+              @if (logoPreview() && placements().length) {
                 <div class="field">
-                  <span class="lbl">Your logo placements</span>
-                  @if (!placements().length) {
-                    <p class="hint">Pick a placement above, drag the logo on the garment, then press Fix.</p>
-                  }
+                  <div class="pl-head">
+                    <span class="lbl">Your logos</span>
+                    <label class="switch">
+                      <input type="checkbox" [checked]="sameOnAll()" (change)="sameOnAll.set($any($event.target).checked)" />
+                      <span>Same position on every angle</span>
+                    </label>
+                  </div>
                   <ul class="pl-list">
                     @for (p of placements(); track p.id) {
-                      <li [class.draft]="!p.fixed">
-                        <span class="pl-name"><b>{{ p.label }}</b> · {{ p.view }} picture</span>
+                      <li [class.draft]="!p.fixed" [class.sel]="!p.fixed && p.id === selectedId()" (click)="p.fixed ? null : selectedId.set(p.id)">
+                        <span class="pl-name"><b>{{ p.label }}</b></span>
                         @if (p.fixed) {
                           <span class="pl-ok">✓ Fixed</span>
-                          <button type="button" class="linkish" (click)="editPlacement(p)">Move</button>
+                          <button type="button" class="linkish" (click)="editPlacement(p.id); $event.stopPropagation()">Move</button>
                         } @else {
-                          <button type="button" class="pl-fix" (click)="fixPlacement(p)">Fix</button>
+                          <button type="button" class="pl-fix" (click)="fixPlacement(p.id); $event.stopPropagation()">Fix</button>
+                          <button type="button" class="linkish" (click)="resetPlacement(p.id); $event.stopPropagation()">Reset</button>
                         }
-                        <button type="button" class="linkish" (click)="removePlacement(p)">Remove</button>
+                        <button type="button" class="linkish" (click)="removePlacement(p); $event.stopPropagation()">Remove</button>
                       </li>
                     }
                   </ul>
-                  @if (!draft()) {
-                    <button type="button" class="pl-add" (click)="addPlacement()">+ Add another placement</button>
+                  @if (draftCount() > 1) {
+                    <button type="button" class="pl-add" (click)="fixAll()">Fix all</button>
                   }
                   @if (snapshotFailed()) {
                     <p class="hint hint-err" role="status">The preview pictures could not be saved on this browser. Your placements are still sent as text.</p>
@@ -639,28 +633,30 @@ const PLACEMENT_KEY = 'tg_logo_placement';
       background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
     }
     .preview-col { padding: 12px; }
-    .preview-top { display: flex; justify-content: space-between; margin-bottom: 10px; }
-    .view-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
-    .view-tab {
-      border: 1px solid var(--line); background: #fff; border-radius: 999px;
-      padding: 5px 12px; font-size: 0.72rem; font-weight: 600; cursor: pointer;
-    }
-    .view-tab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
-    .preview-main { display: grid; grid-template-columns: 78px 1fr; gap: 10px; align-items: start; }
+    .preview-main { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; align-items: stretch; }
     .preview-main.no-rail { grid-template-columns: 1fr; }
-    .thumb-rail { display: flex; flex-direction: column; gap: 8px; }
-    /* the preview box and, right under it, the angle pictures in a row (so the whole card stays low) */
+    /* One column beside the preview box holds the model photos and the angle pictures. It is as tall as the
+       preview box and no taller: more pictures than fit slide (scroll) inside it. */
+    .rail { position: relative; min-height: 0; }
+    .rail-scroll {
+      position: absolute; inset: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+      padding: 0 4px 2px 0; scrollbar-width: thin; scrollbar-color: #c9c5b8 transparent;
+      scroll-behavior: smooth; overscroll-behavior: contain;
+    }
+    .rail-h { flex: none; margin: 2px 0 -2px; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+    .rail-h:not(:first-child) { margin-top: 8px; }
     .stage-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
     .stage-col .stage-wrap { margin-inline: auto; }
-    .angle-row { display: flex; gap: 6px; overflow-x: auto; justify-content: center; padding-bottom: 2px; }
-    .angle-row .thumb { flex: 0 0 62px; }
     .thumb {
-      border: 1px solid var(--line); border-radius: 6px; background: #fff; padding: 0;
+      flex: none; border: 1px solid var(--line); border-radius: 6px; background: #fff; padding: 0;
       overflow: hidden; cursor: pointer; font: inherit; color: inherit;
     }
     .thumb.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
     .thumb img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; display: block; background: #fff; }
-    .thumb span {
+    .thumb-pic { position: relative; display: block; }
+    /* the logos, small, on the angle pictures of the column */
+    .thumb .mini-logo { position: absolute; transform: translateX(-50%); height: auto; aspect-ratio: auto; object-fit: contain; background: none; pointer-events: none; }
+    .thumb > span:last-child {
       display: block; text-align: center; font-size: 0.58rem; font-weight: 700;
       text-transform: uppercase; padding: 3px; border-top: 1px solid var(--line); color: var(--muted);
     }
@@ -675,21 +671,6 @@ const PLACEMENT_KEY = 'tg_logo_placement';
     .stage { position: relative; width: 100%; aspect-ratio: 4 / 5; background: #fff; transition: transform 0.15s ease; }
     .stage-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; z-index: 1; }
     /* the logo is laid over the static garment picture at its placement (left, top and width are set per placement) */
-    .stage-logo { position: absolute; transform: translateX(-50%); z-index: 3; pointer-events: none; display: block; }
-    .stage-logo img { width: 100%; height: 100%; display: block; object-fit: contain; user-select: none; pointer-events: none; }
-    .stage-logo.blend img { mix-blend-mode: multiply; }
-    /* a logo that is not fixed yet: drag it to move, drag the corner to resize, press Fix to lock it */
-    .stage-logo.draft { pointer-events: auto; cursor: move; touch-action: none; outline: 1.5px dashed #3d4b37; outline-offset: 2px; }
-    .stage-logo.draft:focus-visible { outline-style: solid; }
-    .logo-handle {
-      position: absolute; right: -8px; bottom: -8px; width: 12px; height: 12px; box-sizing: border-box;
-      background: #fff; border: 2px solid #3d4b37; border-radius: 3px; cursor: nwse-resize; touch-action: none;
-    }
-    .logo-fix {
-      position: absolute; right: -2px; top: -30px; border: 0; border-radius: 999px; background: #3d4b37; color: #fff;
-      font: inherit; font-size: 0.66rem; font-weight: 700; padding: 3px 11px; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-    }
-    .stage-logo.below .logo-fix { top: auto; bottom: -34px; }
     .logo-rules { margin: 6px 0 0; padding-left: 18px; font-size: 0.72rem; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
     .pl-list { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     .pl-list li { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: 0.78rem; }
@@ -701,6 +682,17 @@ const PLACEMENT_KEY = 'tg_logo_placement';
       font: inherit; font-size: 0.72rem; font-weight: 700; cursor: pointer;
     }
     .pl-add { background: #fff; color: #3d4b37; padding: 6px 14px; }
+    .stage-wrap { position: relative; }
+    .stage-tag {
+      position: absolute; left: 8px; top: 8px; z-index: 5; background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line);
+      border-radius: 999px; font-size: 0.64rem; font-weight: 700; padding: 3px 10px; color: var(--ink); pointer-events: none;
+    }
+    .pl-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 2px; }
+    .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; color: var(--muted); cursor: pointer; }
+    .switch input { width: 15px; height: 15px; margin: 0; accent-color: #3d4b37; }
+    .pl-list li { cursor: default; }
+    .pl-list li.draft { border-color: #cbd6c3; cursor: pointer; background: #fff; }
+    .pl-list li.sel { border-color: #3d4b37; background: #f3f6ef; box-shadow: 0 0 0 2px rgba(61, 75, 55, 0.12); }
     .snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin: 10px 0; }
     .snap-grid figure { margin: 0; }
     .snap-grid tg-placement-picture { border: 1px solid var(--line); border-radius: 6px; }
@@ -940,7 +932,9 @@ const PLACEMENT_KEY = 'tg_logo_placement';
     }
     @media (max-width: 700px) {
       .preview-main { grid-template-columns: 1fr; }
-      .thumb-rail { flex-direction: row; overflow-x: auto; }
+      .rail { position: static; }
+      .rail-scroll { position: static; flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 0 0 4px; }
+      .rail-h { display: none; }
       .thumb { min-width: 72px; }
       .value-bar, .info-grid, .field.two, .cta-row { grid-template-columns: 1fr; }
       }
@@ -995,7 +989,12 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   readonly fabricValues = signal<string[]>([]);
   readonly gsmValues = signal<string[]>([]);
   readonly decorationValue = signal('');
-  readonly placementValue = signal('');
+  /** The values of the ticked logo placements. */
+  readonly tickedValues = signal<string[]>([]);
+  /** The logo copy that is selected on the preview (the one with the handle and the Fix button). */
+  readonly selectedId = signal<string | null>(null);
+  /** Moving or resizing a logo changes it on every angle picture (when off: on the picture shown only). */
+  readonly sameOnAll = signal(true);
   readonly buyerNotes = signal('');
   readonly saveMsg = signal('');
   readonly privateLabelValues = signal<string[]>([]);
@@ -1076,13 +1075,13 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     ).join(', ');
   });
 
+  /** The ticked placements, by name. */
   readonly placementLabel = computed(() => {
-    const v = this.placementValue();
-    return (
-      this.placementOptions().find((o) => o.value === v || o.label === v)?.label ||
-      v ||
-      ''
-    );
+    const on = this.tickedValues();
+    return this.placementOptions()
+      .filter((o) => on.includes(o.value))
+      .map((o) => o.label)
+      .join(', ');
   });
 
   /** A JPEG logo has a white box around it, which is blended into the garment like the design file. */
@@ -1100,12 +1099,12 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   readonly snapshots = signal<Array<{ id: string; label: string; name: string; blob: Blob; url: string; garment?: string }>>([]);
   readonly snapshotFailed = signal(false);
 
-  /** The placement that is still being moved (not fixed yet); there is only one at a time. */
-  readonly draft = computed(() => this.placements().find((p) => !p.fixed) ?? null);
+  /** The logo copies on the garment: one for every ticked placement, moved and resized by the customer, locked with Fix. */
   readonly fixedPlacements = computed(() => this.placements().filter((p) => p.fixed));
+  readonly draftCount = computed(() => this.placements().filter((p) => !p.fixed).length);
   readonly placementSummary = computed(() =>
     this.fixedPlacements()
-      .map((p) => `${p.label} (${p.view})`)
+      .map((p) => p.label)
       .join('; '),
   );
 
@@ -1115,37 +1114,42 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     return Math.min(Math.max(0, this.outlookIndex()), last);
   });
 
-  /** The web shoot photos stand in a column on the left of the preview; the angle pictures in a row under it. */
+  /** The web shoot photos (models) and the angle pictures (the garment) stand together in a column beside the preview. */
   readonly hasShootPhotos = computed(() => this.outlookViews().some((v) => v.angle === 'shoot'));
   readonly hasAnglePictures = computed(() => this.outlookViews().some((v) => v.angle !== 'shoot'));
 
   /** True while a model (web shoot) photo is shown: a logo cannot be placed on those. */
   readonly onModelPhoto = computed(() => this.outlookViews()[this.currentViewIndex()]?.angle === 'shoot');
 
-  /** The placements that sit on the picture shown now. */
-  readonly shownPlacements = computed(() => {
-    if (!this.logoPreview()) return [];
-    const at = this.currentViewIndex();
-    return this.placements().filter((p) => this.viewIndexOf(p) === at);
+  /** The slot of an angle picture among the angle pictures (a0, a1 …); '' for a model photo. It stays the same when the colour changes. */
+  angleKeyOf(index: number): string {
+    const views = this.outlookViews();
+    if (!views[index] || views[index].angle === 'shoot') return '';
+    let n = -1;
+    for (let i = 0; i <= index; i++) if (views[i].angle !== 'shoot') n++;
+    return 'a' + n;
+  }
+  readonly currentAngleKey = computed(() => this.angleKeyOf(this.currentViewIndex()));
+
+  /** Where a logo sits on one picture of the rail (for its small preview). */
+  spotFor(p: LogoPlacement, index: number): Spot {
+    return spotOf(p, this.angleKeyOf(index));
+  }
+
+  readonly currentViewLabel = computed(() => {
+    const v = this.outlookViews()[this.currentViewIndex()];
+    return v ? (v.angle === 'shoot' ? `Model photo · ${v.label}` : `${v.label} angle`) : '';
   });
 
-  /** Said under the preview when the logo cannot be seen or placed where the customer is looking. */
-  readonly logoHint = computed<{ text: string; go?: string } | null>(() => {
-    if (!this.logoPreview()) return null;
-    const d = this.draft();
-    if (d && this.viewIndexOf(d) < 0) {
-      return { text: `This colour has no ${d.view} picture yet, so the logo cannot be placed for ${d.label}.` };
-    }
-    if (this.onModelPhoto()) {
-      return {
-        text: 'A logo can only be placed on the angle pictures (Front, Back …), not on the model photos.',
-        go: d ? `Go to the ${d.view} picture` : 'Show the angle pictures',
-      };
-    }
-    return d && this.viewIndexOf(d) !== this.currentViewIndex()
-      ? { text: `Your logo is placed on the ${d.view} picture.`, go: 'Go to it' }
-      : null;
-  });
+  /** The logos are laid over the angle pictures only. */
+  readonly showLogoLayer = computed(() => !!this.logoPreview() && this.placements().length > 0 && !this.onModelPhoto());
+
+  /** Said under the preview when a model photo is shown while logos are placed. */
+  readonly logoHint = computed<{ text: string; go?: string } | null>(() =>
+    this.logoPreview() && this.placements().length && this.onModelPhoto()
+      ? { text: 'A logo can only be placed on the angle pictures (Front, Back …), not on the model photos.', go: 'Show the angle pictures' }
+      : null,
+  );
 
   readonly addonTotal = computed(() => {
     const map = this.serviceAddOns();
@@ -1156,7 +1160,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
       if (Number.isFinite(v) && v > 0) n += v;
     };
     add('decoration', this.decorationValue());
-    add('placement', this.placementLabel());
+    for (const label of this.tickedLabels()) add('placement', label);
     add('gsm', this.gsmLabel());
     for (const opt of this.privateLabelOptions()) {
       if (this.privateLabelValues().includes(opt.value)) add('private_label', opt.label);
@@ -1405,89 +1409,150 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.decorationValue.set(value);
   }
 
-  /** A placement button: the logo being placed jumps to that spot, or (with none open) a new placement starts there. */
-  setPlacement(value: string) {
-    this.placementValue.set(value);
+  // ── logo placements: tick where the logo goes, then move, resize and fix each copy
+  private tickedLabels(): string[] {
+    const on = this.tickedValues();
+    return this.placementOptions()
+      .filter((o) => on.includes(o.value))
+      .map((o) => o.label);
+  }
+
+  private saveTicks() {
     try {
-      localStorage.setItem(PLACEMENT_KEY, this.placementLabel());
+      localStorage.setItem(TICKS_KEY, JSON.stringify(this.tickedLabels()));
     } catch {
       /* storage is blocked: the choice is simply not remembered */
     }
-    if (!this.logoPreview()) return;
-    const d = this.draft();
-    if (!d) {
-      this.startPlacement();
-      return;
-    }
-    const label = this.placementLabel();
-    const zone = this.presetFor(label);
-    const moved = keepInside({ ...d, label, view: zone.view, x: zone.x, y: zone.y, w: zone.w }, this.logoRatio(), this.stageRatio());
-    this.placements.update((l) => l.map((p) => (p.id === d.id ? moved : p)));
-    this.savePlacements();
-    this.showPlacement(moved);
   }
 
-  /** Where a new placement starts: the spot of the chosen placement, beside the design file when that is in the way. */
-  private presetFor(label: string) {
+  /** Ticking a placement puts a copy of the logo there (shown on every angle picture); unticking takes it away. */
+  onTick(value: string, checked: boolean) {
+    this.tickedValues.update((list) => (checked ? (list.includes(value) ? list : [...list, value]) : list.filter((v) => v !== value)));
+    this.saveTicks();
+    this.syncPlacements(checked ? value : null);
+  }
+
+  tickAll() {
+    this.tickedValues.set(this.placementOptions().map((o) => o.value));
+    this.saveTicks();
+    this.syncPlacements(null);
+  }
+
+  untickAll() {
+    this.tickedValues.set([]);
+    this.saveTicks();
+    this.syncPlacements(null);
+  }
+
+  /** Where a new copy starts: the spot of the placement, beside the design file when that is in the way. */
+  private presetFor(label: string): Spot {
     const zone = logoZoneFor(label);
-    return zone.centre && this.designPreviewUrl() ? LEFT_CHEST : zone;
+    const z = zone.centre && this.designPreviewUrl() ? LEFT_CHEST : zone;
+    return { x: z.x, y: z.y, w: z.w };
   }
 
-  /** The picture that carries a placement (the front or the back one); -1 when this colour has none. */
-  private viewIndexOf(p: LogoPlacement): number {
-    return viewIndexFor(this.outlookViews(), p.view);
+  /** Makes the logo copies match the ticks: a ticked placement has its copy, an unticked one has none. */
+  private syncPlacements(focus: string | null) {
+    const ticked = this.tickedValues();
+    const before = this.placements();
+    let list = before.filter((p) => ticked.includes(p.value));
+    let added: LogoPlacement | null = null;
+    if (this.logoPreview()) {
+      for (const value of ticked) {
+        if (list.some((p) => p.value === value)) continue;
+        const option = this.placementOptions().find((o) => o.value === value);
+        if (!option) continue;
+        const p = keepInside(newPlacement(option.value, option.label, this.presetFor(option.label)), this.logoRatio(), this.stageRatio());
+        list = [...list, p];
+        if (!added || value === focus) added = p;
+      }
+    }
+    this.placements.set(list);
+    this.savePlacements();
+    if (added) {
+      this.selectedId.set(added.id);
+      this.goToAngle();
+    } else if (!list.some((p) => p.id === this.selectedId() && !p.fixed)) {
+      this.selectedId.set(list.find((p) => !p.fixed)?.id ?? null);
+    }
+    if (added || list.length !== before.length) void this.rebuildSnapshots();
   }
 
-  private showPlacement(p: LogoPlacement) {
-    const at = this.viewIndexOf(p);
-    if (at >= 0) this.outlookIndex.set(at);
+  /** Called once the logo is set: the first placement is ticked when none is, and every ticked placement gets its copy. */
+  private afterLogoSet() {
+    if (!this.tickedValues().length) {
+      const first = this.placementOptions()[0];
+      if (first) {
+        this.tickedValues.set([first.value]);
+        this.saveTicks();
+      }
+    }
+    this.syncPlacements(null);
+    void this.rebuildSnapshots();
   }
 
-  /** Shows the picture the logo being placed belongs to (or, with none open, the first angle picture). */
-  goToPlacementView() {
-    const d = this.draft();
-    if (d) return this.showPlacement(d);
+  /** Shows the first angle picture when a model photo is shown, so the logo is seen. */
+  goToAngle() {
+    if (!this.onModelPhoto()) return;
     const at = this.outlookViews().findIndex((v) => v.angle !== 'shoot');
     if (at >= 0) this.outlookIndex.set(at);
   }
 
-  /** Starts a new placement at the spot of the chosen placement. Only one is open at a time: an open one is fixed where it is. */
-  private startPlacement() {
-    if (!this.logoPreview()) return;
-    const open = this.draft();
-    if (open) this.fixPlacement(open);
-    const label = this.placementLabel() || 'Logo';
-    const p = keepInside(newPlacement(label, this.presetFor(label)), this.logoRatio(), this.stageRatio());
-    this.placements.update((l) => [...l, p]);
+  /** A logo was moved or resized on the angle picture shown: on every angle (the default), or on this one only. */
+  onLogoPlace(ev: { id: string; x: number; y: number; w: number }) {
+    const key = this.currentAngleKey();
+    const spot: Spot = { x: ev.x, y: ev.y, w: ev.w };
+    this.placements.update((list) =>
+      list.map((p) => {
+        if (p.id !== ev.id) return p;
+        return this.sameOnAll() || !key ? { ...p, ...spot, over: undefined } : { ...p, over: { ...(p.over ?? {}), [key]: spot } };
+      }),
+    );
+  }
+
+  onLogoCommit() {
     this.savePlacements();
-    this.showPlacement(p);
   }
 
-  addPlacement() {
-    this.startPlacement();
-  }
-
-  /** Locks a placement where it is and saves the picture of that side with the logo on it. */
-  fixPlacement(p: LogoPlacement) {
-    this.placements.update((l) => l.map((x) => (x.id === p.id ? { ...x, fixed: true } : x)));
+  /** Locks a logo copy where it is and saves the pictures of the angles with the logos on them. */
+  fixPlacement(id: string) {
+    this.placements.update((list) => list.map((p) => (p.id === id ? { ...p, fixed: true } : p)));
+    this.selectedId.set(this.placements().find((p) => !p.fixed)?.id ?? null);
     this.savePlacements();
     void this.rebuildSnapshots();
   }
 
-  /** Opens a fixed placement to move it again. */
-  editPlacement(p: LogoPlacement) {
-    const open = this.draft();
-    if (open && open.id !== p.id) this.fixPlacement(open);
-    this.placements.update((l) => l.map((x) => (x.id === p.id ? { ...x, fixed: false } : x)));
+  fixAll() {
+    if (!this.placements().some((p) => !p.fixed)) return;
+    this.placements.update((list) => list.map((p) => ({ ...p, fixed: true })));
+    this.selectedId.set(null);
     this.savePlacements();
-    this.showPlacement(p);
     void this.rebuildSnapshots();
+  }
+
+  /** Opens a fixed logo to move it again. */
+  editPlacement(id: string) {
+    this.placements.update((list) => list.map((p) => (p.id === id ? { ...p, fixed: false } : p)));
+    this.selectedId.set(id);
+    this.goToAngle();
+    this.savePlacements();
+    void this.rebuildSnapshots();
+  }
+
+  /** Puts a logo copy back at the spot of its placement, on every angle. */
+  resetPlacement(id: string) {
+    this.placements.update((list) =>
+      list.map((p) => {
+        if (p.id !== id) return p;
+        const start = keepInside({ ...this.presetFor(p.label) }, this.logoRatio(), this.stageRatio());
+        return { ...p, ...start, over: undefined };
+      }),
+    );
+    this.savePlacements();
   }
 
   removePlacement(p: LogoPlacement) {
-    this.placements.update((l) => l.filter((x) => x.id !== p.id));
-    this.savePlacements();
-    void this.rebuildSnapshots();
+    this.onTick(p.value, false);
   }
 
   private savePlacements() {
@@ -1496,86 +1561,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.designUpload.setPlacements(p && list.length ? { productId: p.id, placements: list } : null);
   }
 
-  // ── moving and resizing the logo on the preview
-  private drag: {
-    mode: 'move' | 'resize';
-    x0: number;
-    y0: number;
-    start: LogoPlacement;
-    rect: DOMRect;
-    target: HTMLElement;
-    pointerId: number;
-  } | null = null;
-
-  startMove(ev: PointerEvent, p: LogoPlacement) {
-    if (p.fixed || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
-    this.beginDrag(ev, p, 'move');
-  }
-
-  startResize(ev: PointerEvent, p: LogoPlacement) {
-    ev.stopPropagation();
-    if (p.fixed || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
-    this.beginDrag(ev, p, 'resize');
-  }
-
-  private beginDrag(ev: PointerEvent, p: LogoPlacement, mode: 'move' | 'resize') {
-    const el = ev.currentTarget as HTMLElement;
-    const stage = el.closest('.stage') as HTMLElement | null;
-    if (!stage) return;
-    ev.preventDefault();
-    try {
-      el.setPointerCapture(ev.pointerId);
-    } catch {
-      /* the pointer is already gone */
-    }
-    this.drag = { mode, x0: ev.clientX, y0: ev.clientY, start: { ...p }, rect: stage.getBoundingClientRect(), target: el, pointerId: ev.pointerId };
-  }
-
-  onDrag(ev: PointerEvent) {
-    const d = this.drag;
-    if (!d || ev.pointerId !== d.pointerId) return;
-    const dx = ((ev.clientX - d.x0) / d.rect.width) * 100;
-    const dy = ((ev.clientY - d.y0) / d.rect.height) * 100;
-    const ratio = this.logoRatio();
-    const stageRatio = this.stageRatio();
-    let next: LogoPlacement;
-    if (d.mode === 'move') {
-      next = keepInside({ ...d.start, x: d.start.x + dx, y: d.start.y + dy }, ratio, stageRatio);
-    } else {
-      // the corner handle: the top-left corner stays and the logo keeps its proportions
-      const left = d.start.x - d.start.w / 2;
-      const w = keepInside({ ...d.start, w: d.start.w + dx }, ratio, stageRatio).w;
-      next = keepInside({ ...d.start, w, x: left + w / 2 }, ratio, stageRatio);
-    }
-    this.placements.update((l) => l.map((p) => (p.id === next.id ? next : p)));
-  }
-
-  endDrag(ev: PointerEvent) {
-    const d = this.drag;
-    if (!d || ev.pointerId !== d.pointerId) return;
-    try {
-      d.target.releasePointerCapture(d.pointerId);
-    } catch {
-      /* already released */
-    }
-    this.drag = null;
-    this.savePlacements();
-  }
-
-  /** The arrow keys move a logo that is not fixed yet (Shift = bigger steps). */
-  onNudge(ev: KeyboardEvent, p: LogoPlacement) {
-    if (p.fixed) return;
-    const step = ev.shiftKey ? 2 : 0.5;
-    const move: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
-    const m = move[ev.key];
-    if (!m) return;
-    ev.preventDefault();
-    const next = keepInside({ ...p, x: p.x + m[0], y: p.y + m[1] }, this.logoRatio(), this.stageRatio());
-    this.placements.update((l) => l.map((x) => (x.id === p.id ? next : x)));
-    this.savePlacements();
-  }
-
-  // ── the pictures of the fixed placements
+  // ── the pictures of the angles with the fixed logos on them
   private snapChain: Promise<void> = Promise.resolve();
 
   private rebuildSnapshots(): Promise<void> {
@@ -1588,24 +1574,32 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.snapshots.set([]);
   }
 
-  /** One picture per side (front, back) that has fixed logos on it, drawn from the garment picture and the logo. */
+  /** One picture for every angle picture (up to 6) that has fixed logos: the garment picture with them on it. */
   private async buildSnapshots() {
     const logo = this.logoPreview();
     const views = this.outlookViews();
+    const fixed = this.fixedPlacements();
     const out: Array<{ id: string; label: string; name: string; blob: Blob; url: string; garment?: string }> = [];
     let failed = false;
-    if (logo) {
-      for (const side of ['front', 'back'] as const) {
-        const placed = this.fixedPlacements().filter((p) => p.view === side);
-        const at = viewIndexFor(views, side);
-        if (!placed.length || at < 0) continue;
+    if (logo && fixed.length) {
+      const seen = new Map<string, number>();
+      for (let i = 0; i < views.length && out.length + (failed ? 1 : 0) < 6; i++) {
+        if (views[i].angle === 'shoot') continue;
+        const key = this.angleKeyOf(i);
+        const count = (seen.get(views[i].label) ?? 0) + 1;
+        seen.set(views[i].label, count);
+        const title = count > 1 ? `${views[i].label} ${count}` : views[i].label;
         try {
-          const shot = await renderSnapshot(views[at].url, logo, this.logoRatio(), placed);
-          const sideName = side === 'front' ? 'Front' : 'Back';
+          const shot = await renderSnapshot(
+            views[i].url,
+            logo,
+            this.logoRatio(),
+            fixed.map((p) => spotOf(p, key)),
+          );
           out.push({
-            id: side,
-            label: `${sideName} picture: ${placed.map((p) => p.label).join(' + ')}`,
-            name: `Logo placement - ${sideName} picture - ${placed.map((p) => p.label).join(' + ')}${shot.garment ? ' (logo layer)' : ''}.${shot.garment ? 'png' : 'jpg'}`,
+            id: key,
+            label: `${title} picture: ${fixed.map((p) => p.label).join(' + ')}`,
+            name: `Logo placement - ${title} picture - ${fixed.map((p) => p.label).join(' + ')}${shot.garment ? ' (logo layer)' : ''}.${shot.garment ? 'png' : 'jpg'}`,
             blob: shot.blob,
             url: URL.createObjectURL(shot.blob),
             garment: shot.garment,
@@ -1623,6 +1617,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
 
   /** The garment this visit's placements belong to; they are brought back from the saved draft once it and the logo are known. */
   private placementsFor: string | null = null;
+  private ticksFor: string | null = null;
   private readonly placementsEffect = effect(() => {
     const p = this.product();
     if (!p || !this.logoPreview()) return;
@@ -1641,7 +1636,15 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   private async restorePlacements(productId: string) {
     const draft = await this.designUpload.restorePlacements();
     if (!draft || draft.productId !== productId || this.placements().length) return;
-    this.placements.set(draft.placements.map((x) => ({ ...x })));
+    const options = this.placementOptions();
+    const list: LogoPlacement[] = [];
+    for (const x of draft.placements) {
+      const value = x.value ?? options.find((o) => o.label === x.label)?.value;
+      if (!value || list.some((p) => p.value === value)) continue;
+      list.push({ id: 'pl-' + value, value, label: x.label, x: x.x, y: x.y, w: x.w, fixed: x.fixed, over: x.over });
+    }
+    this.placements.set(list);
+    this.tickedValues.update((on) => [...new Set([...on, ...list.map((p) => p.value)])]);
     const saved = await this.designUpload.restoreSnapshots();
     this.snapshots.set(saved.map((s) => ({ ...s, url: URL.createObjectURL(s.blob) })));
   }
@@ -1742,8 +1745,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     const p = this.product();
     if (!p) return;
     // A logo still being placed is fixed where it is, and the pictures of the placements are ready before they are handed over.
-    const open = this.draft();
-    if (open) this.fixPlacement(open);
+    this.fixAll();
     await this.rebuildSnapshots();
 
     if (this.logoPreview()) {
@@ -1973,11 +1975,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
       await this.measureLogo(url);
       this.logoName.set(file.name);
       this.logoPreview.set(url);
-      if (this.placements().length) {
-        void this.rebuildSnapshots(); // the placements stay; their pictures show the new logo
-      } else {
-        this.startPlacement(); // the logo starts at the chosen placement, ready to be moved
-      }
+      this.afterLogoSet(); // every ticked placement gets its copy of the logo, ready to be moved
     };
     reader.readAsDataURL(file);
   }
@@ -1988,6 +1986,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.logoError.set('');
     this.designUpload.setLogo(null);
     this.placements.set([]);
+    this.selectedId.set(null);
     this.releaseSnapshots();
     this.designUpload.setPlacements(null);
     this.designUpload.setSnapshots([]);
@@ -2140,14 +2139,17 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
         ? this.optionsFromAttr('placement')
         : this.optionsFromAttr('logo_placement');
     this.productPlacementOpts.set(placements);
-    let remembered = '';
-    try {
-      remembered = localStorage.getItem(PLACEMENT_KEY) || '';
-    } catch {
-      /* storage is blocked */
+    if (this.ticksFor !== p.id && placements.length) {
+      this.ticksFor = p.id;
+      let remembered: unknown = [];
+      try {
+        remembered = JSON.parse(localStorage.getItem(TICKS_KEY) || '[]');
+      } catch {
+        /* storage is blocked */
+      }
+      const labels = Array.isArray(remembered) ? remembered : [];
+      this.tickedValues.set(placements.filter((o) => labels.includes(o.label)).map((o) => o.value));
     }
-    const first = placements.find((o) => o.label === remembered) || placements[0];
-    this.placementValue.set(first?.value || '');
 
     const privateLabels = this.valuesFromProduct(p, 'private_label');
     this.productPrivateLabelOpts.set(privateLabels);
