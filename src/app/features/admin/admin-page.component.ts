@@ -1468,11 +1468,13 @@ interface CategoryTreeListRow {
       border-bottom: 1px solid var(--ui-line);
       vertical-align: middle;
     }
+    /* table headings: bold, in the green the site uses (the forest green of the header and buttons) */
     th {
       font-size: 0.65rem;
+      font-weight: 700;
       letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: #8a8f84;
+      color: var(--forest, #4f5a45);
     }
 
     .col-table tbody tr { cursor: pointer; }
