@@ -725,24 +725,6 @@ export class CatalogService {
   }
 
   /**
-   * One colour's Front angle, from the Angles section of the product: the garment picture without a
-   * model. Its "front" angle, else its first angle, else its colour image; empty when it has none.
-   */
-  colourFrontUrl(product: Product, colorId: string): string {
-    const colour = (product.colors || []).find((c) => c.id === colorId);
-    if (!colour) return '';
-    const own = this.colourImages(product, colour);
-    const views = own
-      .filter((i) => i.role === 'view' && !!i.url)
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    const pick =
-      views.find((i) => (i.angle || 'front').trim().toLowerCase() === 'front') ||
-      views[0] ||
-      own.find((i) => i.role === 'card' && !!i.url);
-    return pick ? this.normalizeMediaUrl(pick.url) : '';
-  }
-
-  /**
    * The collections as home page cards, for a site whose home page has not been set up in the
    * admin yet: the usual order first, each with its cover picture or the photo of its first
    * product. Nothing is invented: a collection without a picture has none.

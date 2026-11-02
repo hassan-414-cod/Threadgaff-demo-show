@@ -59,17 +59,15 @@ interface Pill {
   url: string;
 }
 
-/** One colour of a product in a tile's swatch row, with its first web shoot photo and its Front angle. */
+/** One colour of a product in a tile's swatch row, with its first web shoot photo (the model). */
 interface Swatch {
   id: string;
   name: string;
   hex: string;
   pic: string;
-  /** The colour's Front angle (no model): what a tile shows when this colour is picked from its dots. */
-  front: string;
 }
 
-/** One colour variant of a product, shown with its own main picture. */
+/** One product, shown in its main colour with that colour's own main picture. */
 interface Tile {
   key: string;
   product: Product;
@@ -83,6 +81,13 @@ interface Tile {
   first: boolean;
 }
 
+/** The tiles of one catalogue, under its heading. */
+interface TileSection {
+  key: string;
+  title: string;
+  tiles: Tile[];
+}
+
 /** One picture in the viewer. */
 interface Shot {
   url: string;
@@ -91,14 +96,13 @@ interface Shot {
 }
 
 /**
- * The shop. Home sends a customer here by catalogue; this page shows every colour variant of every
- * product (catalogue by catalogue in the admin order, in one continuous grid), each as its own
- * main picture (its first web shoot photo) with the product name, colour and price; the colour dots
- * under a tile switch that tile to another colour of the product, showing that colour's Front angle
- * (its model photos are already tiles of their own). Everything
- * else (the other models, web shoot photos and angles) is in the Custom Designer, which a click
- * on a variant opens in that colour. Attribute values that have a picture show it when clicked.
- * Catalogue tabs, filters and sort are here too.
+ * The shop. Home sends a customer here by catalogue; this page shows every product once, in its main
+ * colour (the first colour in the admin order) with that colour's first web shoot photo (the model),
+ * the product name and price. Products are grouped under a heading per catalogue (T-Shirts, Hoodies…)
+ * in the admin order of the catalogues. The colour dots under a tile switch it to another colour of the
+ * product, showing that colour's first web shoot photo. Everything else (the other models, web shoot
+ * photos and angles) is in the Custom Designer, which a click opens in the shown colour. Attribute
+ * values that have a picture show it when clicked. Catalogue tabs, filters and sort are here too.
  */
 @Component({
   selector: 'tg-products-page',
@@ -174,18 +178,18 @@ interface Shot {
       <header class="shop-head">
         <span class="kicker">Wholesale apparel manufacturing</span>
         <h1>{{ rangeTitle() }}</h1>
-        <p class="lede">Every colour of every product, each with its first photo. Open one to see all its models and photos in the Custom Designer.</p>
+        <p class="lede">Every product in its main colour. Pick a colour dot to see it in that colour, or open one to see all its models and photos in the Custom Designer.</p>
       </header>
 
       <section class="shop-body">
         <div class="shop-toolbar">
           <span class="count" aria-live="polite">
             @if (busy()) {
-              Loading variants…
+              Loading products…
             } @else {
-              {{ tiles().length }} {{ tiles().length === 1 ? 'variant' : 'variants' }}
-              @if (chips().length && tiles().length !== allTiles().length) {
-                <span class="of">of {{ allTiles().length }}</span>
+              {{ tiles().length }} {{ tiles().length === 1 ? 'product' : 'products' }}
+              @if (chips().length && tiles().length !== allCount()) {
+                <span class="of">of {{ allCount() }}</span>
               }
             }
             @if (attrPending() && chips().length) {
@@ -223,16 +227,21 @@ interface Shot {
         @if (!busy() && !tiles().length && !error()) {
           <p class="empty">
             @if (chips().length) {
-              No variants match these filters.
+              No products match these filters.
               <button type="button" class="link" (click)="resetFilters()">Reset filters</button>
             } @else {
-              No variants in this catalogue yet.
+              No products in this catalogue yet.
             }
           </p>
         }
 
-        <div class="grid">
-          @for (t of tiles(); track t.key) {
+        @for (s of tileSections(); track s.key) {
+        <section class="cat" [attr.aria-label]="s.title">
+          @if (!selectedSlug()) {
+            <h2 class="cat-head" [attr.id]="'cat-' + s.key">{{ s.title }}<span class="cat-count">{{ s.tiles.length }}</span></h2>
+          }
+          <div class="grid">
+          @for (t of s.tiles; track t.product.id) {
             <article class="prod" [attr.id]="t.first ? 'p-' + t.product.id : null" [class.flash]="t.first && flashId() === t.product.id">
               @let v = viewOf(t);
               <a
@@ -287,7 +296,9 @@ interface Shot {
               }
             </article>
           }
-        </div>
+          </div>
+        </section>
+        }
       </section>
 
       @if (viewer(); as v) {
@@ -469,12 +480,23 @@ interface Shot {
     .chip-reset, .link { background: none; border: 0; padding: 0; font: inherit; font-size: 0.72rem; color: var(--muted); text-decoration: underline; cursor: pointer; }
     .empty { color: var(--muted); font-size: 0.9rem; margin: 28px 0; }
 
-    /* the catalogue: one main picture per variant, five across, name / price / colours underneath */
+    /* the catalogues, each under its own heading: T-Shirts, Hoodies … */
+    .cat { margin-top: 18px; }
+    .cat + .cat { margin-top: 68px; }
+    .cat-head {
+      display: flex; align-items: baseline; gap: 12px; margin: 0 0 22px; padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+      font-family: 'Montserrat', sans-serif; font-size: 1.15rem; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink);
+    }
+    .cat-count { font-size: 0.72rem; font-weight: 500; letter-spacing: 0.04em; color: var(--muted); }
+    /* the products of a catalogue: one main picture per product, four across, name / price / colours underneath */
     .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 48px 28px; align-items: start; margin-top: 18px; }
+    .cat .grid { margin-top: 0; }
     .prod { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
     .prod-pic { display: block; width: 100%; }
     /* the window is as big as its picture, whatever its proportions: the whole picture shows, nothing is cropped */
-    .prod-frame { display: block; overflow: hidden; background: #ececee; }
+    .prod-frame { display: block; overflow: hidden; background: #ececee; border-radius: 8px; }
     .prod-frame img {
       display: block;
       width: 100%;
@@ -490,7 +512,7 @@ interface Shot {
     }
     @keyframes shotShimmer { to { background-position: -120% 0; } }
     .prod-pic:hover img { transform: scale(1.04); }
-    .prod-pic:focus-visible { outline: 2px solid var(--forest); outline-offset: 4px; }
+    .prod-pic:focus-visible { outline: 2px solid var(--forest); outline-offset: 4px; border-radius: 10px; }
     .prod-empty { display: grid; place-items: center; aspect-ratio: 4 / 5; color: var(--muted); font-size: 0.78rem; }
     .prod-name {
       margin: 14px 0 0;
@@ -745,24 +767,20 @@ export class ProductsPageComponent implements OnInit {
   /** The variants in one run, catalogue by catalogue in the admin order, with nothing between them. */
   readonly ordered = computed<Product[]>(() => this.sections().flatMap((s) => s.items));
 
-  /** The colour a customer clicked in a tile's swatch row, by tile. */
+  /** The colour a customer clicked in a product's swatch row, by product. */
   private readonly clicked = signal<Record<string, string>>({});
 
-  /**
-   * What a tile shows now: its own colour with its first web shoot photo, or the colour picked in its swatch
-   * row. The model photos of the other colours already have a tile of their own, so a picked colour shows only
-   * its Front angle from the Angles section (its web shoot photo only if it has no angle at all).
-   */
+  /** What a tile shows now: its main colour, or the colour picked in its swatch row, each with that colour's first web shoot photo. */
   viewOf(t: Tile): { colorId: string; colorName: string; hex: string; pic: string } {
-    const id = this.clicked()[t.key];
-    const s = id && id !== t.colorId ? t.swatches.find((x) => x.id === id) : undefined;
+    const id = this.clicked()[t.product.id];
+    const s = id ? t.swatches.find((x) => x.id === id) : undefined;
     return s
-      ? { colorId: s.id, colorName: s.name, hex: s.hex, pic: s.front || s.pic }
+      ? { colorId: s.id, colorName: s.name, hex: s.hex, pic: s.pic }
       : { colorId: t.colorId, colorName: t.colorName, hex: t.hex, pic: t.pic };
   }
 
   pickColour(t: Tile, colorId: string) {
-    this.clicked.update((c) => ({ ...c, [t.key]: colorId }));
+    this.clicked.update((c) => ({ ...c, [t.product.id]: colorId }));
   }
 
   /** The values of a filter for one tile: what is ticked on its colour variant, else what its product has. */
@@ -797,7 +815,6 @@ export class ProductsPageComponent implements OnInit {
         name: c.name || '',
         hex: /^#[0-9a-f]{3,8}$/i.test(c.hex || '') ? c.hex : '#9ca3af',
         pic: this.catalog.colourMainUrl(p, c.id),
-        front: this.catalog.colourFrontUrl(p, c.id),
       }))
       .filter((x) => !!x.pic);
     const tiles = coloured.map(
@@ -828,24 +845,47 @@ export class ProductsPageComponent implements OnInit {
         ];
   }
 
-  /** The tiles of the shown variants, and of all of them (for the "of N" in the count). */
+  /**
+   * One tile per product, in its main colour (the first in the admin order). Every filter is judged per
+   * colour, as a colour can have its own ticks: while filters are on, a product is shown if any of its
+   * colours matches, in the first colour that does.
+   */
   readonly tiles = computed<Tile[]>(() => {
-    const all = this.ordered().flatMap((p) => this.tilesOf(p));
-    // Every filter is judged per colour variant: a colour can have its own ticks.
     const active = this.groups()
       .map((g) => ({ code: g.code, wanted: [...(this.picked()[g.code] || [])] }))
       .filter((a) => a.wanted.length);
-    if (!active.length) return all;
-    return all.filter((t) =>
-      active.every((a) => {
-        const labels = this.labelsOf(t, a.code);
-        return a.code === 'gender'
-          ? a.wanted.some((sel) => labels.some((l) => genderMatchesFilter(l, sel)))
-          : this.matches(labels, a.wanted);
-      }),
-    );
+    const out: Tile[] = [];
+    for (const p of this.ordered()) {
+      const colours = this.tilesOf(p);
+      const match = active.length
+        ? colours.filter((t) =>
+            active.every((a) => {
+              const labels = this.labelsOf(t, a.code);
+              return a.code === 'gender'
+                ? a.wanted.some((sel) => labels.some((l) => genderMatchesFilter(l, sel)))
+                : this.matches(labels, a.wanted);
+            }),
+          )
+        : colours;
+      if (match.length) out.push(match[0]);
+    }
+    return out;
   });
-  readonly allTiles = computed<Tile[]>(() => this.shown().flatMap((p) => this.tilesOf(p)));
+
+  /** How many products the shop has before the filters (for the "of N" in the count). */
+  readonly allCount = computed(() => this.shown().length);
+
+  /** The tiles under their catalogue headings (T-Shirts, Hoodies…), the catalogues in the admin order. */
+  readonly tileSections = computed<TileSection[]>(() => {
+    const byProduct = new Map(this.tiles().map((t) => [t.product.id, t] as const));
+    return this.sections()
+      .map((s) => ({
+        key: s.key,
+        title: s.title,
+        tiles: s.items.map((p) => byProduct.get(p.id)).filter((t): t is Tile => !!t),
+      }))
+      .filter((s) => s.tiles.length);
+  });
 
   /** The attribute values of each shown variant that have a picture. */
 
