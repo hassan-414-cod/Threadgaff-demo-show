@@ -590,6 +590,18 @@ interface CategoryTreeListRow {
                     </p>
                   </div>
                   <div class="toolbar">
+                    @if (view() === 'products') {
+                      <select
+                        aria-label="Show products of a category"
+                        [ngModel]="prodCategory()"
+                        (ngModelChange)="prodCategory.set($event)"
+                      >
+                        <option value="">All categories ({{ products().length }})</option>
+                        @for (o of categoryOptions(); track o.id) {
+                          <option [value]="o.id">{{ o.label }} ({{ o.count }})</option>
+                        }
+                      </select>
+                    }
                     <input
                       type="text"
                       placeholder="Search products…"
@@ -688,6 +700,11 @@ interface CategoryTreeListRow {
                     </tbody>
                   </table>
                 </div>
+                @if (view() === 'products' && (prodCategory() || prodSearch().trim())) {
+                  <div class="table-foot">
+                    <span>Showing {{ filteredProducts().length }} of {{ products().length }} products</span>
+                  </div>
+                }
               </div>
             }
           } @else {
@@ -1933,6 +1950,8 @@ export class AdminPageComponent implements OnInit {
   readonly drillProductList = signal<Product[]>([]);
   readonly colSearch = signal('');
   readonly prodSearch = signal('');
+  /** The category the All products list is narrowed to; empty shows every product. */
+  readonly prodCategory = signal('');
   readonly error = signal('');
   readonly toastMsg = signal('');
   readonly editor = signal<ProductEditorState | null>(null);
@@ -2032,7 +2051,8 @@ export class AdminPageComponent implements OnInit {
     });
   }
 
-  productCountFor(c: Category): number {
+  /** A category and every category under it. */
+  private categoryIdsOf(c: Category): Set<string> {
     const ids = new Set<string>([c.id]);
     const collect = (node: Category) => {
       for (const ch of node.children || []) {
@@ -2041,18 +2061,57 @@ export class AdminPageComponent implements OnInit {
       }
     };
     collect(c);
-    return this.products().filter(
-      (p) =>
-        (p.categoryId && ids.has(p.categoryId)) ||
-        (p.extraCategoryIds || []).some((id) => ids.has(id)),
-    ).length;
+    return ids;
   }
+
+  private inCategories(p: Product, ids: Set<string>): boolean {
+    return (
+      (!!p.categoryId && ids.has(p.categoryId)) ||
+      (!!p.category?.id && ids.has(p.category.id)) ||
+      (p.extraCategoryIds || []).some((id) => ids.has(id))
+    );
+  }
+
+  productCountFor(c: Category): number {
+    const ids = this.categoryIdsOf(c);
+    return this.products().filter((p) => this.inCategories(p, ids)).length;
+  }
+
+  /** Every category in tree order (sub-categories indented), each with its number of products, for the dropdown. */
+  readonly categoryOptions = computed(() => {
+    const out: Array<{ id: string; label: string; count: number }> = [];
+    const walk = (nodes: Category[], depth: number) => {
+      for (const c of nodes) {
+        out.push({ id: c.id, label: (depth ? '— '.repeat(depth) : '') + c.name, count: this.productCountFor(c) });
+        walk(c.children || [], depth + 1);
+      }
+    };
+    walk(this.collections(), 0);
+    return out;
+  });
 
   readonly filteredProducts = computed(() => {
     const q = this.prodSearch().trim().toLowerCase();
     let list = [...this.products()].sort(
       (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
     );
+    // Picking a category (Hoodies, T-Shirts…) lists only the products in it (and under it).
+    const chosen = this.prodCategory();
+    if (chosen) {
+      const find = (nodes: Category[]): Category | undefined => {
+        for (const c of nodes) {
+          if (c.id === chosen) return c;
+          const hit = find(c.children || []);
+          if (hit) return hit;
+        }
+        return undefined;
+      };
+      const cat = find(this.collections());
+      if (cat) {
+        const ids = this.categoryIdsOf(cat);
+        list = list.filter((p) => this.inCategories(p, ids));
+      }
+    }
     if (!q) return list;
     return list.filter(
       (p) =>
@@ -2091,6 +2150,7 @@ export class AdminPageComponent implements OnInit {
     this.view.set(v);
     this.drill.set(null);
     this.prodSearch.set('');
+    this.prodCategory.set('');
     this.editor.set(null);
     if (this.isProductsSectionView(v)) this.productsNavOpen.set(true);
     if (v === 'brands') this.loadBrands();
