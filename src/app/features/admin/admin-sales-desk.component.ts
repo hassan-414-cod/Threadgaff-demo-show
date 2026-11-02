@@ -30,6 +30,7 @@ import {
 } from '../../core/utils/sales-export';
 import {
   Attachment,
+  dataUrlToBlob,
   downloadAttachment,
   fileExt,
   isImageAttachment,
@@ -50,6 +51,8 @@ import {
   OrderStage,
   docTotals,
 } from '../../core/services/sales-desk.store';
+
+import { PlacementPictureComponent } from '../../shared/placement-picture.component';
 
 export type SalesSection = 'enquiries' | 'quotations' | 'invoices' | 'orders';
 
@@ -78,7 +81,7 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
 @Component({
   selector: 'tg-admin-sales-desk',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, PlacementPictureComponent],
   template: `
     <div class="sd">
       <header class="sd-head">
@@ -473,13 +476,29 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
             <pre class="msg">{{ e.message || 'No message provided.' }}</pre>
           </section>
 
+          @if (snapshotsOf(e.id).length) {
+            <section>
+              <h3>Logo placements <small class="muted">(as the customer fixed them)</small></h3>
+              <div class="snap-grid">
+                @for (a of snapshotsOf(e.id); track $index) {
+                  <figure>
+                    <tg-placement-picture [src]="a.dataUrl" [garment]="a.garment" [alt]="a.name" title="Open full size" (click)="viewSnapshot(a)" />
+                    <figcaption>{{ snapLabel(a) }}</figcaption>
+                  </figure>
+                }
+              </div>
+            </section>
+          }
+
           @if (filesFor(e.id).length) {
             <section>
               <h3>Customer design files</h3>
               <ul class="att-list">
                 @for (a of filesFor(e.id); track $index) {
                   <li class="att">
-                    @if (isImg(a)) {
+                    @if (a.garment) {
+                      <tg-placement-picture class="att-pic" [src]="a.dataUrl" [garment]="a.garment" />
+                    } @else if (isImg(a)) {
                       <img [src]="a.dataUrl" [alt]="a.name" />
                     } @else {
                       <span class="att-ext">{{ ext(a.name) }}</span>
@@ -725,12 +744,25 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
             <h3>Notes / terms</h3>
             <pre class="msg">{{ v.doc.notes }}</pre>
           }
+          @if (snapshotsOf(v.chain.enquiryId).length) {
+            <h3>Logo placements <small class="muted">(from {{ v.chain.enquiryRef }})</small></h3>
+            <div class="snap-grid">
+              @for (a of snapshotsOf(v.chain.enquiryId); track $index) {
+                <figure>
+                  <tg-placement-picture [src]="a.dataUrl" [garment]="a.garment" [alt]="a.name" title="Open full size" (click)="viewSnapshot(a)" />
+                  <figcaption>{{ snapLabel(a) }}</figcaption>
+                </figure>
+              }
+            </div>
+          }
           @if (filesFor(v.chain.enquiryId).length) {
             <h3>Customer design files <small class="muted">(from {{ v.chain.enquiryRef }})</small></h3>
             <ul class="att-list">
               @for (a of filesFor(v.chain.enquiryId); track $index) {
                 <li class="att">
-                  @if (isImg(a)) {
+                  @if (a.garment) {
+                    <tg-placement-picture class="att-pic" [src]="a.dataUrl" [garment]="a.garment" />
+                  } @else if (isImg(a)) {
                     <img [src]="a.dataUrl" [alt]="a.name" />
                   } @else {
                     <span class="att-ext">{{ ext(a.name) }}</span>
@@ -909,6 +941,11 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
       dt { color: var(--ui-muted); }
       dd { margin: 0; word-break: break-word; }
       .msg { white-space: pre-wrap; font: inherit; font-size: 0.88rem; margin: 0; background: #faf8f3; border: 1px solid var(--ui-line); border-radius: 8px; padding: 12px; max-height: 260px; overflow: auto; }
+      .snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 0 0 8px; }
+      .snap-grid figure { margin: 0; }
+      .snap-grid tg-placement-picture { border: 1px solid var(--ui-line); border-radius: 8px; cursor: zoom-in; }
+      .att-pic { width: 56px; height: 56px; flex: none; border-radius: 6px; }
+      .snap-grid figcaption { margin-top: 5px; font-size: 0.74rem; color: var(--ui-muted); }
       .att-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
       .att { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--ui-line); border-radius: 10px; background: #fff; }
       .att img { width: 56px; height: 56px; object-fit: contain; border-radius: 6px; background: repeating-conic-gradient(#f3f1ea 0 25%, #fff 0 50%) 0 / 12px 12px; flex: none; }
@@ -1505,6 +1542,39 @@ export class AdminSalesDeskComponent implements OnInit {
   isImg(a: Attachment): boolean {
     return isImageAttachment(a);
   }
+
+  /** The pictures of the logo placements the customer fixed in the designer (the garment with the logo on it). */
+  snapshotsOf(enquiryId: string | null): Attachment[] {
+    return this.filesFor(enquiryId).filter((a) => a.role === 'snapshot');
+  }
+  snapLabel(a: Attachment): string {
+    return a.name.replace(/\.(jpe?g|png)$/i, '').replace(/^Logo placement - /, '');
+  }
+  /** Opens a placement picture full size in a new tab. */
+  viewSnapshot(a: Attachment) {
+    if (a.garment) {
+      // only the logo layer was saved: show it on top of the garment picture, as one picture
+      const w = window.open('', '_blank');
+      if (!w) return;
+      const doc = w.document;
+      doc.title = this.snapLabel(a);
+      doc.body.style.cssText = 'margin:0;background:#fff';
+      const wrap = doc.createElement('div');
+      wrap.style.cssText = 'position:relative;max-width:1000px;margin:0 auto';
+      const base = doc.createElement('img');
+      base.src = a.garment;
+      base.style.cssText = 'display:block;width:100%;height:auto';
+      const layer = doc.createElement('img');
+      layer.src = a.dataUrl;
+      layer.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
+      wrap.append(base, layer);
+      doc.body.append(wrap);
+      return;
+    }
+    const url = URL.createObjectURL(dataUrlToBlob(a.dataUrl));
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
   ext(name: string): string {
     return fileExt(name);
   }
@@ -1611,7 +1681,7 @@ export class AdminSalesDeskComponent implements OnInit {
         role: roleLabel(a.role),
         type: a.type,
         size: a.size,
-        dataUrl: isImageAttachment(a) ? a.dataUrl : undefined,
+        dataUrl: isImageAttachment(a) && !a.garment ? a.dataUrl : undefined, // a logo layer alone is not a picture of the garment
       })),
       customer: { ...d.customer },
       enquiryRef: d.enquiryRef,

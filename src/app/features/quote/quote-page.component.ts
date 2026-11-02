@@ -1,8 +1,9 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { CatalogService } from '../../core/services/catalog.service';
 import { DesignUploadStore } from '../../core/services/design-upload.store';
+import { PlacementPictureComponent } from '../../shared/placement-picture.component';
 import { formatGbp } from '../../core/utils/price';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
 import {
@@ -26,7 +27,7 @@ type SpecRow = { key: string; label: string; value: string };
 @Component({
   selector: 'tg-quote-page',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, PlacementPictureComponent],
   template: `
     <section class="section-tight">
       <div class="wrap two-col">
@@ -46,6 +47,20 @@ type SpecRow = { key: string; label: string; value: string };
                   <dd>{{ row.value }}</dd>
                 }
               </dl>
+              @if (snapshots().length) {
+                <div class="snap-block">
+                  <h4>Your logo placements</h4>
+                  <div class="snap-grid">
+                    @for (s of snapshots(); track $index) {
+                      <figure>
+                        <tg-placement-picture [src]="s.dataUrl" [garment]="s.garment" [alt]="snapLabel(s)" />
+                        <figcaption>{{ snapLabel(s) }}</figcaption>
+                      </figure>
+                    }
+                  </div>
+                  <p class="snap-note">These pictures are sent with your enquiry.</p>
+                </div>
+              }
             </div>
           }
 
@@ -110,7 +125,9 @@ type SpecRow = { key: string; label: string; value: string };
                   <ul class="att-list" aria-label="Files sent with this enquiry">
                     @for (a of attachments(); track $index) {
                       <li class="att" [class.warn]="a.tooLarge">
-                        @if (isImage(a)) {
+                        @if (a.garment) {
+                          <tg-placement-picture class="att-pic" [src]="a.dataUrl" [garment]="a.garment" />
+                        } @else if (isImage(a)) {
                           <img [src]="a.dataUrl" alt="" />
                         } @else {
                           <span class="att-ext">{{ ext(a.name) }}</span>
@@ -327,9 +344,17 @@ type SpecRow = { key: string; label: string; value: string };
       max-width: none;
     }
 
+    .snap-block { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+    .snap-block h4 { margin: 0 0 10px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+    .snap-grid figure { margin: 0; }
+    .snap-grid tg-placement-picture { border: 1px solid var(--line); }
+    .snap-grid figcaption { margin-top: 5px; font-size: 0.74rem; color: var(--muted); }
+    .snap-note { margin: 10px 0 0; font-size: 0.76rem; color: var(--muted); max-width: none; }
     .att-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
     .att { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
     .att.warn { border-color: #e1b9b2; background: #fbf1ef; }
+    .att-pic { width: 44px; height: 44px; flex: none; border-radius: 6px; }
     .att img { width: 44px; height: 44px; object-fit: contain; border-radius: 6px; background: #f4f2ec; flex: none; }
     .att-ext { width: 44px; height: 44px; border-radius: 6px; background: var(--forest-tint); color: var(--forest); display: inline-flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 800; flex: none; }
     .att-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -385,6 +410,7 @@ export class QuotePageComponent {
       ['color', 'Colour'],
       ['decoration', 'Decoration'],
       ['placement', 'Placement'],
+      ['logoPlacements', 'Logo placements'],
       ['privateLabel', 'Private label'],
       ['plFile', 'Design file'],
       ['plMaterial', 'Private label material'],
@@ -442,6 +468,8 @@ export class QuotePageComponent {
       // ignore
     }
     if (q.get('logo') || legacyLogo) void this.loadLogo(legacyLogo);
+    // The pictures of the logo placements fixed in the designer: one per side, sent with the enquiry.
+    if (q.get('snaps')) void this.loadSnapshots();
     // Only pick up the saved design file when arriving from the designer with one attached.
     if (q.get('plFile')) void this.loadDesignFile();
   }
@@ -498,6 +526,36 @@ export class QuotePageComponent {
         { role: 'logo', name: legacy.name, type, size: Math.floor(legacy.dataUrl.length * 0.75), dataUrl: legacy.dataUrl, tooLarge: legacy.dataUrl.length > MAX_FILE_CHARS },
       ]);
     }
+  }
+
+  /** The placement pictures saved by the designer (the garment with the logo on it, front and back). */
+  private async loadSnapshots() {
+    try {
+      const saved = await this.designUpload.restoreSnapshots();
+      const items: AttachmentItem[] = [];
+      for (const s of saved) {
+        const dataUrl = await fileToDataUrl(s.blob);
+        items.push({
+          role: 'snapshot',
+          name: s.name,
+          type: s.blob.type || 'image/jpeg',
+          size: s.blob.size,
+          dataUrl,
+          garment: s.garment,
+          tooLarge: dataUrl.length > MAX_FILE_CHARS,
+        });
+      }
+      this.attachments.update((list) => [...list.filter((a) => a.role !== 'snapshot'), ...items]);
+    } catch {
+      /* the pictures are not there any more: the placements are still in the message */
+    }
+  }
+
+  /** The placement pictures, shown with the specification so the customer sees what is being sent. */
+  readonly snapshots = computed(() => this.attachments().filter((a) => a.role === 'snapshot'));
+
+  snapLabel(a: Attachment): string {
+    return a.name.replace(/\.(jpe?g|png)$/i, '').replace(/^Logo placement - /, '');
   }
 
   /** The design file from the designer's Private Label step. */
