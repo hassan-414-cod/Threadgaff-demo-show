@@ -1,23 +1,31 @@
-import { LogoZone, ZoneView } from './logo-zones';
-
 /**
- * A logo laid on one of the garment's angle pictures. It starts at the spot of a placement (Left Chest,
- * Back Centre …), is moved and resized by the customer, and is locked with "Fix". Positions are in % of
- * the preview, which has the proportions of the picture, so they map exactly onto it.
+ * Logos placed on the garment's angle pictures. Each ticked placement (Left Chest, Back Centre …) is one
+ * copy of the customer's logo. The copy is shown on every angle picture at the same position, which the
+ * customer can move and resize on the preview and lock with "Fix"; with "same position on every angle"
+ * switched off a copy can be set differently on a single angle picture.
+ *
+ * Positions are in % of the preview, which has the proportions of the picture it shows, so they map
+ * exactly onto it.
  */
-export interface LogoPlacement {
-  id: string;
-  /** The placement it started from (Left Chest, Back Centre …). */
-  label: string;
-  /** The angle picture it sits on. */
-  view: ZoneView;
+export interface Spot {
   /** Centre of the logo, as a % of the preview's width. */
   x: number;
   /** Top of the logo, as a % of the preview's height. */
   y: number;
   /** Width of the logo, as a % of the preview's width. */
   w: number;
+}
+
+export interface LogoPlacement extends Spot {
+  id: string;
+  /** The option it was ticked from. */
+  value: string;
+  /** What the placement is called (Left Chest, Back Centre …). */
+  label: string;
+  /** True once the customer pressed Fix on it. */
   fixed: boolean;
+  /** Positions set on single angle pictures (by angle slot), where they differ from the common one. */
+  over?: Record<string, Spot>;
 }
 
 export const MIN_LOGO_W = 4;
@@ -25,16 +33,14 @@ export const MAX_LOGO_W = 90;
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
-export function newPlacement(label: string, zone: LogoZone): LogoPlacement {
-  return {
-    id: 'lp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    label,
-    view: zone.view,
-    x: zone.x,
-    y: zone.y,
-    w: zone.w,
-    fixed: false,
-  };
+/** Where a placement sits on one angle picture. */
+export function spotOf(p: LogoPlacement, key: string): Spot {
+  const o = p.over?.[key];
+  return o ? { x: o.x, y: o.y, w: o.w } : { x: p.x, y: p.y, w: p.w };
+}
+
+export function newPlacement(value: string, label: string, start: Spot): LogoPlacement {
+  return { id: 'pl-' + value, value, label, x: start.x, y: start.y, w: start.w, fixed: false };
 }
 
 /** Height of a logo as a % of the preview's height (logoRatio and stageRatio are width / height). */
@@ -42,12 +48,12 @@ export function heightPct(w: number, logoRatio: number, stageRatio: number): num
   return (w * stageRatio) / Math.max(0.05, logoRatio);
 }
 
-/** Keeps a placement inside the preview, whole. */
-export function keepInside(p: LogoPlacement, logoRatio: number, stageRatio: number): LogoPlacement {
+/** Keeps a spot inside the preview, whole. */
+export function keepInside<T extends Spot>(s: T, logoRatio: number, stageRatio: number): T {
   const tallest = (100 * Math.max(0.05, logoRatio)) / stageRatio; // the widest it can be before it is taller than the preview
-  const w = clamp(p.w, MIN_LOGO_W, Math.max(MIN_LOGO_W, Math.min(MAX_LOGO_W, tallest)));
+  const w = clamp(s.w, MIN_LOGO_W, Math.max(MIN_LOGO_W, Math.min(MAX_LOGO_W, tallest)));
   const h = heightPct(w, logoRatio, stageRatio);
-  return { ...p, w, x: clamp(p.x, w / 2, 100 - w / 2), y: clamp(p.y, 0, Math.max(0, 100 - h)) };
+  return { ...s, w, x: clamp(s.x, w / 2, 100 - w / 2), y: clamp(s.y, 0, Math.max(0, 100 - h)) };
 }
 
 function loadPicture(url: string, anonymous: boolean): Promise<HTMLImageElement> {
@@ -60,7 +66,7 @@ function loadPicture(url: string, anonymous: boolean): Promise<HTMLImageElement>
   });
 }
 
-/** A saved picture of the placements on one side of the garment. */
+/** A saved picture of the placements on one angle picture. */
 export interface RenderedSnapshot {
   blob: Blob;
   /**
@@ -82,21 +88,21 @@ function toBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Prom
 }
 
 /**
- * Draws the placements on the garment picture and returns it as a picture (JPEG) for the enquiry. A
- * garment picture from another site cannot be copied into a saved picture unless that site allows it, so
- * then the logo layer alone is saved (a PNG the size of the garment picture) with the garment picture's
- * address: shown one on top of the other, it looks the same and needs no permission.
+ * Draws the logos at the given spots on the garment picture and returns it as a picture (JPEG) for the
+ * enquiry. A garment picture from another site cannot be copied into a saved picture unless that site allows
+ * it, so then the logo layer alone is saved (a PNG the size of the garment picture) with the garment
+ * picture's address: shown one on top of the other, it looks the same and needs no permission.
  */
 export async function renderSnapshot(
   garmentUrl: string,
   logoUrl: string,
   logoRatio: number,
-  placements: LogoPlacement[],
+  spots: Spot[],
 ): Promise<RenderedSnapshot> {
   const remote = /^https?:/i.test(garmentUrl);
   const logo = await loadPicture(logoUrl, false);
   // The picture, readable for copying only when its site allows it; its size can always be read.
-  const readable = remote ? await loadPicture(garmentUrl, true).catch(() => null) : await loadPicture(garmentUrl, false).catch(() => null);
+  const readable = await loadPicture(garmentUrl, remote).catch(() => null);
   const sized = readable ?? (await loadPicture(garmentUrl, false).catch(() => null));
   const natW = sized?.naturalWidth || 1000;
   const natH = sized?.naturalHeight || 1250;
@@ -114,10 +120,10 @@ export async function renderSnapshot(
       ctx.fillRect(0, 0, W, H);
       ctx.drawImage(withGarment, 0, 0, W, H);
     }
-    for (const p of placements) {
-      const lw = (p.w / 100) * W;
+    for (const s of spots) {
+      const lw = (s.w / 100) * W;
       const lh = lw / Math.max(0.05, logoRatio);
-      ctx.drawImage(logo, (p.x / 100) * W - lw / 2, (p.y / 100) * H, lw, lh);
+      ctx.drawImage(logo, (s.x / 100) * W - lw / 2, (s.y / 100) * H, lw, lh);
     }
     return canvas;
   };

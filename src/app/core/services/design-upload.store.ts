@@ -28,7 +28,12 @@ const KEY_SNAPSHOTS = 'snapshots';
 export interface SavedPlacement {
   id: string;
   label: string;
-  view: 'front' | 'back';
+  /** The option it was ticked from (placements saved before this was kept have only the label). */
+  value?: string;
+  /** Positions set on single angle pictures, by angle slot. */
+  over?: Record<string, { x: number; y: number; w: number }>;
+  /** Older placements were tied to the front or the back picture. */
+  view?: 'front' | 'back';
   /** Centre of the logo, as a % of the preview's width. */
   x: number;
   /** Top of the logo, as a % of the preview's height. */
