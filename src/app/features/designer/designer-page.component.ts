@@ -14,6 +14,7 @@ import {
 } from '../../core/utils/price';
 import { AttributeTemplatesService } from '../../core/services/attribute-templates.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
+import { LEFT_CHEST, logoZoneFor, viewIndexFor } from './logo-zones';
 import { hasDisplayHex } from '../../core/utils/hex';
 import { cardDescription } from '../../core/utils/description';
 import {
@@ -39,6 +40,9 @@ interface OutlookView {
 }
 
 const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+
+/** Where the last chosen logo placement is remembered in this browser (with the saved logo). */
+const PLACEMENT_KEY = 'tg_logo_placement';
 
 @Component({
   selector: 'tg-designer-page',
@@ -152,12 +156,23 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                         <img [src]="designPreviewUrl()!" alt="Your uploaded design" />
                       </div>
                     }
-                    @if (logoPreview()) {
-                      <div class="stage-logo" [class.small]="!!designPreviewUrl()"><img [src]="logoPreview()!" alt="Logo" /></div>
+                    @if (logoPreview() && logoOnView()) {
+                      <div
+                        class="stage-logo"
+                        [class.blend]="logoIsJpeg()"
+                        [style.left.%]="logoSpot().x"
+                        [style.top.%]="logoSpot().y"
+                        [style.width.%]="logoSpot().w"
+                      >
+                        <img [src]="logoPreview()!" [alt]="'Your logo' + (placementLabel() ? ' at ' + placementLabel() : '')" />
+                      </div>
                     }
                   </div>
                 </div>
               </div>
+              @if (logoNote()) {
+                <p class="logo-note" role="status">{{ logoNote() }}</p>
+              }
               @if (plFile(); as f) {
                 <div class="design-file">
                   @if (designPreviewUrl()) {
@@ -268,9 +283,16 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
                   }
                   @case (2) {
                     <div class="step-body">
-              <label class="upload">
-                <strong>{{ logoName() || 'Upload Logo' }}</strong>
-                <span>PNG, SVG or AI</span>
+              <label class="upload" [class.has-logo]="!!logoPreview()">
+                @if (logoPreview()) {
+                  <img class="up-thumb" [src]="logoPreview()!" alt="" />
+                }
+                <span class="up-text">
+                  <strong>{{ logoName() || 'Upload Logo' }}</strong>
+                  <span>
+                    {{ logoPreview() ? 'Saved with your design · click to replace' : 'PNG, JPG or SVG. It shows on the garment where you place it.' }}
+                  </span>
+                </span>
                 <input type="file" accept="image/*" hidden (change)="onLogo($event)" />
               </label>
               @if (logoPreview()) {
@@ -291,11 +313,14 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
               <div class="field">
                 <span class="lbl">Logo Placement</span>
                 @if (placementOptions().length) {
-                  <select [ngModel]="placementValue()" (ngModelChange)="setPlacement($event)">
+                  <div class="chips">
                     @for (p of placementOptions(); track p.value) {
-                      <option [value]="p.value">{{ p.label }}</option>
+                      <button type="button" class="chip" [class.on]="placementValue() === p.value" (click)="setPlacement(p.value)">{{ p.label }}</button>
                     }
-                  </select>
+                  </div>
+                  @if (!logoPreview()) {
+                    <p class="hint">Upload a logo above to see it on the garment at the placement you pick.</p>
+                  }
                 } @else {
                   <p class="hint">Set logo placement options in admin Attributes / product.</p>
                 }
@@ -537,12 +562,14 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
        (landscape or portrait). */
     .stage { position: relative; width: 100%; aspect-ratio: 4 / 5; max-height: 660px; background: #fff; transition: transform 0.15s ease; }
     .stage-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; z-index: 1; }
+    /* the logo is laid over the static garment picture at its placement (left, top and width are set per placement) */
     .stage-logo {
-      position: absolute; top: 28%; left: 50%; transform: translateX(-50%);
-      width: 26%; z-index: 3; pointer-events: none;
+      position: absolute; transform: translateX(-50%); z-index: 3; pointer-events: none;
+      aspect-ratio: 1 / 1; display: grid; place-items: center;
     }
-    .stage-logo.small { top: 26%; left: 63%; transform: none; width: 11%; }
-    .stage-logo img { width: 100%; display: block; }
+    .stage-logo img { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; object-fit: contain; }
+    .stage-logo.blend img { mix-blend-mode: multiply; }
+    .logo-note { margin: 8px 0 0; font-size: 0.74rem; color: var(--muted); }
     .stage-design {
       position: absolute; top: 32%; left: 50%; transform: translateX(-50%);
       width: 34%; z-index: 3; pointer-events: none;
@@ -673,6 +700,10 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
       display: flex; flex-direction: column; gap: 2px; cursor: pointer;
     }
     .upload span { color: var(--muted); font-size: 0.72rem; }
+    .upload.has-logo { flex-direction: row; align-items: center; gap: 12px; }
+    .up-thumb { width: 44px; height: 44px; object-fit: contain; border-radius: 6px; background: #f4f2ec; flex: none; }
+    .up-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .up-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .check { display: flex; gap: 8px; align-items: center; font-size: 0.85rem; }
     .hint { margin: 0; font-size: 0.72rem; color: var(--muted); }
     .hint-err { color: #8b3a2f; }
@@ -899,6 +930,35 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     );
   });
 
+  /** A JPEG logo has a white box around it, which is blended into the garment like the design file. */
+  readonly logoIsJpeg = computed(() => /\.jpe?g$/i.test(this.logoName()));
+
+  /**
+   * Where the logo is laid over the garment picture: the spot of the chosen placement. Next to an
+   * uploaded design file a logo meant for the middle of the front moves to the chest, so they do not overlap.
+   */
+  readonly logoSpot = computed(() => {
+    const zone = logoZoneFor(this.placementLabel());
+    return zone.centre && this.designPreviewUrl() ? LEFT_CHEST : zone;
+  });
+
+  /** The picture of this colour that shows the placement (the front or the back); -1 when it has none. */
+  private readonly logoViewIndex = computed(() => viewIndexFor(this.outlookViews(), this.logoSpot().view));
+
+  /** The logo is drawn only on the view it belongs to: on the front for a chest, on the back for a back. */
+  readonly logoOnView = computed(() => {
+    const at = this.logoViewIndex();
+    const last = Math.max(0, this.outlookViews().length - 1);
+    return at >= 0 && Math.min(Math.max(0, this.outlookIndex()), last) === at;
+  });
+
+  /** Said when the colour has no picture to put the logo on. */
+  readonly logoNote = computed(() =>
+    this.logoPreview() && this.logoViewIndex() < 0
+      ? `This colour has no ${this.logoSpot().view} picture yet, so the logo cannot be shown for ${this.placementLabel() || 'this placement'}.`
+      : '',
+  );
+
   readonly addonTotal = computed(() => {
     const map = this.serviceAddOns();
     let n = 0;
@@ -1053,6 +1113,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
         if (this.logoPreview()) return;
         this.logoName.set(f.name);
         this.logoPreview.set(String(reader.result || ''));
+        this.showLogoView();
       };
       reader.readAsDataURL(f);
     });
@@ -1158,6 +1219,18 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
 
   setPlacement(value: string) {
     this.placementValue.set(value);
+    try {
+      localStorage.setItem(PLACEMENT_KEY, this.placementLabel());
+    } catch {
+      /* storage is blocked: the choice is simply not remembered */
+    }
+    this.showLogoView();
+  }
+
+  /** Turns the preview to the view the logo belongs to (the back for a back placement), so it is seen at once. */
+  private showLogoView() {
+    const at = this.logoViewIndex();
+    if (at >= 0) this.outlookIndex.set(at);
   }
 
   onPrivateLabelFile(event: Event) {
@@ -1374,6 +1447,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   selectColor(c: ProductColor) {
     this.selectedColorId.set(c.id);
     this.outlookIndex.set(0);
+    if (this.logoPreview()) this.showLogoView(); // the new colour opens on the view the logo is on
     this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { color: c.id },
@@ -1447,12 +1521,17 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   }
 
   onLogo(event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0];
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ''; // so the same file can be chosen again after it was cleared
     if (!file) return;
     this.logoName.set(file.name);
-    this.designUpload.setLogo(file);
+    this.designUpload.setLogo(file); // saved in this browser: it comes back after a reload and goes with the quote
     const reader = new FileReader();
-    reader.onload = () => this.logoPreview.set(String(reader.result || ''));
+    reader.onload = () => {
+      this.logoPreview.set(String(reader.result || ''));
+      this.showLogoView();
+    };
     reader.readAsDataURL(file);
   }
 
@@ -1599,11 +1678,25 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.productGsmOpts.set(gsms);
     this.gsmValues.set([]);
 
-    const placements = this.valuesFromProduct(p, 'placement').length
+    // The placements ticked on the product; when it has none, the ones the attribute offers (front, back, sleeve…).
+    const ofProduct = this.valuesFromProduct(p, 'placement').length
       ? this.valuesFromProduct(p, 'placement')
       : this.valuesFromProduct(p, 'logo_placement');
+    const placements = ofProduct.length
+      ? ofProduct
+      : this.optionsFromAttr('placement').length
+        ? this.optionsFromAttr('placement')
+        : this.optionsFromAttr('logo_placement');
     this.productPlacementOpts.set(placements);
-    this.placementValue.set(placements[0]?.value || '');
+    let remembered = '';
+    try {
+      remembered = localStorage.getItem(PLACEMENT_KEY) || '';
+    } catch {
+      /* storage is blocked */
+    }
+    const first = placements.find((o) => o.label === remembered) || placements[0];
+    this.placementValue.set(first?.value || '');
+    if (this.logoPreview()) this.showLogoView(); // a saved logo opens on the view it belongs to
 
     const privateLabels = this.valuesFromProduct(p, 'private_label');
     this.productPrivateLabelOpts.set(privateLabels);
