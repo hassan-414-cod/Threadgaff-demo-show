@@ -12,6 +12,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AttributeDefinition, CatalogService } from '../../core/services/catalog.service';
 import { AttributeImagesService } from '../../core/services/attribute-images.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
+import { SwatchVisibilityService } from '../../core/services/swatch-visibility.service';
 import { VariantFiltersService } from '../../core/services/variant-filters.service';
 import { FadeInDirective } from '../../shared/fade-in.directive';
 import { Category, Product } from '../../core/models/catalog.models';
@@ -175,13 +176,8 @@ interface Shot {
         </section>
       }
 
-      <header class="shop-head">
-        <span class="kicker">Wholesale apparel manufacturing</span>
-        <h1>{{ rangeTitle() }}</h1>
-        <p class="lede">Every product in its main colour. Pick a colour dot to see it in that colour, or open one to see all its models and photos in the Custom Designer.</p>
-      </header>
-
       <section class="shop-body">
+        <h1 class="sr-only">Our product range</h1>
         <div class="shop-toolbar">
           <span class="count" aria-live="polite">
             @if (busy()) {
@@ -237,9 +233,7 @@ interface Shot {
 
         @for (s of tileSections(); track s.key) {
         <section class="cat" [attr.aria-label]="s.title">
-          @if (!selectedSlug()) {
-            <h2 class="cat-head" [attr.id]="'cat-' + s.key">{{ s.title }}<span class="cat-count">{{ s.tiles.length }}</span></h2>
-          }
+          <h2 class="cat-head" [attr.id]="'cat-' + s.key">{{ s.title }}<span class="cat-count">{{ s.tiles.length }}</span></h2>
           <div class="grid">
           @for (t of s.tiles; track t.product.id) {
             <article class="prod" [attr.id]="t.first ? 'p-' + t.product.id : null" [class.flash]="t.first && flashId() === t.product.id">
@@ -267,7 +261,7 @@ interface Shot {
                 <div class="prod-colour"><span class="sw-dot" [style.background]="v.hex"></span>{{ v.colorName }}</div>
               }
               <div class="prod-price">{{ priceLabel(t.product, v.colorId) }}</div>
-              @if (t.swatches.length > 1) {
+              @if (t.swatches.length > 1 && !swatchVis.hiddenOnShop(t.product.id)) {
                 <div class="swatches" role="group" aria-label="Colours">
                   @for (x of t.swatches; track x.id) {
                     <button
@@ -425,29 +419,10 @@ interface Shot {
     .fopt:has(input:focus-visible) { outline: 2px solid var(--forest); outline-offset: 2px; }
     .fnote { margin: 0; color: var(--muted); font-size: 0.8rem; }
 
-    .shop-head { max-width: 1360px; margin: 0 auto; padding: 34px 28px 8px; }
-    .kicker {
-      display: block;
-      font-family: 'Montserrat', sans-serif;
-      font-size: 0.62rem;
-      font-weight: 700;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 10px;
-    }
-    .shop-head h1 {
-      font-family: 'Cormorant Garamond', Georgia, serif;
-      font-weight: 600;
-      font-size: clamp(2.2rem, 4.2vw, 3.6rem);
-      letter-spacing: -0.02em;
-      text-transform: none;
-      line-height: 1.04;
-      margin: 0 0 10px;
-    }
-    .lede { margin: 0; color: var(--muted); font-size: 0.88rem; max-width: 60ch; }
+    /* the page title is read by screen readers only: the catalogue headings below it are what a customer sees */
+    .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-    .shop-body { max-width: 1360px; margin: 0 auto; padding: 14px 28px 72px; }
+    .shop-body { max-width: 1360px; margin: 0 auto; padding: 22px 28px 72px; }
     .shop-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 6px 0 14px; }
     .count { font-size: 0.74rem; color: var(--muted); }
     .count .of { margin-left: 4px; }
@@ -625,7 +600,7 @@ interface Shot {
       .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px 22px; }
     }
     @media (max-width: 900px) {
-      .shop-tabs-inner, .shop-head, .shop-body, .shop-filters-inner { padding-left: 18px; padding-right: 18px; }
+      .shop-tabs-inner, .shop-body, .shop-filters-inner { padding-left: 18px; padding-right: 18px; }
       .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 14px; }
     }
     @media (max-width: 560px) {
@@ -643,6 +618,7 @@ export class ProductsPageComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly attrImages = inject(AttributeImagesService);
+  readonly swatchVis = inject(SwatchVisibilityService);
   private readonly variants = inject(VariantFiltersService);
   readonly catalog = inject(CatalogService);
   readonly site = inject(SiteSettingsService);
@@ -679,12 +655,6 @@ export class ProductsPageComponent implements OnInit {
   private wantedProduct: string | null = null;
   private hydrateTimer: ReturnType<typeof setTimeout> | null = null;
   private hydrating = false;
-
-  readonly rangeTitle = computed(() => {
-    const slug = this.selectedSlug();
-    const cat = slug ? this.collections().find((c) => c.slug === slug) : null;
-    return cat ? cat.name : 'Our product range';
-  });
 
   /** The checklists: the managed filters (unless hidden), fit / sleeve / style, and added ones. */
   readonly groups = computed<FilterGroup[]>(() => {
