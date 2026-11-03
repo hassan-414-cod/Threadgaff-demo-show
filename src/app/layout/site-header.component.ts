@@ -1,6 +1,7 @@
 import { Component, HostListener, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../core/services/auth.service';
+import { CatalogService } from '../core/services/catalog.service';
 import { SiteSettingsService } from '../core/services/site-settings.service';
 
 @Component({
@@ -31,18 +32,16 @@ import { SiteSettingsService } from '../core/services/site-settings.service';
           <li class="has-mega">
             <a routerLink="/products" routerLinkActive="active">Products</a>
             <div class="mega-menu">
-              <div class="mega-col">
-                <h5>By Category</h5>
-                <ul>
-                  <li><a routerLink="/products" [queryParams]="{ collection: 't-shirts' }">T-Shirts</a></li>
-                  <li><a routerLink="/products" [queryParams]="{ collection: 'hoodies' }">Hoodies</a></li>
-                  <li><a routerLink="/products" [queryParams]="{ collection: 'sweatshirts' }">Sweatshirts</a></li>
-                  <li><a routerLink="/products" [queryParams]="{ collection: 'tracksuits' }">Tracksuits</a></li>
-                  <li><a routerLink="/products" [queryParams]="{ collection: 'joggers' }">Joggers</a></li>
-                  <li><a routerLink="/products" [queryParams]="{ collection: 'polo-shirts' }">Polo Shirts</a></li>
-                  <li><a routerLink="/products" [queryParams]="{ collection: 'sets' }">Sets (Co-ords)</a></li>
-                </ul>
-              </div>
+              @if (menuCategories().length) {
+                <div class="mega-col">
+                  <h5>By Category</h5>
+                  <ul>
+                    @for (c of menuCategories(); track c.slug) {
+                      <li><a routerLink="/products" [queryParams]="{ collection: c.slug }">{{ c.name }}</a></li>
+                    }
+                  </ul>
+                </div>
+              }
               <div class="mega-col">
                 <h5>By Order Type</h5>
                 <ul>
@@ -528,12 +527,22 @@ import { SiteSettingsService } from '../core/services/site-settings.service';
 export class SiteHeaderComponent {
   readonly auth = inject(AuthService);
   readonly site = inject(SiteSettingsService);
+  private readonly catalog = inject(CatalogService);
   readonly mobileOpen = signal(false);
   readonly cartOpen = signal(false);
+  /**
+   * The "By Category" list of the Products menu: the categories that are live in the catalogue, in the admin order.
+   * A category that is switched off (or does not exist) is not listed; nothing is listed until they are known.
+   */
+  readonly menuCategories = signal<Array<{ name: string; slug: string }>>([]);
 
   constructor() {
     // Banner text and other site texts are set in the admin Home page → Texts.
     this.site.load();
+    this.catalog.getCollectionCategories().subscribe({
+      next: (cats) => this.menuCategories.set(cats.filter((c) => c.isActive !== false && c.slug).map((c) => ({ name: c.name, slug: c.slug }))),
+      error: () => this.menuCategories.set([]),
+    });
   }
 
   @HostListener('document:keydown.escape')
