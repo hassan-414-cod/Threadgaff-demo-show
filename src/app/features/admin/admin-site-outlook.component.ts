@@ -151,6 +151,7 @@ export class AdminSiteOutlookComponent implements OnInit {
       | 'attributeTemplates'
       | 'hiddenSwatches'
       | 'colourTones'
+      | 'openVariants'
     > = {
       bannerVisible: !!f.bannerVisible,
       bannerText: f.bannerText.trim(),

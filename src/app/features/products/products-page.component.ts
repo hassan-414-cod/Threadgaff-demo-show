@@ -765,7 +765,7 @@ export class ProductsPageComponent implements OnInit {
   /** What a tile shows now: its main colour, or the colour picked in its swatch row, each with that colour's first web shoot photo. */
   viewOf(t: Tile): { colorId: string; colorName: string; hex: string; pic: string } {
     // opened with "Show all": every tile is its own colour
-    const id = this.expanded().has(t.product.id) ? undefined : this.clicked()[t.product.id];
+    const id = this.isExpanded(t.product.id) ? undefined : this.clicked()[t.product.id];
     const s = id ? t.swatches.find((x) => x.id === id) : undefined;
     return s
       ? { colorId: s.id, colorName: s.name, hex: s.hex, pic: s.pic }
@@ -776,11 +776,12 @@ export class ProductsPageComponent implements OnInit {
     this.clicked.update((c) => ({ ...c, [t.product.id]: colorId }));
   }
 
-  /** Products opened with "Show all": one tile for each of their colours instead of one for the product. */
-  readonly expanded = signal<ReadonlySet<string>>(new Set<string>());
+  /** What a visitor chose with "Show all" / "Collapse", by product; a product they have not touched follows the admin's "Show all variants" tick. */
+  private readonly chosen = signal<Record<string, boolean>>({});
 
+  /** True when a product is opened: one tile for each of its colours instead of one for the product. */
   isExpanded(productId: string): boolean {
-    return this.expanded().has(productId);
+    return this.chosen()[productId] ?? this.swatchVis.showAllByDefault(productId);
   }
 
   /** "Show all" is offered when the product has more than one colour variant to show (with the filters on, that match them). */
@@ -789,18 +790,15 @@ export class ProductsPageComponent implements OnInit {
   }
 
   toggleExpanded(productId: string) {
-    const open = new Set(this.expanded());
-    if (open.has(productId)) {
-      open.delete(productId);
+    const open = !this.isExpanded(productId);
+    this.chosen.update((c) => ({ ...c, [productId]: open }));
+    if (!open) {
       // collapsed: back to the product's own tile, in its main colour
       this.clicked.update((c) => {
         const { [productId]: _gone, ...rest } = c;
         return rest;
       });
-    } else {
-      open.add(productId);
     }
-    this.expanded.set(open);
   }
 
   /** The values of a filter for one tile: what is ticked on its colour variant, else what its product has. */
@@ -909,7 +907,6 @@ export class ProductsPageComponent implements OnInit {
   /** The tiles under their catalogue headings (T-Shirts, Hoodies…), the catalogues in the admin order. */
   readonly tileSections = computed<TileSection[]>(() => {
     const m = this.matched();
-    const open = this.expanded();
     return this.sections()
       .map((s) => {
         const products = s.items.filter((p) => m.has(p.id));
@@ -917,7 +914,7 @@ export class ProductsPageComponent implements OnInit {
           key: s.key,
           title: s.title,
           // a product opened with "Show all" stands as one tile for each of its colours
-          tiles: products.flatMap((p) => (open.has(p.id) ? m.get(p.id)! : [m.get(p.id)![0]])),
+          tiles: products.flatMap((p) => (this.isExpanded(p.id) ? m.get(p.id)! : [m.get(p.id)![0]])),
           count: products.length,
         };
       })

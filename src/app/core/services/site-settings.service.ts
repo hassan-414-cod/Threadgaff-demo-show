@@ -93,6 +93,8 @@ export interface SiteSettings {
   hiddenSwatches: HiddenSwatches[];
   /** Extra shades on single colours (two-tone garments); the main shade stays on the product's colour itself. */
   colourTones: ColourTones[];
+  /** Ids of the products whose colour variants all show on the products page from the start ("Show all" already pressed). */
+  openVariants: string[];
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
@@ -112,6 +114,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   productFilters: [],
   hiddenSwatches: [],
   colourTones: [],
+  openVariants: [],
 };
 
 const CACHE_KEY = 'tg_site_settings';
@@ -253,6 +256,7 @@ export class SiteSettingsService {
         productFilters: this.parseFilterValues(raw.productFilters),
         hiddenSwatches: this.parseHiddenSwatches(raw.hiddenSwatches),
         colourTones: this.parseColourTones(raw.colourTones),
+        openVariants: this.parseIds(raw.openVariants),
         bannerVisible: pick('bannerVisible'),
         bannerText: pick('bannerText'),
         heroTagline: pick('heroTagline'),
@@ -279,6 +283,11 @@ export class SiteSettingsService {
       if (out.length >= 1000) break;
     }
     return out;
+  }
+
+  private parseIds(raw: unknown): string[] {
+    if (!Array.isArray(raw)) return [];
+    return [...new Set(raw.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => x.slice(0, 80)))].slice(0, 2000);
   }
 
   private parseColourTones(raw: unknown): ColourTones[] {

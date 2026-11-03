@@ -3,8 +3,8 @@ import { SiteSettingsService } from '../core/services/site-settings.service';
 import { SwatchPlace, SwatchVisibilityService } from '../core/services/swatch-visibility.service';
 
 /**
- * Admin: whether a product shows its colour swatches, on the products page and in the Custom Designer.
- * A ticked box means the swatches are shown there; each change is saved at once.
+ * Admin: whether a product shows its colour swatches, on the products page and in the Custom Designer, and
+ * whether the products page starts it opened ("Show all variants"). A ticked box means the thing is on; each change is saved at once.
  */
 @Component({
   selector: 'tg-swatch-toggle',
@@ -19,7 +19,12 @@ import { SwatchPlace, SwatchVisibilityService } from '../core/services/swatch-vi
         <input type="checkbox" [checked]="!vis.hiddenInDesigner(productId())" [disabled]="busy()" (change)="flip('designer', $event)" />
         Custom Designer
       </label>
-      @if (colours() < 2) {
+      @if (colours() >= 2) {
+        <label class="open-all" [attr.title]="'On the products page this product starts opened: every one of its colour variants is its own tile from the start (a visitor can still press Collapse). Untick it and the product starts as one tile with a Show all button.'">
+          <input type="checkbox" [checked]="vis.showAllByDefault(productId())" [disabled]="busy()" (change)="flipOpen($event)" />
+          Show all variants
+        </label>
+      } @else {
         <span class="none">One colour</span>
       }
       @if (error()) {
@@ -33,6 +38,7 @@ import { SwatchPlace, SwatchVisibilityService } from '../core/services/swatch-vi
     label { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
     input { width: 15px; height: 15px; margin: 0; accent-color: #3d4b37; }
     input:disabled { cursor: wait; }
+    .open-all { margin-top: 3px; padding-top: 5px; border-top: 1px dashed #d8d4cb; }
     .none { color: #9a9d93; font-size: 0.72rem; }
     .err { color: #8b3a2f; font-size: 0.68rem; }
   `,
@@ -50,6 +56,20 @@ export class SwatchToggleComponent implements OnInit {
 
   ngOnInit() {
     this.site.load();
+  }
+
+  /** Ticked: this product starts opened on the products page, with a tile for every colour variant. */
+  async flipOpen(event: Event) {
+    const on = (event.target as HTMLInputElement).checked;
+    this.busy.set(true);
+    this.error.set('');
+    try {
+      await this.vis.setShowAll(this.productId(), on);
+    } catch {
+      this.error.set('Could not save. Try again.');
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   async flip(place: SwatchPlace, event: Event) {
