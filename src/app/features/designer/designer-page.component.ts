@@ -16,6 +16,7 @@ import {
 import { AttributeTemplatesService } from '../../core/services/attribute-templates.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
 import { SwatchVisibilityService } from '../../core/services/swatch-visibility.service';
+import { ColourTonesService } from '../../core/services/colour-tones.service';
 import { LEFT_CHEST, logoZoneFor } from './logo-zones';
 import { LOGO_ACCEPT, LOGO_RULES, checkLogo } from './logo-rules';
 import { LogoPlacement, Spot, keepInside, newPlacement, renderSnapshot } from './logo-placement';
@@ -337,7 +338,7 @@ const ZOOM_MAX = 250;
                   <div class="lbl">Garment Colour</div>
                   <div class="swatches">
                     @for (c of displayColors(); track c.id) {
-                      <button type="button" class="swatch" [class.on]="selectedColorId() === c.id" [style.background]="c.hex" [attr.title]="c.name" (click)="selectColor(c)"></button>
+                      <button type="button" class="swatch" [class.on]="selectedColorId() === c.id" [style.background]="tones.background(product()!.id, c.name, c.hex)" [attr.title]="c.name" (click)="selectColor(c)"></button>
                     }
                   </div>
                 </div>
@@ -557,7 +558,7 @@ const ZOOM_MAX = 250;
                       <dt>Colour</dt>
                       <dd class="color-dd">
                         @if (selectedColor().hex) {
-                          <i [style.background]="selectedColor().hex"></i>
+                          <i [style.background]="tones.background(product()!.id, selectedColor().name, selectedColor().hex)"></i>
                         }
                         {{ selectedColor().name || '—' }}
                       </dd>
@@ -1061,6 +1062,8 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   private readonly templates = inject(AttributeTemplatesService);
   private readonly site = inject(SiteSettingsService);
   private readonly swatchVis = inject(SwatchVisibilityService);
+  /** The extra shades of two-tone colours: a swatch is split into them. */
+  readonly tones = inject(ColourTonesService);
   readonly plFile = signal<File | null>(null);
   /** Object URL of the uploaded design when it is an image, so it can be drawn on the garment. */
   readonly designPreviewUrl = signal<string | null>(null);

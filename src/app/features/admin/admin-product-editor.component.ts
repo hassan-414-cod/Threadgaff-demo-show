@@ -32,6 +32,8 @@ import {
 } from '../../core/utils/filters';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
 import { VariantFiltersService } from '../../core/services/variant-filters.service';
+import { ColourTonesService } from '../../core/services/colour-tones.service';
+import { MAX_EXTRA_TONES, cleanTones, normTone, toneBackground } from '../../core/utils/colour-tones';
 
 /** An image slot's upload: `progress` is 0–100 of the bytes sent. */
 interface UploadSlotState {
@@ -81,6 +83,8 @@ interface ColorFormRow {
   webShoot: WebShot[];
   /** This colour's own ticks by filter code (Material, Gender, Fit, …). A filter with none ticked follows the product. */
   filters: Record<string, string[]>;
+  /** Extra shades for a two-tone or multi-colour garment, besides the HEX colour (kept in the site settings, by colour name). */
+  tones: string[];
   views: AngleSlot[];
   selected: boolean;
 }
@@ -954,6 +958,43 @@ const DEFAULT_BRAND_NAMES = [
                             ></button>
                           }
                         </div>
+                        <div class="tones-block">
+                          <label>More colours <span class="tones-hint">for a two-tone or multi-colour garment</span></label>
+                          <div class="tone-row">
+                            @for (t of c.tones; track $index; let ti = $index) {
+                              <span class="tone-chip">
+                                <label class="hex-picker-btn" [attr.title]="'Pick colour ' + (ti + 2)">
+                                  <span class="hex-picker-face is-solid" [style.background]="t" aria-hidden="true"></span>
+                                  <input
+                                    type="color"
+                                    class="hex-picker"
+                                    [value]="t"
+                                    (input)="onToneInput(c, ti, $event)"
+                                    [attr.aria-label]="'Colour ' + (ti + 2) + ' of ' + (c.name || 'this variant')"
+                                  />
+                                </label>
+                                <input
+                                  type="text"
+                                  class="tone-hex"
+                                  [value]="t"
+                                  (change)="onToneText(c, ti, $event)"
+                                  [attr.aria-label]="'Colour code ' + (ti + 2)"
+                                  placeholder="#ffffff"
+                                />
+                                <button type="button" class="tone-x" (click)="removeTone(c, ti)" aria-label="Remove this colour">×</button>
+                              </span>
+                            }
+                            @if (c.tones.length < maxTones) {
+                              <button type="button" class="btn btn-ghost tone-add" (click)="addTone(c)">+ Add another colour</button>
+                            }
+                          </div>
+                          @if (c.tones.length) {
+                            <div class="tone-preview-row">
+                              <span class="tone-preview" [style.background]="rowBackground(c)" aria-hidden="true"></span>
+                              <span class="tones-hint">How the swatch looks on the site</span>
+                            </div>
+                          }
+                        </div>
                       </div>
                     </div>
                     <div class="grid-2">
@@ -1218,12 +1259,12 @@ const DEFAULT_BRAND_NAMES = [
                         [class.is-on]="focusedIndex() === i"
                         (click)="focusColor(i)"
                       >
-                        @if (normalizeHexInput(c.hex); as hx) {
-                          <span class="variant-list-swatch" [style.background]="hx"></span>
+                        @if (normalizeHexInput(c.hex)) {
+                          <span class="variant-list-swatch" [style.background]="rowBackground(c)"></span>
                         }
                         <span class="variant-list-meta">
                           <strong>{{ c.name || 'Untitled' }}</strong>
-                          <span>{{ normalizeHexInput(c.hex) ? normalizedHex(c.hex) : 'No colour' }}</span>
+                          <span>{{ normalizeHexInput(c.hex) ? normalizedHex(c.hex) : 'No colour' }}{{ c.tones.length ? ' + ' + c.tones.length + ' more' : '' }}</span>
                         </span>
                       </button>
                     } @empty {
@@ -1999,6 +2040,17 @@ const DEFAULT_BRAND_NAMES = [
     .color-presets {
       display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px;
     }
+    .tones-block { margin: 0 0 12px; }
+    .tones-hint { font-weight: 500; font-size: 0.72rem; color: #7a7f74; margin-left: 6px; }
+    .tone-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .tone-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 3px; border: 1px solid #d8d4cb; border-radius: 12px; background: #fff; }
+    .tone-chip .hex-picker-btn { width: 32px; height: 32px; padding: 3px; border-radius: 9px; }
+    .tone-chip .tone-hex { width: 92px; flex: none; margin: 0; padding: 6px 8px; font-size: 0.8rem; }
+    .tone-x { border: 0; background: transparent; cursor: pointer; font-size: 1.1rem; line-height: 1; color: #7a7f74; padding: 2px 4px; }
+    .tone-x:hover { color: #b3261e; }
+    .tone-add { padding: 7px 12px; font-size: 0.78rem; }
+    .tone-preview-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .tone-preview { width: 28px; height: 28px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.2); display: inline-block; }
     .color-preset {
       width: 32px; height: 32px; padding: 4px; box-sizing: border-box;
       border-radius: 8px; border: 1px solid #d8d4cb; cursor: pointer;
@@ -2176,6 +2228,7 @@ export class AdminProductEditorComponent implements OnChanges {
   productExtras: Record<string, string[]> = {};
   private readonly site = inject(SiteSettingsService);
   private readonly variantFilters = inject(VariantFiltersService);
+  private readonly colourTones = inject(ColourTonesService);
 
   readonly filterPickerOpen = signal(false);
   /** What the popup is editing: the product, or one colour (its index). */
@@ -3158,6 +3211,7 @@ export class AdminProductEditorComponent implements OnChanges {
       cardImage: '',
       webShoot: [],
       filters: {},
+      tones: [],
       views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
       selected: false,
     });
@@ -3175,12 +3229,44 @@ export class AdminProductEditorComponent implements OnChanges {
     this.focusedIndex.set(Math.min(i, Math.max(0, this.colors.length - 1)));
   }
 
+  readonly maxTones = MAX_EXTRA_TONES;
+
+  /** The swatch of a colour: its HEX colour and its extra shades, split. */
+  rowBackground(c: ColorFormRow): string {
+    return toneBackground([this.normalizeHexInput(c.hex) || '', ...c.tones].filter(Boolean));
+  }
+
+  addTone(c: ColorFormRow) {
+    if (c.tones.length >= MAX_EXTRA_TONES) return;
+    // a first suggestion that differs from what is already there: white, or black on a white colour
+    const used = new Set([this.normalizeHexInput(c.hex)?.toLowerCase(), ...c.tones].filter(Boolean));
+    const pick = ['#ffffff', '#1a1a1a', '#e53935', '#1e88e5'].find((h) => !used.has(h)) || '#ffffff';
+    c.tones = [...c.tones, pick];
+  }
+
+  onToneInput(c: ColorFormRow, i: number, event: Event) {
+    const v = normTone((event.target as HTMLInputElement).value);
+    if (v) c.tones = c.tones.map((t, j) => (j === i ? v : t));
+  }
+
+  onToneText(c: ColorFormRow, i: number, event: Event) {
+    const input = event.target as HTMLInputElement;
+    const v = normTone(input.value);
+    if (v) c.tones = c.tones.map((t, j) => (j === i ? v : t));
+    else input.value = c.tones[i]; // not a colour code: back to what it was
+  }
+
+  removeTone(c: ColorFormRow, i: number) {
+    c.tones = c.tones.filter((_, j) => j !== i);
+  }
+
   copyFromVariant(fromIdx: string) {
     const j = Number(fromIdx);
     const src = this.colors[j];
     const dest = this.focusedColor();
     if (!src || !dest || j === this.focusedIndex()) return;
     dest.hex = src.hex;
+    dest.tones = [...src.tones];
     dest.priceOverride = src.priceOverride;
     dest.description = src.description;
     dest.filters = Object.fromEntries(Object.entries(src.filters).map(([k, v]) => [k, [...v]]));
@@ -4050,8 +4136,11 @@ export class AdminProductEditorComponent implements OnChanges {
               extras: this.productExtras,
             };
             const overlay = this.productOverlay();
+            const toneRows = this.colors.map((c, i) => ({ name: this.colourName(c, i), tones: cleanTones(c.tones) }));
             this.applyProduct(fresh, false, keep);
+            this.applyKeptTones(toneRows);
             void this.saveVariantFilters(fresh.id, keep.rows, overlay);
+            void this.saveColourTones(fresh.id, toneRows);
             if (!uploadOk) {
               this.formError.set(
                 'Details saved, but some images failed to upload. Fix media and hit Save again.',
@@ -4183,6 +4272,7 @@ export class AdminProductEditorComponent implements OnChanges {
         cardImage: '',
         webShoot: [],
         filters: {},
+        tones: [],
         views: DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
         selected: false,
       },
@@ -4317,6 +4407,7 @@ export class AdminProductEditorComponent implements OnChanges {
         cardImage: card,
         webShoot: galleries.map((g) => ({ url: g.url, angle: g.angle || 'other', sortOrder: g.sortOrder ?? 1 })),
         filters: {},
+        tones: [],
         views: views.length
           ? views
           : DEFAULT_ANGLES.map((label) => ({ label, angle: label.toLowerCase(), src: '' })),
@@ -4335,6 +4426,7 @@ export class AdminProductEditorComponent implements OnChanges {
     // each colour's own filters (and the product's extra ticks) live in the site settings, by colour name
     if (keep) this.applyKept(keep.rows, keep.extras);
     else void this.loadVariantFilters(p.id);
+    if (!keep) void this.loadColourTones(p.id);
   }
 
   /** The name a colour is saved under (the same fallback as in the colours sent on Save). */
@@ -4367,6 +4459,34 @@ export class AdminProductEditorComponent implements OnChanges {
     for (const code of ['material', 'gender'] as const) {
       const more = (saved.product[code] || []).filter((v) => v.toLowerCase() !== this.form[code].toLowerCase());
       if (more.length) this.productExtras[code] = more;
+    }
+  }
+
+  /** Puts the saved extra shades onto the colour rows (matched by colour name). */
+  private async loadColourTones(productId: string) {
+    const rows = this.colors;
+    try {
+      const saved = await this.colourTones.savedFor(productId);
+      if (this.colors !== rows) return; // the form has moved on to another product meanwhile
+      const norm = (n: string) => n.toLowerCase().replace(/\s+/g, ' ').trim();
+      this.colors.forEach((c, i) => (c.tones = [...(saved.get(norm(this.colourName(c, i))) ?? [])]));
+    } catch {
+      /* the colours have no extra shades */
+    }
+  }
+
+  /** Puts what was just edited back onto the rebuilt colour rows (matched by colour name). */
+  private applyKeptTones(rows: Array<{ name: string; tones: string[] }>) {
+    const norm = (n: string) => n.toLowerCase().replace(/\s+/g, ' ').trim();
+    const byName = new Map(rows.map((r) => [norm(r.name), r.tones]));
+    this.colors.forEach((c, i) => (c.tones = [...(byName.get(norm(this.colourName(c, i))) ?? [])]));
+  }
+
+  private async saveColourTones(productId: string, rows: Array<{ name: string; tones: string[] }>) {
+    try {
+      await this.colourTones.saveFor(productId, rows);
+    } catch {
+      this.formError.set('The product was saved, but the extra colours of its colours could not be saved. Press Save again.');
     }
   }
 

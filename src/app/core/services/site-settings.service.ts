@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { CatalogService, SITE_SETTINGS_SLUG } from './catalog.service';
 import { Product } from '../models/catalog.models';
+import { cleanTones } from '../utils/colour-tones';
 
 /** A big card on the home page. It opens the products page on one catalogue (a collection). */
 export interface HomeCatalogue {
@@ -58,6 +59,12 @@ export interface HiddenSwatches {
   designer: boolean;
 }
 
+/** The extra shades of one colour variant (key = product + colour name) beyond its main colour: a two-tone or multi-colour garment. */
+export interface ColourTones {
+  key: string;
+  tones: string[];
+}
+
 /** Texts the admin can change on the Site Outlook page, plus the home page pictures. */
 export interface SiteSettings {
   bannerVisible: boolean;
@@ -84,6 +91,8 @@ export interface SiteSettings {
   productFilters: FilterValues[];
   /** Products whose colour swatches are hidden on the products page and / or in the Custom Designer. */
   hiddenSwatches: HiddenSwatches[];
+  /** Extra shades on single colours (two-tone garments); the main shade stays on the product's colour itself. */
+  colourTones: ColourTones[];
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
@@ -102,6 +111,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   variantFilters: [],
   productFilters: [],
   hiddenSwatches: [],
+  colourTones: [],
 };
 
 const CACHE_KEY = 'tg_site_settings';
@@ -242,6 +252,7 @@ export class SiteSettingsService {
         variantFilters: this.parseFilterValues(raw.variantFilters),
         productFilters: this.parseFilterValues(raw.productFilters),
         hiddenSwatches: this.parseHiddenSwatches(raw.hiddenSwatches),
+        colourTones: this.parseColourTones(raw.colourTones),
         bannerVisible: pick('bannerVisible'),
         bannerText: pick('bannerText'),
         heroTagline: pick('heroTagline'),
@@ -266,6 +277,20 @@ export class SiteSettingsService {
       const designer = r['designer'] === true;
       if (key && (shop || designer) && !out.some((x) => x.key === key)) out.push({ key, shop, designer });
       if (out.length >= 1000) break;
+    }
+    return out;
+  }
+
+  private parseColourTones(raw: unknown): ColourTones[] {
+    if (!Array.isArray(raw)) return [];
+    const out: ColourTones[] = [];
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const r = entry as Record<string, unknown>;
+      const key = typeof r['key'] === 'string' ? r['key'].slice(0, 200) : '';
+      const tones = Array.isArray(r['tones']) ? cleanTones(r['tones'].filter((x): x is string => typeof x === 'string')) : [];
+      if (key && tones.length && !out.some((x) => x.key === key)) out.push({ key, tones });
+      if (out.length >= 2000) break;
     }
     return out;
   }

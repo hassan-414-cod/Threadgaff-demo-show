@@ -13,6 +13,7 @@ import { AttributeDefinition, CatalogService } from '../../core/services/catalog
 import { AttributeImagesService } from '../../core/services/attribute-images.service';
 import { SiteSettingsService } from '../../core/services/site-settings.service';
 import { SwatchVisibilityService } from '../../core/services/swatch-visibility.service';
+import { ColourTonesService } from '../../core/services/colour-tones.service';
 import { VariantFiltersService } from '../../core/services/variant-filters.service';
 import { FadeInDirective } from '../../shared/fade-in.directive';
 import { Category, Product } from '../../core/models/catalog.models';
@@ -265,7 +266,7 @@ interface Shot {
                       type="button"
                       class="sw"
                       [class.on]="x.id === v.colorId"
-                      [style.background]="x.hex"
+                      [style.background]="tones.background(t.product.id, x.name, x.hex)"
                       [attr.aria-label]="x.name"
                       [attr.aria-pressed]="x.id === v.colorId"
                       (click)="pickColour(t, x.id)"
@@ -617,6 +618,8 @@ export class ProductsPageComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly attrImages = inject(AttributeImagesService);
   readonly swatchVis = inject(SwatchVisibilityService);
+  /** The extra shades of two-tone colours: a colour dot is split into them. */
+  readonly tones = inject(ColourTonesService);
   private readonly variants = inject(VariantFiltersService);
   readonly catalog = inject(CatalogService);
   readonly site = inject(SiteSettingsService);
