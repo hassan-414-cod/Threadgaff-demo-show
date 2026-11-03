@@ -30,8 +30,14 @@ export interface SavedPlacement {
   label: string;
   /** The option it was ticked from (placements saved before this was kept have only the label). */
   value?: string;
-  /** The angle picture it sits on, by its slot among the angle pictures (a0, a1 …). */
+  /** The picture it sits on, by its slot: a0, a1 … for the angle pictures, w0, w1 … for the model photos. */
   angle?: string;
+  /** Turned this many degrees clockwise (none when missing). */
+  rot?: number;
+  /** Mirrored left to right. */
+  flip?: boolean;
+  /** A copy made with Duplicate (not tied to a ticked placement). */
+  copy?: boolean;
   /** Older placements were tied to the front or the back picture. */
   view?: 'front' | 'back';
   /** Centre of the logo, as a % of the preview's width. */

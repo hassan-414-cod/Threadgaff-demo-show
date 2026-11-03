@@ -1,8 +1,9 @@
 /**
- * Logos placed on the garment's angle pictures. Each ticked placement (Left Chest, Back Centre, Right Sleeve …)
- * is one copy of the customer's logo, put on the angle picture that belongs to it (the Back picture for Back
- * Centre, the Sleeve picture for a sleeve …). The customer can move and resize it on the preview, lock it
- * with "Fix", and place it again later.
+ * Logos placed on the garment's pictures: the angle pictures (white background) or the model (web shoot) photos,
+ * as the customer likes. Each ticked placement (Left Chest, Back Centre, Right Sleeve …) is one copy of the
+ * customer's logo, put at first on the angle picture that belongs to it (the Back picture for Back Centre, the
+ * Sleeve picture for a sleeve …); "Duplicate" makes more copies. The customer can move, resize, turn and mirror
+ * a copy on the preview, put it on another picture, lock it with "Fix", and place it again later.
  *
  * Positions are in % of the preview, which has the proportions of the picture it shows, so they map
  * exactly onto it.
@@ -14,6 +15,10 @@ export interface Spot {
   y: number;
   /** Width of the logo, as a % of the preview's width. */
   w: number;
+  /** Turned this many degrees clockwise about its centre (none when missing). */
+  rot?: number;
+  /** Mirrored left to right. */
+  flip?: boolean;
 }
 
 export interface LogoPlacement extends Spot {
@@ -24,8 +29,10 @@ export interface LogoPlacement extends Spot {
   label: string;
   /** True once the customer pressed Fix on it. */
   fixed: boolean;
-  /** The angle picture it sits on, by its slot among the angle pictures (a0, a1 …). */
+  /** The picture it sits on, by its slot: a0, a1 … for the angle pictures, w0, w1 … for the model photos. */
   angle: string;
+  /** True for a copy made with Duplicate: it is not tied to a ticked placement, so unticking does not take it away. */
+  copy?: boolean;
 }
 
 export const MIN_LOGO_W = 4;
@@ -60,7 +67,7 @@ function loadPicture(url: string, anonymous: boolean): Promise<HTMLImageElement>
   });
 }
 
-/** A saved picture of the placements on one angle picture. */
+/** A saved picture of the placements on one picture (an angle picture or a model photo). */
 export interface RenderedSnapshot {
   blob: Blob;
   /**
@@ -117,7 +124,13 @@ export async function renderSnapshot(
     for (const s of spots) {
       const lw = (s.w / 100) * W;
       const lh = lw / Math.max(0.05, logoRatio);
-      ctx.drawImage(logo, (s.x / 100) * W - lw / 2, (s.y / 100) * H, lw, lh);
+      // turned and mirrored about its own centre, as on the preview
+      ctx.save();
+      ctx.translate((s.x / 100) * W, (s.y / 100) * H + lh / 2);
+      if (s.rot) ctx.rotate((s.rot * Math.PI) / 180);
+      if (s.flip) ctx.scale(-1, 1);
+      ctx.drawImage(logo, -lw / 2, -lh / 2, lw, lh);
+      ctx.restore();
     }
     return canvas;
   };

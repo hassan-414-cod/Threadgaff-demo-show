@@ -19,7 +19,7 @@ import { SwatchVisibilityService } from '../../core/services/swatch-visibility.s
 import { ColourTonesService } from '../../core/services/colour-tones.service';
 import { LEFT_CHEST, logoZoneFor } from './logo-zones';
 import { LOGO_ACCEPT, LOGO_RULES, checkLogo } from './logo-rules';
-import { LogoPlacement, Spot, keepInside, newPlacement, renderSnapshot } from './logo-placement';
+import { LogoPlacement, Spot, heightPct, keepInside, newPlacement, renderSnapshot } from './logo-placement';
 import { LogoLayerComponent } from './logo-layer.component';
 import { MultiSelectComponent } from '../../shared/multi-select.component';
 import { PlacementPictureComponent } from '../../shared/placement-picture.component';
@@ -154,7 +154,7 @@ const ZOOM_MAX = 250;
                 @if (railThumbs().length) {
                   <aside class="rail" aria-label="Pictures of this garment">
                     @for (t of railThumbs(); track t.key) {
-                      <ng-container [ngTemplateOutlet]="t.angle ? angleThumb : shootThumb" [ngTemplateOutletContext]="{ $implicit: t }" />
+                      <ng-container [ngTemplateOutlet]="angleThumb" [ngTemplateOutletContext]="{ $implicit: t }" />
                     }
                   </aside>
                 }
@@ -196,10 +196,42 @@ const ZOOM_MAX = 250;
                       }
                     </div>
                   </div>
+                  @if (toolLogo(); as tl) {
+                    <div class="logo-tools" role="toolbar" aria-label="Edit the selected logo">
+                      <span class="lt-name"><b>{{ tl.label }}</b><small>on {{ angleLabelOf(tl.angle) }}{{ tl.fixed ? ' · fixed' : '' }}</small></span>
+                      <button type="button" class="lt-btn lt-smaller" [disabled]="tl.fixed" (click)="resizeBy(tl.id, 0.9)" title="Smaller" aria-label="Make the logo smaller">−</button>
+                      <button type="button" class="lt-btn lt-bigger" [disabled]="tl.fixed" (click)="resizeBy(tl.id, 1.1)" title="Bigger" aria-label="Make the logo bigger">+</button>
+                      <span class="lt-sep" aria-hidden="true"></span>
+                      <button type="button" class="lt-btn lt-rotl" [disabled]="tl.fixed" (click)="rotateBy(tl.id, -15)" title="Turn left" aria-label="Turn the logo left">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                      </button>
+                      <button type="button" class="lt-btn lt-rotr" [disabled]="tl.fixed" (click)="rotateBy(tl.id, 15)" title="Turn right" aria-label="Turn the logo right">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                      </button>
+                      <button type="button" class="lt-btn lt-flip" [disabled]="tl.fixed" [class.is-on]="!!tl.flip" (click)="flipPlacement(tl.id)" title="Mirror" aria-label="Mirror the logo left to right">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"/><path d="M8 7 3 17h5z"/><path d="m16 7 5 10h-5z"/></svg>
+                      </button>
+                      <button type="button" class="lt-btn lt-centre" [disabled]="tl.fixed" (click)="centrePlacement(tl.id)" title="Centre it" aria-label="Centre the logo on the garment">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"/><path d="M6 8h12"/><path d="M8 16h8"/></svg>
+                      </button>
+                      <span class="lt-sep" aria-hidden="true"></span>
+                      <button type="button" class="lt-btn lt-dup" (click)="duplicatePlacement(tl.id)" title="Duplicate" aria-label="Duplicate the logo">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      </button>
+                      <button type="button" class="lt-btn lt-del danger" (click)="removePlacement(tl)" title="Delete" aria-label="Delete the logo">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                      </button>
+                      @if (tl.fixed) {
+                        <button type="button" class="lt-main again" (click)="editPlacement(tl.id)">Place again</button>
+                      } @else {
+                        <button type="button" class="lt-main" (click)="fixPlacement(tl.id)">Fix</button>
+                      }
+                    </div>
+                  }
                   @if (belowThumbs().length) {
                     <div class="strip" aria-label="More pictures of this garment">
                       @for (t of belowThumbs(); track t.key) {
-                        <ng-container [ngTemplateOutlet]="t.angle ? angleThumb : shootThumb" [ngTemplateOutletContext]="{ $implicit: t }" />
+                        <ng-container [ngTemplateOutlet]="angleThumb" [ngTemplateOutletContext]="{ $implicit: t }" />
                       }
                     </div>
                   }
@@ -211,14 +243,15 @@ const ZOOM_MAX = 250;
                   class="thumb"
                   [class.on]="currentViewIndex() === t.index"
                   [class.has]="placementsOn(t.index).length > 0"
+                  [class.is-shoot]="!t.angle"
                   (click)="outlookIndex.set(t.index)"
-                  [attr.aria-label]="t.label + ' angle' + (placementsOn(t.index).length ? ', ' + placementsOn(t.index).length + ' logo(s)' : '')"
+                  [attr.aria-label]="t.label + (t.angle ? ' angle' : ' photo') + (placementsOn(t.index).length ? ', ' + placementsOn(t.index).length + ' logo(s)' : '')"
                 >
                   <span class="thumb-pic">
                     <img [src]="t.url" [alt]="t.label" />
                     @if (logoPreview()) {
                       @for (p of placementsOn(t.index); track p.id) {
-                        <img class="mini-logo" [src]="logoPreview()!" alt="" [style.left.%]="p.x" [style.top.%]="p.y" [style.width.%]="p.w" />
+                        <img class="mini-logo" [src]="logoPreview()!" alt="" [style.left.%]="p.x" [style.top.%]="p.y" [style.width.%]="p.w" [style.transform]="miniTransform(p)" />
                       }
                       @if (placementsOn(t.index).length) {
                         <i class="thumb-badge" aria-hidden="true">{{ placementsOn(t.index).length }}</i>
@@ -228,17 +261,11 @@ const ZOOM_MAX = 250;
                   <span>{{ t.label }}</span>
                 </button>
               </ng-template>
-              <ng-template #shootThumb let-t>
-                <button type="button" class="thumb" [class.on]="currentViewIndex() === t.index" (click)="outlookIndex.set(t.index)" [attr.aria-label]="t.label">
-                  <img [src]="t.url" [alt]="t.label" />
-                  <span>{{ t.label }}</span>
-                </button>
-              </ng-template>
               @if (logoHint(); as h) {
                 <p class="logo-note" role="status">
                   {{ h.text }}
                   @if (h.go) {
-                    <button type="button" class="linkish" (click)="goToAngle()">{{ h.go }}</button>
+                    <button type="button" class="linkish" (click)="putOnShown()">{{ h.go }}</button>
                   }
                 </p>
               }
@@ -417,16 +444,25 @@ const ZOOM_MAX = 250;
               @if (logoPreview() && placements().length) {
                 <div class="field">
                   <span class="lbl">Your logos</span>
-                  <p class="hint">Each logo sits on the angle picture of its placement. Pick another angle for it if you like, fix it, or place it again.</p>
+                  <p class="hint">Each logo sits on one picture: an angle picture (white background) or a model photo, as you like. Pick the picture for it, fix it, place it again, or duplicate it.</p>
                   <ul class="pl-list">
                     @for (p of placements(); track p.id) {
                       <li [class.draft]="!p.fixed" [class.sel]="p.id === selectedId()" (click)="selectLogo(p)">
                         <span class="pl-name"><b>{{ p.label }}</b></span>
                         <label class="pl-on">
                           <span>on</span>
-                          <select [ngModel]="p.angle" (ngModelChange)="setAngle(p.id, $event)" (click)="$event.stopPropagation()" aria-label="Angle picture for this logo">
-                            @for (s of angleSlots(); track s.key) {
-                              <option [value]="s.key">{{ s.label }}</option>
+                          <select [ngModel]="p.angle" (ngModelChange)="setAngle(p.id, $event)" (click)="$event.stopPropagation()" aria-label="Picture for this logo">
+                            <optgroup label="Angle pictures (white background)">
+                              @for (s of angleSlots(); track s.key) {
+                                <option [value]="s.key">{{ s.label }}</option>
+                              }
+                            </optgroup>
+                            @if (shootSlots().length) {
+                              <optgroup label="Model photos">
+                                @for (s of shootSlots(); track s.key) {
+                                  <option [value]="s.key">{{ s.label }}</option>
+                                }
+                              </optgroup>
                             }
                           </select>
                         </label>
@@ -437,6 +473,7 @@ const ZOOM_MAX = 250;
                           <button type="button" class="pl-fix" (click)="fixPlacement(p.id); $event.stopPropagation()">Fix</button>
                           <button type="button" class="linkish" (click)="resetPlacement(p.id); $event.stopPropagation()">Reset</button>
                         }
+                        <button type="button" class="linkish" (click)="duplicatePlacement(p.id); $event.stopPropagation()">Duplicate</button>
                         <button type="button" class="linkish" (click)="removePlacement(p); $event.stopPropagation()">Remove</button>
                       </li>
                     }
@@ -777,6 +814,33 @@ const ZOOM_MAX = 250;
     .zoom-bar .reset { width: auto; padding: 0 10px; }
     .zoom-bar .undo { width: auto; padding: 0 12px; margin-left: auto; font-weight: 600; color: var(--ink); }
     .zoom-bar .undo:not(:disabled):hover { border-color: var(--ink); }
+    /* the mini edit toolbar under the preview: size, turn, mirror, centre, duplicate, delete, Fix */
+    .logo-tools {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px;
+      border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    }
+    .lt-name { display: flex; flex-direction: column; line-height: 1.15; margin-right: 4px; min-width: 0; }
+    .lt-name b { font-size: 0.74rem; }
+    .lt-name small { font-size: 0.62rem; color: var(--muted); }
+    .lt-btn {
+      width: 32px; height: 30px; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+      border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: pointer; color: var(--ink); font: inherit; font-size: 1.05rem;
+    }
+    .lt-btn:hover:not(:disabled) { border-color: var(--ink); background: #f6f4ee; }
+    .lt-btn:disabled { opacity: 0.4; cursor: default; }
+    .lt-btn.is-on, .lt-btn.is-on:hover:not(:disabled) { background: #3d4b37; border-color: #3d4b37; color: #fff; }
+    .lt-btn.danger:hover:not(:disabled) { color: #b3261e; border-color: #b3261e; }
+    .lt-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .lt-sep { width: 1px; height: 20px; background: var(--line); margin: 0 2px; }
+    .lt-main {
+      margin-left: auto; height: 30px; padding: 0 16px; border: 1px solid #3d4b37; border-radius: 999px; background: #3d4b37; color: #fff;
+      font: inherit; font-size: 0.74rem; font-weight: 700; cursor: pointer;
+    }
+    .lt-main.again { background: #fff; color: #3d4b37; }
+    @media (pointer: coarse), (max-width: 700px) {
+      .lt-btn { width: 38px; height: 36px; }
+      .lt-main { height: 36px; }
+    }
 
     /* a slim step bar: small dots joined by a thin line, the name right under each */
     .stepper-card {
@@ -1235,27 +1299,40 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   /** True while a model (web shoot) photo is shown: a logo cannot be placed on those. */
   readonly onModelPhoto = computed(() => this.outlookViews()[this.currentViewIndex()]?.angle === 'shoot');
 
-  /** The angle pictures in order, with their slot (a0, a1 …), their position in the column and a name (a repeated name gets a number). */
-  readonly angleSlots = computed(() => {
-    const out: Array<{ key: string; label: string; index: number; angle: string }> = [];
+  /** Every picture a logo can sit on, in order: the angle pictures (a0, a1 …, white background) and the model photos (w0, w1 …). */
+  readonly pictureSlots = computed(() => {
+    const out: Array<{ key: string; label: string; index: number; angle: string; shoot: boolean }> = [];
     const seen = new Map<string, number>();
+    let angles = 0;
+    let shoots = 0;
     this.outlookViews().forEach((v, index) => {
-      if (v.angle === 'shoot') return;
-      const n = (seen.get(v.label) ?? 0) + 1;
-      seen.set(v.label, n);
-      out.push({ key: 'a' + out.length, label: n > 1 ? `${v.label} ${n}` : v.label, index, angle: v.angle });
+      const shoot = v.angle === 'shoot';
+      const name = (shoot ? 'w:' : 'a:') + v.label; // a repeated name gets a number, among its own kind
+      const n = (seen.get(name) ?? 0) + 1;
+      seen.set(name, n);
+      out.push({ key: shoot ? 'w' + shoots++ : 'a' + angles++, label: n > 1 ? `${v.label} ${n}` : v.label, index, angle: v.angle, shoot });
     });
     return out;
   });
 
-  /** The slot of the angle picture at a position of the column; '' for a model photo. */
+  /** The angle pictures (white background) with their slot (a0, a1 …); a logo starts on one of these. */
+  readonly angleSlots = computed(() => this.pictureSlots().filter((s) => !s.shoot));
+  /** The model (web shoot) photos with their slot (w0, w1 …). */
+  readonly shootSlots = computed(() => this.pictureSlots().filter((s) => s.shoot));
+
+  /** The slot of the picture at a position of the column. */
   angleKeyOf(index: number): string {
-    return this.angleSlots().find((s) => s.index === index)?.key ?? '';
+    return this.pictureSlots().find((s) => s.index === index)?.key ?? '';
   }
   readonly currentAngleKey = computed(() => this.angleKeyOf(this.currentViewIndex()));
 
   angleLabelOf(key: string): string {
-    return this.angleSlots().find((s) => s.key === key)?.label ?? 'angle';
+    return this.pictureSlots().find((s) => s.key === key)?.label ?? 'picture';
+  }
+
+  /** The small copy of a logo on a thumbnail: centred on its spot, turned and mirrored like the big one. */
+  miniTransform(p: LogoPlacement): string {
+    return ['translateX(-50%)', p.rot ? `rotate(${p.rot}deg)` : '', p.flip ? 'scaleX(-1)' : ''].filter(Boolean).join(' ');
   }
 
   /** The logos on the angle picture at a position of the column (for its small preview and its badge). */
@@ -1270,15 +1347,21 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     return key ? this.placements().filter((p) => p.angle === key) : [];
   });
 
-  /** The logos are laid over the angle pictures only. */
-  readonly showLogoLayer = computed(() => !!this.logoPreview() && this.shownPlacements().length > 0 && !this.onModelPhoto());
+  /** The logos are laid over the picture shown, whichever kind it is. */
+  readonly showLogoLayer = computed(() => !!this.logoPreview() && this.shownPlacements().length > 0);
 
-  /** Said under the preview when a model photo is shown while logos are placed. */
+  /** Said under the preview on a model photo that has no logo on it yet. */
   readonly logoHint = computed<{ text: string; go?: string } | null>(() =>
-    this.logoPreview() && this.placements().length && this.onModelPhoto()
-      ? { text: 'A logo can only be placed on the angle pictures (Front, Back …), not on the model photos.', go: 'Show the angle pictures' }
+    this.logoPreview() && this.placements().length && this.onModelPhoto() && !this.shownPlacements().length
+      ? { text: 'No logo on this model photo yet. A logo can go on a model photo or on an angle picture, as you like.', go: 'Put a logo on this photo' }
       : null,
   );
+
+  /** The selected logo, when it is on the picture shown: what the edit toolbar works on. */
+  readonly toolLogo = computed(() => {
+    const id = this.selectedId();
+    return this.shownPlacements().find((p) => p.id === id) ?? null;
+  });
 
   readonly addonTotal = computed(() => {
     const map = this.serviceAddOns();
@@ -1826,7 +1909,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   private syncPlacements(focus: string | null) {
     const ticked = this.tickedValues();
     const before = this.placements();
-    let list = before.filter((p) => ticked.includes(p.value));
+    let list = before.filter((p) => p.copy || ticked.includes(p.value));
     let added: LogoPlacement | null = null;
     if (this.logoPreview()) {
       for (const value of ticked) {
@@ -1870,16 +1953,100 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
 
   /** Turns the preview to the angle picture a logo is on. */
   private showPlacement(p: LogoPlacement) {
-    const slot = this.angleSlots().find((s) => s.key === p.angle);
+    const slot = this.pictureSlots().find((s) => s.key === p.angle);
     if (slot) this.outlookIndex.set(slot.index);
   }
 
-  /** Shows the first angle picture when a model photo is shown, so the logos are seen. */
-  goToAngle() {
-    if (!this.onModelPhoto()) return;
-    const first = this.placements()[0];
-    const slot = (first && this.angleSlots().find((s) => s.key === first.angle)) || this.angleSlots()[0];
-    if (slot) this.outlookIndex.set(slot.index);
+  /** On a model photo with no logo: puts a copy of the selected logo (or the first one) on this photo. */
+  putOnShown() {
+    const key = this.currentAngleKey();
+    const src = this.placements().find((p) => p.id === this.selectedId()) ?? this.placements()[0];
+    if (!key || !src) return;
+    this.duplicatePlacement(src.id, key);
+  }
+
+  // ── the mini edit toolbar: size, turn, mirror, centre, duplicate. Each is one undo step.
+  private afterEdit(before: UndoState) {
+    this.savePlacements();
+    this.remember(before);
+  }
+
+  /** Bigger or smaller (a factor), about the logo's centre. */
+  resizeBy(id: string, factor: number) {
+    const before = this.snap();
+    const ratio = this.logoRatio();
+    const stage = this.stageRatio();
+    this.placements.update((list) =>
+      list.map((p) => {
+        if (p.id !== id || p.fixed) return p;
+        const w = p.w * factor;
+        const dy = (heightPct(p.w, ratio, stage) - heightPct(w, ratio, stage)) / 2;
+        return keepInside({ ...p, w, y: p.y + dy }, ratio, stage);
+      }),
+    );
+    this.afterEdit(before);
+  }
+
+  /** Turns the logo clockwise (or back, with a negative number of degrees). */
+  rotateBy(id: string, deg: number) {
+    const before = this.snap();
+    this.placements.update((list) =>
+      list.map((p) => {
+        if (p.id !== id || p.fixed) return p;
+        let r = ((p.rot ?? 0) + deg) % 360;
+        if (r > 180) r -= 360;
+        if (r <= -180) r += 360;
+        return { ...p, rot: r === 0 ? undefined : r };
+      }),
+    );
+    this.afterEdit(before);
+  }
+
+  /** Mirrors the logo left to right. */
+  flipPlacement(id: string) {
+    const before = this.snap();
+    this.placements.update((list) => list.map((p) => (p.id === id && !p.fixed ? { ...p, flip: p.flip ? undefined : true } : p)));
+    this.afterEdit(before);
+  }
+
+  /** Puts the logo on the vertical centre line of the garment. */
+  centrePlacement(id: string) {
+    const before = this.snap();
+    const ratio = this.logoRatio();
+    const stage = this.stageRatio();
+    this.placements.update((list) => list.map((p) => (p.id === id && !p.fixed ? keepInside({ ...p, x: 50 }, ratio, stage) : p)));
+    this.afterEdit(before);
+  }
+
+  /** Another copy of a logo, next to it (or on another picture when one is given); it is not fixed, so it can be placed. */
+  duplicatePlacement(id: string, picture?: string) {
+    const src = this.placements().find((p) => p.id === id);
+    if (!src) return;
+    const before = this.snap();
+    const base = src.label.replace(/ copy( \d+)?$/, '');
+    const n = this.placements().filter((p) => p.copy && p.label.replace(/ copy( \d+)?$/, '') === base).length + 1;
+    const uid = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const sameSpot = !picture || picture === src.angle;
+    const copy: LogoPlacement = keepInside(
+      {
+        ...src,
+        id: 'cp-' + uid,
+        value: 'copy-' + uid,
+        label: `${base} copy${n > 1 ? ' ' + n : ''}`,
+        copy: true,
+        fixed: false,
+        angle: picture ?? src.angle,
+        x: src.x + (sameSpot ? (src.x > 60 ? -6 : 6) : 0),
+        y: src.y + (sameSpot ? (src.y > 60 ? -6 : 6) : 0),
+      },
+      this.logoRatio(),
+      this.stageRatio(),
+    );
+    this.placements.update((list) => [...list, copy]);
+    this.selectedId.set(copy.id);
+    this.showPlacement(copy);
+    this.afterEdit(before);
+    this.revealPreview();
   }
 
   /** Clicking a logo in the list selects it and shows its angle picture. */
@@ -1972,7 +2139,16 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   }
 
   removePlacement(p: LogoPlacement) {
-    this.onTick(p.value, false);
+    if (!p.copy) {
+      this.onTick(p.value, false); // a ticked placement: unticking takes its logo away
+      return;
+    }
+    const before = this.snap();
+    this.placements.update((list) => list.filter((x) => x.id !== p.id));
+    if (this.selectedId() === p.id) this.selectedId.set(this.placements().find((x) => !x.fixed)?.id ?? null);
+    this.savePlacements();
+    void this.rebuildSnapshots();
+    this.remember(before);
   }
 
   private savePlacements() {
@@ -2002,7 +2178,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     const out: Array<{ id: string; label: string; name: string; blob: Blob; url: string; garment?: string }> = [];
     let failed = false;
     if (logo && fixed.length) {
-      for (const slot of this.angleSlots()) {
+      for (const slot of this.pictureSlots()) {
         const here = fixed.filter((p) => p.angle === slot.key);
         const view = views[slot.index];
         if (!here.length || !view) continue;
@@ -2052,13 +2228,21 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     const options = this.placementOptions();
     const list: LogoPlacement[] = [];
     for (const x of draft.placements) {
+      const look = { ...(x.rot ? { rot: x.rot } : {}), ...(x.flip ? { flip: true } : {}) };
+      if (x.copy) {
+        // a copy made with Duplicate: it keeps its own id and name, and is not tied to a ticked placement
+        const angle = x.angle && this.pictureSlots().some((s) => s.key === x.angle) ? x.angle : this.defaultAngleFor(x.label);
+        if (list.some((p) => p.id === x.id)) continue;
+        list.push({ id: x.id, value: x.value ?? 'copy-' + x.id, label: x.label, angle, x: x.x, y: x.y, w: x.w, fixed: x.fixed, copy: true, ...look });
+        continue;
+      }
       const value = x.value ?? options.find((o) => o.label === x.label)?.value;
       if (!value || list.some((p) => p.value === value)) continue;
-      const angle = x.angle && this.angleSlots().some((s) => s.key === x.angle) ? x.angle : this.defaultAngleFor(x.label);
-      list.push({ id: 'pl-' + value, value, label: x.label, angle, x: x.x, y: x.y, w: x.w, fixed: x.fixed });
+      const angle = x.angle && this.pictureSlots().some((s) => s.key === x.angle) ? x.angle : this.defaultAngleFor(x.label);
+      list.push({ id: 'pl-' + value, value, label: x.label, angle, x: x.x, y: x.y, w: x.w, fixed: x.fixed, ...look });
     }
     this.placements.set(list);
-    this.tickedValues.update((on) => [...new Set([...on, ...list.map((p) => p.value)])]);
+    this.tickedValues.update((on) => [...new Set([...on, ...list.filter((p) => !p.copy).map((p) => p.value)])]);
     const saved = await this.designUpload.restoreSnapshots();
     this.snapshots.set(saved.map((s) => ({ ...s, url: URL.createObjectURL(s.blob) })));
   }

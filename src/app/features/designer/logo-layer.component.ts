@@ -43,7 +43,7 @@ const SNAP = 1.6;
         (keydown)="key($event, p)"
         (focus)="picked.emit(p.id)"
       >
-        <img [src]="logoUrl()" [alt]="'Your logo at ' + p.label" draggable="false" />
+        <img [src]="logoUrl()" [alt]="'Your logo at ' + p.label" draggable="false" [style.transform]="imgTransform(p)" />
         @if (p.id === selectedId()) {
           @if (!p.fixed) {
             <span
@@ -137,6 +137,12 @@ export class LogoLayerComponent {
   readonly fix = output<string>();
   /** The customer wants to place a fixed logo again. */
   readonly again = output<string>();
+
+  /** The logo turned and / or mirrored about its own centre (the box it is dragged by stays upright). */
+  protected imgTransform(p: LogoPlacement): string | null {
+    const parts = [p.rot ? `rotate(${p.rot}deg)` : '', p.flip ? 'scaleX(-1)' : ''].filter(Boolean);
+    return parts.length ? parts.join(' ') : null;
+  }
 
   protected readonly guideX = signal(false);
   protected readonly guideY = signal(false);
