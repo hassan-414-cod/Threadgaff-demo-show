@@ -195,6 +195,10 @@ interface Shot {
               <span class="of">· loading filter details…</span>
             }
           </span>
+          <p class="designer-note">
+            Design your garment your way, custom, in the
+            <a routerLink="/designer">Custom Designer →</a>
+          </p>
           <label class="sort"
             >Sort by
             <select [value]="sort()" (change)="onSort($event)">
@@ -435,6 +439,10 @@ interface Shot {
     .shop-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 6px 0 14px; }
     .count { font-size: 0.74rem; color: var(--muted); }
     .count .of { margin-left: 4px; }
+    /* a note in the middle of the bar, between the count and the sort: the Custom Designer is where a garment is made to order */
+    .designer-note { flex: 1 1 auto; margin: 0; text-align: center; font-size: 0.76rem; color: var(--muted); }
+    .designer-note a { color: var(--forest); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+    .designer-note a:hover { color: var(--ink); }
     .sort { display: inline-flex; align-items: center; gap: 10px; font-size: 0.72rem; color: var(--muted); }
     .sort select {
       font: inherit;
@@ -622,6 +630,9 @@ interface Shot {
     @media (max-width: 900px) {
       .shop-tabs-inner, .shop-body, .shop-filters-inner { padding-left: 18px; padding-right: 18px; }
       .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 14px; }
+    }
+    @media (max-width: 700px) {
+      .designer-note { order: 3; flex-basis: 100%; text-align: left; }
     }
     @media (max-width: 560px) {
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px 10px; }
