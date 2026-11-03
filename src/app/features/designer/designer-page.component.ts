@@ -141,12 +141,11 @@ const ZOOM_MAX = 250;
 
           <div class="studio-grid">
             <section class="preview-col" aria-label="Live preview">
-              <div class="preview-main" [class.no-rail]="!railAngles().length">
-                @if (railAngles().length) {
-                  <aside class="rail" aria-label="Angle pictures">
-                    <p class="rail-h">Angles</p>
-                    @for (t of railAngles(); track t.key) {
-                      <ng-container [ngTemplateOutlet]="angleThumb" [ngTemplateOutletContext]="{ $implicit: t }" />
+              <div class="preview-main" [class.no-rail]="!railThumbs().length">
+                @if (railThumbs().length) {
+                  <aside class="rail" aria-label="Pictures of this garment">
+                    @for (t of railThumbs(); track t.key) {
+                      <ng-container [ngTemplateOutlet]="t.angle ? angleThumb : shootThumb" [ngTemplateOutletContext]="{ $implicit: t }" />
                     }
                   </aside>
                 }
@@ -188,17 +187,10 @@ const ZOOM_MAX = 250;
                       }
                     </div>
                   </div>
-                  @if (stripGroups().length) {
+                  @if (belowThumbs().length) {
                     <div class="strip" aria-label="More pictures of this garment">
-                      @for (g of stripGroups(); track g.name) {
-                        <div class="strip-group">
-                          <p class="strip-h">{{ g.name }}</p>
-                          <div class="strip-row">
-                            @for (t of g.items; track t.key) {
-                              <ng-container [ngTemplateOutlet]="t.angle ? angleThumb : shootThumb" [ngTemplateOutletContext]="{ $implicit: t }" />
-                            }
-                          </div>
-                        </div>
+                      @for (t of belowThumbs(); track t.key) {
+                        <ng-container [ngTemplateOutlet]="t.angle ? angleThumb : shootThumb" [ngTemplateOutletContext]="{ $implicit: t }" />
                       }
                     </div>
                   }
@@ -672,17 +664,14 @@ const ZOOM_MAX = 250;
       background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
     }
     .preview-col { padding: 12px; }
-    /* The angle pictures stand in a column on the left of the preview box, as many as fit its height (so the column
-       never scrolls). Under the box are the webshoots, and the angle pictures that did not fit in the column. */
+    /* The pictures (the angles first, then the webshoots) fill a column on the left of the preview box, as many as fit
+       its height so the column never scrolls; when it is full the rest go in a row under the box. */
     .preview-main { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; align-items: start; }
     .preview-main.no-rail { grid-template-columns: 1fr; }
     .rail { display: flex; flex-direction: column; gap: 8px; }
-    .rail-h, .strip-h { margin: 0; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
     .stage-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
     .stage-col .stage-wrap { margin-inline: auto; }
-    .strip { display: flex; flex-wrap: wrap; gap: 8px 22px; }
-    .strip-group { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-    .strip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .strip { display: flex; flex-wrap: wrap; gap: 8px; }
     .thumb {
       flex: none; width: 66px; border: 1px solid var(--line); border-radius: 6px; background: #fff; padding: 0;
       overflow: hidden; cursor: pointer; font: inherit; color: inherit;
@@ -979,8 +968,8 @@ const ZOOM_MAX = 250;
       .summary-col { position: static; }
       .value-bar, .info-grid { grid-template-columns: 1fr 1fr; }
     }
-    /* Phones: the picture comes first, sized to fit the screen, with a small swipeable strip of the other
-       pictures right under it (the model photos, then the angles). Nothing runs off the edge. */
+    /* Phones: the picture comes first, sized to fit the screen, with all the other pictures in a row right under it
+       (the angles, then the webshoots). Nothing runs off the edge. */
     @media (max-width: 700px) {
       .des-page { padding: 12px 12px 40px; }
       /* a tighter heading and step bar, so the picture starts higher on the screen */
@@ -999,7 +988,6 @@ const ZOOM_MAX = 250;
       .thumb, .strip .thumb { width: 58px; }
       .thumb > span:last-child { font-size: 0.5rem; padding: 2px 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .thumb-badge { right: 3px; top: 3px; min-width: 15px; height: 15px; line-height: 15px; font-size: 0.56rem; }
-      .strip { gap: 8px 16px; }
       /* the whole picture always fits the screen: never taller than about 58% of it */
       .stage-wrap { max-width: min(100%, calc(var(--ratio, 0.8) * 58vh)) !important; }
       .zoom-bar { margin-top: 6px; flex-wrap: wrap; }
@@ -1204,33 +1192,29 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   readonly angleThumbs = computed(() => this.thumbs().filter((t) => t.angle));
   readonly shootThumbs = computed(() => this.thumbs().filter((t) => !t.angle));
 
-  /** The height of the preview box, measured, to know how many angle pictures fit beside it. */
-  readonly stageHeight = signal(0);
+  /** The width of the column the preview box stands in, measured: how much room the pictures beside it have is worked out from it. */
+  readonly stageColWidth = signal(0);
   /** True on a phone, where there is no column beside the picture. */
   readonly narrow = signal(typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches);
 
-  /** How many angle pictures stand in the column beside the preview: as many as fit the height of the box, so it never scrolls. */
-  readonly railCapacity = computed(() => {
-    if (this.narrow()) return 0;
-    const h = this.stageHeight();
-    return h > 0 ? Math.max(1, Math.floor((h - 22 + 8) / 112)) : 4;
+  /**
+   * The height of the box (a 4:5 picture, never taller than 660px) worked out from the width of its column, not from the
+   * picture on show, so the pictures do not jump between the column and the row under the box as other pictures are chosen.
+   */
+  private readonly railHeight = computed(() => {
+    const w = this.stageColWidth();
+    return w > 0 ? Math.min(w / 0.8, 662) : 520;
   });
-  readonly railAngles = computed(() => this.angleThumbs().slice(0, this.railCapacity()));
 
-  /** Under the preview: the webshoots, and the angle pictures that did not fit in the column (all of them on a phone). */
-  readonly stripGroups = computed(() => {
-    const more = this.angleThumbs().slice(this.railCapacity());
-    const shoots = this.shootThumbs();
-    const groups: Array<{ name: string; items: typeof more }> = [];
-    if (this.narrow()) {
-      if (more.length) groups.push({ name: 'Angles', items: more });
-      if (shoots.length) groups.push({ name: 'Webshots', items: shoots });
-    } else {
-      if (shoots.length) groups.push({ name: 'Webshots', items: shoots });
-      if (more.length) groups.push({ name: 'More angles', items: more });
-    }
-    return groups;
-  });
+  /** How many pictures stand in the column beside the box: as many as fit its height, so the column never scrolls. */
+  readonly railCapacity = computed(() => (this.narrow() ? 0 : Math.max(1, Math.floor((this.railHeight() + 8) / 112))));
+
+  /** Every picture in one run: the angle pictures first, then the webshoots. */
+  private readonly allThumbs = computed(() => [...this.angleThumbs(), ...this.shootThumbs()]);
+  /** The first ones fill the column beside the box … */
+  readonly railThumbs = computed(() => this.allThumbs().slice(0, this.railCapacity()));
+  /** … and when it is full the rest go under the box, in a row (all of them on a phone). */
+  readonly belowThumbs = computed(() => this.allThumbs().slice(this.railCapacity()));
 
   /** True while a model (web shoot) photo is shown: a logo cannot be placed on those. */
   readonly onModelPhoto = computed(() => this.outlookViews()[this.currentViewIndex()]?.angle === 'shoot');
@@ -1684,11 +1668,11 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   });
 
   private watchStage() {
-    const el = document.querySelector('.stage-wrap');
+    const el = document.querySelector('.stage-col');
     if (!el || el === this.observedStage || typeof ResizeObserver === 'undefined') return;
     this.stageObserver?.disconnect();
     this.observedStage = el;
-    this.stageObserver = new ResizeObserver(() => this.stageHeight.set(Math.round((el as HTMLElement).offsetHeight)));
+    this.stageObserver = new ResizeObserver(() => this.stageColWidth.set(Math.round((el as HTMLElement).clientWidth)));
     this.stageObserver.observe(el);
   }
 
