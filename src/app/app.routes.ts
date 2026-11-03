@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 import { ShellComponent } from './layout/shell.component';
-import { authGuard, adminGuard } from './core/guards/auth.guards';
+import { adminGuard } from './core/guards/auth.guards';
 
 export const routes: Routes = [
   {
@@ -26,7 +26,6 @@ export const routes: Routes = [
       {
         path: 'designer',
         title: 'Custom Designer — Threadgaff',
-        canActivate: [authGuard],
         loadComponent: () =>
           import('./features/designer/designer-page.component').then(
             (m) => m.DesignerPageComponent,

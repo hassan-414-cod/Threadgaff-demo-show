@@ -12,16 +12,6 @@ function staffAllowed(auth: AuthService): boolean {
   );
 }
 
-/** Client must be logged in (designer gate) */
-export const authGuard: CanActivateFn = (_route, state) => {
-  const auth = inject(AuthService);
-  const router = inject(Router);
-  if (auth.isLoggedIn()) return true;
-  return router.createUrlTree(['/login'], {
-    queryParams: { next: state.url },
-  });
-};
-
 /** Staff/admin catalog access — refresh via httpOnly cookie before failing. */
 export const adminGuard: CanActivateFn = (_route, state) => {
   const auth = inject(AuthService);
