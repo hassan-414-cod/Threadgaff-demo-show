@@ -1922,6 +1922,17 @@ interface CategoryTreeListRow {
       }
       .sidebar .spacer { display: none; }
       .brand { width: 100%; padding-bottom: 8px; }
+      /* phone: the Products group takes its own row with its pages side by side, "Sales" is a heading on its own row */
+      .sidebar .nav-group { flex: 1 0 100%; }
+      .sidebar .nav-parent { width: auto; align-self: flex-start; gap: 10px; }
+      .sidebar .nav-sub {
+        flex-direction: row; flex-wrap: wrap; gap: 4px 6px;
+        margin: 0 0 4px; padding: 2px 0 4px; border-left: 0;
+      }
+      .sidebar .nav-section-label { flex: 1 0 100%; padding: 10px 10px 0; }
+      .main { padding: 20px 14px 32px; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .stat { padding: 12px 14px; }
     }
   `,
 })

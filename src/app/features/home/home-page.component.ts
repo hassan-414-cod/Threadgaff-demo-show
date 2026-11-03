@@ -787,6 +787,13 @@ export interface HomeCard {
         background: transparent;
       }
       .hero-card { min-height: 320px; height: 58vw; max-height: 420px; }
+      /* one column: the words sit on the busy part of the photo, so give them a soft cream backing and darker small print */
+      .home-hero-copy {
+        background: linear-gradient(180deg, rgba(241, 236, 226, 0.95) 0%, rgba(241, 236, 226, 0.9) 78%, rgba(241, 236, 226, 0.5) 100%);
+      }
+      .home-hero-kicker, .home-hero-points span, .home-hero-foot { color: #6b675d; }
+      .home-hero-lede { color: #46443d; }
+      .home-hero-foot::before { background: #6b675d; }
       .quality-band-inner { grid-template-columns: 1fr; }
       .catalogues { padding: 40px 18px 52px; }
     }
