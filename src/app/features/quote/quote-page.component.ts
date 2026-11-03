@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { CatalogService } from '../../core/services/catalog.service';
 import { DesignUploadStore } from '../../core/services/design-upload.store';
 import { PlacementPictureComponent } from '../../shared/placement-picture.component';
@@ -9,13 +10,17 @@ import { SiteSettingsService } from '../../core/services/site-settings.service';
 import {
   Attachment,
   AttachmentRole,
+  ENQUIRY_BODY_LIMIT,
+  ENQUIRY_MESSAGE_MAX,
+  EnquiryBase,
+  EnquiryDetails,
   MAX_FILE_CHARS,
+  PreparedEnquiry,
   compressImageFile,
   fileExt,
   fileToDataUrl,
-  fitAttachments,
   isImageAttachment,
-  packAttachments,
+  prepareEnquiry,
   roleLabel,
   sizeLabel,
 } from '../../core/utils/attachments';
@@ -41,6 +46,17 @@ type SpecRow = { key: string; label: string; value: string };
 
           @if (specRows().length) {
             <div class="summary-box">
+              @if (productImg()) {
+                <figure class="garment-fig">
+                  <img [src]="productImg()" [alt]="garmentName() || 'Your garment'" />
+                  <figcaption>
+                    <b>{{ garmentName() }}</b>
+                    @if (colourName()) {
+                      <span> · {{ colourName() }}</span>
+                    }
+                  </figcaption>
+                </figure>
+              }
               <dl>
                 @for (row of specRows(); track row.key) {
                   <dt>{{ row.label }}</dt>
@@ -120,6 +136,10 @@ type SpecRow = { key: string; label: string; value: string };
                 <p class="sample-hint">
                   A sketch, logo or reference photo. Your design file and logo from the designer are
                   attached below. Everything is sent with this enquiry and saved with it.
+                </p>
+                <p class="sample-hint">
+                  The enquiry form takes 100 KB in all, so pictures are saved a little smaller when they are sent (your logo first).
+                  Please email full-size artwork afterwards and mention your reference.
                 </p>
                 @if (attachments().length) {
                   <ul class="att-list" aria-label="Files sent with this enquiry">
@@ -344,6 +364,9 @@ type SpecRow = { key: string; label: string; value: string };
       max-width: none;
     }
 
+    .garment-fig { margin: 0 0 14px; display: flex; align-items: center; gap: 12px; }
+    .garment-fig img { width: 84px; height: 105px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; flex: none; }
+    .garment-fig figcaption { font-size: 0.82rem; line-height: 1.4; }
     .snap-block { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
     .snap-block h4 { margin: 0 0 10px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; }
     .snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
@@ -385,6 +408,10 @@ export class QuotePageComponent {
   private readonly designUpload = inject(DesignUploadStore);
 
   readonly specRows = signal<SpecRow[]>([]);
+  /** The garment picture (in the chosen colour), its name and colour: handed over by the designer and sent with the enquiry. */
+  readonly productImg = signal('');
+  readonly garmentName = signal('');
+  readonly colourName = signal('');
   readonly attachments = signal<AttachmentItem[]>([]);
   private readonly site = inject(SiteSettingsService);
   readonly submitting = signal(false);
@@ -444,6 +471,9 @@ export class QuotePageComponent {
     if (q.get('sample') === '1') lines.push('Sample request: Yes');
 
     this.specRows.set(rows);
+    this.productImg.set(/^https?:\/\/|^\//.test(q.get('img') || '') ? (q.get('img') as string) : '');
+    this.garmentName.set(q.get('garment') || '');
+    this.colourName.set(q.get('color') || '');
     if (lines.length) {
       this.messageFromSpec = lines.join('\n');
       this.message = this.messageFromSpec;
@@ -506,7 +536,8 @@ export class QuotePageComponent {
       type: type || 'application/octet-stream',
       size: file.type.startsWith('image/') ? Math.floor(dataUrl.length * 0.75) : file.size,
       dataUrl,
-      tooLarge: dataUrl.length > MAX_FILE_CHARS,
+      // a picture is saved smaller when it is sent; a file that cannot be made smaller must fit the form as it is
+      tooLarge: file.type.startsWith('image/') ? dataUrl.length > MAX_FILE_CHARS : dataUrl.length > Math.floor(ENQUIRY_BODY_LIMIT * 0.6),
     };
     this.attachments.update((list) => [...list.filter((a) => a.role !== role), item]);
   }
@@ -582,70 +613,138 @@ export class QuotePageComponent {
     if (gone?.role === 'logo') this.designUpload.setLogo(null);
   }
 
-  submit() {
+  /**
+   * What the admin is told about the request, with everything in full: the message (the server keeps at most 5000
+   * characters of it), the notes, the product and its picture, the logo (and whether it was sent smaller).
+   */
+  private buildDetails(fullMessage: string, sent: Attachment[]): EnquiryDetails {
+    const q = this.route.snapshot.queryParamMap;
+    const clip = (v: string | null, n: number) => (v ? v.slice(0, n) : undefined);
+    const logo = this.attachments().find((a) => a.role === 'logo');
+    const logoSent = sent.find((a) => a.role === 'logo');
+    const from = logoSent?.from;
+    return {
+      v: 1,
+      source: q.get('product') ? 'designer' : 'form',
+      sentAt: new Date().toISOString(),
+      product:
+        this.garmentName() || this.productImg()
+          ? {
+              id: clip(q.get('product'), 60),
+              name: clip(this.garmentName(), 120),
+              colour: clip(this.colourName(), 80),
+              imageUrl: clip(this.productImg(), 400),
+            }
+          : undefined,
+      spec: this.specRows().map((r) => ({ label: r.label, value: r.value.slice(0, 600) })),
+      sizes: clip(q.get('size'), 200),
+      message: fullMessage.slice(0, 20000),
+      notes: {
+        buyer: clip(q.get('notes'), 2000),
+        privateLabel: clip(q.get('plNotes'), 2000),
+        privateLabelMaterial: clip(q.get('plMaterial'), 200),
+        brand: clip(q.get('brand'), 60),
+      },
+      logoPlacements: clip(q.get('logoPlacements'), 800),
+      logo: logo
+        ? {
+            name: logoSent?.name ?? logo.name,
+            sentBytes: logoSent?.size,
+            originalName: from?.name ?? logo.name,
+            originalBytes: from?.size ?? logo.size,
+            width: from?.width,
+            height: from?.height,
+            reduced: !!from,
+            attached: !!logoSent,
+          }
+        : undefined,
+    };
+  }
+
+  /**
+   * Sends the enquiry. The server takes at most 100 KB for all of it, so the logo and the pictures are fitted into that
+   * (the logo first, saved a little smaller when it has to be). If the server still refuses the size, it is tried once
+   * more with less, and last with the text alone: the customer is always told which files did not go.
+   */
+  async submit() {
+    if (this.submitting()) return;
     if (!this.name.trim() || !this.email.trim()) {
       this.confirm.set('Please enter your name and email.');
       return;
     }
+    if (this.name.trim().length < 2) {
+      this.confirm.set('Please enter your full name.');
+      return;
+    }
+    this.submitting.set(true);
+    this.confirm.set('');
     const all = this.attachments();
-    const { send, skipped } = fitAttachments(all.filter((a) => !a.tooLarge));
-    const notSent: Attachment[] = [...all.filter((a) => a.tooLarge), ...skipped];
-    const packed = packAttachments(send);
-    const base = {
+    const full = this.message.trim();
+    const base: EnquiryBase = {
       name: this.name.trim(),
       company: this.company.trim() || undefined,
       email: this.email.trim(),
       phone: this.phone.trim() || undefined,
       segment: this.segment || undefined,
-      message: this.message.trim() || undefined,
+      message:
+        full.length > ENQUIRY_MESSAGE_MAX
+          ? full.slice(0, ENQUIRY_MESSAGE_MAX - 160).trimEnd() + '\n… (the rest is in the details sent with this enquiry)'
+          : full || undefined,
     };
-    this.submitting.set(true);
-    this.confirm.set('');
+    const details = (sent: Attachment[]) => this.buildDetails(full, sent);
+    const fits = all.filter((a) => !a.tooLarge);
+    let failure = null as { status?: number; error?: { message?: string | string[] } } | null;
+    try {
+      for (const share of [1, 0.6, 0]) {
+        const prepared = await prepareEnquiry(base, share ? fits : [], {
+          limit: Math.floor(ENQUIRY_BODY_LIMIT * (share || 1)),
+          details,
+        });
+        try {
+          const res = await firstValueFrom(this.catalog.createEnquiry(prepared.payload));
+          this.finish(res.ref, all, prepared);
+          return;
+        } catch (err) {
+          failure = err as typeof failure;
+          // only a refusal for size is tried again with less; anything else is reported as it is
+          if (failure?.status !== 413 && failure?.status !== 500) break;
+        }
+      }
+    } catch (err) {
+      failure = err as typeof failure;
+    }
+    const msg = failure?.error?.message;
+    this.confirm.set(
+      failure?.status === 429
+        ? 'Too many requests just now. Please wait a minute and press Send Enquiry again.'
+        : Array.isArray(msg)
+          ? msg.join(', ')
+          : msg || 'Could not send enquiry. Check your connection and try again.',
+    );
+    this.submitting.set(false);
+  }
 
-    const finish = (ref: string, missing: Attachment[]) => {
-      const mail = this.site.settings().contactEmail;
-      this.confirm.set(
-        `Enquiry ${ref} received. Our team will follow up shortly.` +
-          (missing.length
-            ? ` These files could not be attached: ${missing.map((a) => a.name).join(', ')}. Please email them${mail ? ' to ' + mail : ''} and mention ${ref}.`
-            : send.length
-              ? ` Your ${send.length === 1 ? 'file is' : send.length + ' files are'} saved with it.`
-              : ''),
-      );
-      this.name = '';
-      this.company = '';
-      this.email = '';
-      this.phone = '';
-      this.segment = 'own-label';
-      this.message = this.messageFromSpec;
-      this.attachments.set([]);
-      // The enquiry now holds the files, so the saved drafts are no longer needed.
-      if (!missing.length) this.designUpload.clear();
-      this.submitting.set(false);
-    };
-    const fail = (err: { error?: { message?: string | string[] } }) => {
-      const msg = err?.error?.message;
-      this.confirm.set(
-        Array.isArray(msg) ? msg.join(', ') : msg || 'Could not send enquiry. Check your connection and try again.',
-      );
-      this.submitting.set(false);
-    };
-
-    this.catalog
-      .createEnquiry({ ...base, sampleName: packed?.sampleName, sampleDataUrl: packed?.sampleDataUrl })
-      .subscribe({
-        next: (res) => finish(res.ref, notSent),
-        error: (err) => {
-          // The server refused the attachments (too big for it): still send the enquiry itself.
-          if (packed && (err?.status === 413 || err?.status === 500)) {
-            this.catalog.createEnquiry(base).subscribe({
-              next: (res) => finish(res.ref, [...notSent, ...send]),
-              error: fail,
-            });
-            return;
-          }
-          fail(err);
-        },
-      });
+  private finish(ref: string, all: AttachmentItem[], p: PreparedEnquiry) {
+    const mail = this.site.settings().contactEmail;
+    const to = mail ? ' to ' + mail : '';
+    const gone = all.filter((a) => !p.sent.some((s) => s.role === a.role && (s.from?.name ?? s.name) === a.name));
+    let text = `Enquiry ${ref} received. Our team will follow up shortly.`;
+    if (p.sent.length) text += p.sent.length === 1 ? ' Your file is saved with it.' : ` Your ${p.sent.length} files are saved with it.`;
+    if (p.reduced.length) {
+      const many = p.reduced.length > 1;
+      text += ` To fit the form's 100 KB limit, ${p.reduced.map((a) => a.from?.name ?? a.name).join(', ')} ${many ? 'were' : 'was'} sent as ${many ? 'smaller copies' : 'a smaller copy'}. For print, please email the original${many ? 's' : ''}${to} and mention ${ref}.`;
+    }
+    if (gone.length) text += ` These files could not be attached: ${gone.map((a) => a.name).join(', ')}. Please email them${to} and mention ${ref}.`;
+    this.confirm.set(text);
+    this.name = '';
+    this.company = '';
+    this.email = '';
+    this.phone = '';
+    this.segment = 'own-label';
+    this.message = this.messageFromSpec;
+    this.attachments.set([]);
+    // The enquiry now holds what it could, so the saved drafts are no longer needed (unless a file still has to be emailed).
+    if (!gone.length) this.designUpload.clear();
+    this.submitting.set(false);
   }
 }

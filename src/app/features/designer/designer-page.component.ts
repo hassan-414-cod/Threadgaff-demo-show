@@ -2339,6 +2339,12 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** The garment picture sent with the quote: the colour's main picture (its first web shoot photo), else its card picture. */
+  private productPicture(p: Product): string {
+    const id = this.selectedColorId();
+    return this.catalog.colourMainUrl(p, id) || this.catalog.cardImageUrl(p, id) || '';
+  }
+
   private async goToQuote(extra: Record<string, string | number | undefined> = {}) {
     const p = this.product();
     if (!p) return;
@@ -2364,6 +2370,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.router.navigate(['/quote'], {
       queryParams: {
         garment: p.name,
+        img: this.productPicture(p) || undefined,
         product: p.id,
         color: this.selectedColor()?.name || '',
         style: this.styleLabel(),

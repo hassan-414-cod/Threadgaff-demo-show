@@ -38,6 +38,7 @@ import {
   roleLabel,
   sizeLabel,
   unpackAttachments,
+  unpackDetails,
 } from '../../core/utils/attachments';
 import {
   DocChain,
@@ -77,6 +78,17 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
   { key: 'shipped', label: 'Shipped' },
   { key: 'delivered', label: 'Delivered' },
 ];
+
+/** What an inquiry's details say, ready to show: the garment and its picture, the logo, the customer's notes, the full text. */
+interface EnquiryView {
+  product?: { name: string; colour: string; imageUrl: string };
+  sizes: string;
+  placements: string;
+  notes: Array<{ label: string; value: string }>;
+  /** A sentence about the logo (its name, size, and whether it was sent smaller). */
+  logo: string;
+  fullMessage: string;
+}
 
 @Component({
   selector: 'tg-admin-sales-desk',
@@ -476,6 +488,53 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
             <pre class="msg">{{ e.message || 'No message provided.' }}</pre>
           </section>
 
+          @if (detailsOf(e.id); as d) {
+            @if (d.product) {
+              <section>
+                <h3>Garment</h3>
+                <div class="garment-row">
+                  @if (d.product.imageUrl) {
+                    <img class="garment-img" [src]="d.product.imageUrl" [alt]="d.product.name || 'Garment'" />
+                  }
+                  <div>
+                    <b>{{ d.product.name || '—' }}</b>
+                    @if (d.product.colour) {
+                      <div class="muted">Colour: {{ d.product.colour }}</div>
+                    }
+                    @if (d.sizes) {
+                      <div class="muted">Sizes: {{ d.sizes }}</div>
+                    }
+                    @if (d.placements) {
+                      <div class="muted">Logo placements: {{ d.placements }}</div>
+                    }
+                  </div>
+                </div>
+              </section>
+            }
+            @if (d.logo) {
+              <section>
+                <h3>Logo</h3>
+                <p class="logo-line">{{ d.logo }}</p>
+              </section>
+            }
+            @if (d.notes.length) {
+              <section>
+                <h3>Notes from the customer</h3>
+                <dl>
+                  @for (n of d.notes; track n.label) {
+                    <dt>{{ n.label }}</dt><dd>{{ n.value }}</dd>
+                  }
+                </dl>
+              </section>
+            }
+            @if (d.fullMessage && d.fullMessage !== e.message) {
+              <section>
+                <h3>Full message <small class="muted">(the request above was cut at 5000 characters)</small></h3>
+                <pre class="msg">{{ d.fullMessage }}</pre>
+              </section>
+            }
+          }
+
           @if (snapshotsOf(e.id).length) {
             <section>
               <h3>Logo placements <small class="muted">(as the customer fixed them)</small></h3>
@@ -492,7 +551,7 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
 
           @if (filesFor(e.id).length) {
             <section>
-              <h3>Customer design files</h3>
+              <h3>Logo and files from the customer</h3>
               <ul class="att-list">
                 @for (a of filesFor(e.id); track $index) {
                   <li class="att">
@@ -503,7 +562,7 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
                     } @else {
                       <span class="att-ext">{{ ext(a.name) }}</span>
                     }
-                    <span class="att-text"><strong>{{ a.name }}</strong><small>{{ role(a.role) }} · {{ size(a.size) }}</small></span>
+                    <span class="att-text"><strong>{{ a.name }}</strong><small>{{ role(a.role) }} · {{ size(a.size) }}@if (a.from) { · saved smaller (was {{ size(a.from.size) }}) }</small></span>
                     @if (a.type === 'application/pdf') {
                       <button type="button" class="btn btn-sm" (click)="openFile(a)">Open</button>
                     }
@@ -767,7 +826,7 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
                   } @else {
                     <span class="att-ext">{{ ext(a.name) }}</span>
                   }
-                  <span class="att-text"><strong>{{ a.name }}</strong><small>{{ role(a.role) }} · {{ size(a.size) }}</small></span>
+                  <span class="att-text"><strong>{{ a.name }}</strong><small>{{ role(a.role) }} · {{ size(a.size) }}@if (a.from) { · saved smaller (was {{ size(a.from.size) }}) }</small></span>
                   @if (a.type === 'application/pdf') {
                     <button type="button" class="btn btn-sm" (click)="openFile(a)">Open</button>
                   }
@@ -941,6 +1000,9 @@ const STAGES: Array<{ key: OrderStage; label: string }> = [
       dt { color: var(--ui-muted); }
       dd { margin: 0; word-break: break-word; }
       .msg { white-space: pre-wrap; font: inherit; font-size: 0.88rem; margin: 0; background: #faf8f3; border: 1px solid var(--ui-line); border-radius: 8px; padding: 12px; max-height: 260px; overflow: auto; }
+      .garment-row { display: flex; gap: 12px; align-items: flex-start; }
+      .garment-img { width: 96px; height: 120px; object-fit: contain; background: #fff; border: 1px solid var(--ui-line); border-radius: 8px; flex: none; }
+      .logo-line { margin: 0; font-size: 0.84rem; line-height: 1.5; }
       .snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 0 0 8px; }
       .snap-grid figure { margin: 0; }
       .snap-grid tg-placement-picture { border: 1px solid var(--ui-line); border-radius: 8px; cursor: zoom-in; }
@@ -1064,6 +1126,49 @@ export class AdminSalesDeskComponent implements OnInit {
     }
     return map;
   });
+  /** What each inquiry says about itself (the garment and its picture, the logo, the notes, the full text), read out of the database copy. */
+  private readonly detailsByEnquiry = computed(() => {
+    const map = new Map<string, EnquiryView>();
+    const text = (v: unknown, n = 4000) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    for (const e of this.enquiries()) {
+      const d = unpackDetails(e.sampleDataUrl) as Record<string, any> | null;
+      if (!d) continue;
+      const p = d['product'] as Record<string, unknown> | undefined;
+      const img = text(p?.['imageUrl'], 400);
+      const notes: Array<{ label: string; value: string }> = [];
+      const n = (d['notes'] || {}) as Record<string, unknown>;
+      for (const [key, label] of [['buyer', 'Buyer notes'], ['privateLabel', 'Private label notes'], ['privateLabelMaterial', 'Private label material'], ['brand', 'Brand text']] as const) {
+        const value = text(n[key], 2000);
+        if (value) notes.push({ label, value });
+      }
+      const lg = d['logo'] as Record<string, unknown> | undefined;
+      let logo = '';
+      if (lg) {
+        const orig = text(lg['originalName'], 120);
+        const origBytes = num(lg['originalBytes']);
+        const px = num(lg['width']) && num(lg['height']) ? `, ${num(lg['width'])}×${num(lg['height'])} px` : '';
+        logo = lg['attached'] === false
+          ? `${orig || 'The logo'} could not be attached to the enquiry (it is too big for the form). The customer was asked to email it.`
+          : `${text(lg['name'], 120)} · ${sizeLabel(num(lg['sentBytes']))}` +
+            (lg['reduced'] ? ` · sent as a smaller copy of ${orig} (${sizeLabel(origBytes)}${px}) to fit the form. Ask the customer for the full-size file if you need it for print.` : '');
+      }
+      map.set(e.id, {
+        product: p ? { name: text(p['name'], 120), colour: text(p['colour'], 80), imageUrl: /^https?:\/\/|^\//.test(img) ? img : '' } : undefined,
+        sizes: text(d['sizes'], 200),
+        placements: text(d['logoPlacements'], 800),
+        notes,
+        logo,
+        fullMessage: text(d['message'], 20000),
+      });
+    }
+    return map;
+  });
+
+  detailsOf(id: string): EnquiryView | null {
+    return this.detailsByEnquiry().get(id) ?? null;
+  }
+
   readonly loading = signal(false);
   readonly error = signal('');
   readonly note = signal('');
@@ -1806,6 +1911,17 @@ export class AdminSalesDeskComponent implements OnInit {
     const format = sel.value as ExportFormat | '';
     sel.value = '';
     if (!format) return;
+    const v = this.detailsOf(e.id);
+    const more: string[][] = v
+      ? [
+          ...(v.product ? [['Garment', [v.product.name, v.product.colour].filter(Boolean).join(' · ')], ['Garment picture', v.product.imageUrl]] : []),
+          ...(v.sizes ? [['Sizes', v.sizes]] : []),
+          ...(v.placements ? [['Logo placements', v.placements]] : []),
+          ...(v.logo ? [['Logo', v.logo]] : []),
+          ...v.notes.map((n) => [n.label, n.value]),
+          ...(v.fullMessage && v.fullMessage !== e.message ? [['Full message', v.fullMessage]] : []),
+        ]
+      : [];
     const table: ExportTable = {
       title: 'Inquiry ' + e.ref,
       subtitle: 'Received ' + fmtDate(e.createdAt),
@@ -1813,7 +1929,7 @@ export class AdminSalesDeskComponent implements OnInit {
       rows: [
         ['Name', e.name], ['Company', e.company || ''], ['Email', e.email], ['Phone', e.phone || ''],
         ['Segment', e.segment || ''], ['Status', e.status], ['Attachment', e.sampleName || ''],
-        ['Message', e.message || ''], ['Internal notes', e.adminNotes || ''],
+        ['Message', e.message || ''], ...more, ['Internal notes', e.adminNotes || ''],
       ],
     };
     this.exportTable(table, 'inquiry-' + e.ref, format);
