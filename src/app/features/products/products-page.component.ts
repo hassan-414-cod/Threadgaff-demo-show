@@ -88,6 +88,8 @@ interface TileSection {
   key: string;
   title: string;
   tiles: Tile[];
+  /** How many products the catalogue has (a product opened with "Show all" is still one). */
+  count: number;
 }
 
 /** One picture in the viewer. */
@@ -234,9 +236,9 @@ interface Shot {
 
         @for (s of tileSections(); track s.key) {
         <section class="cat" [attr.aria-label]="s.title">
-          <h2 class="cat-head" [attr.id]="'cat-' + s.key">{{ s.title }}<span class="cat-count">{{ s.tiles.length }}</span></h2>
+          <h2 class="cat-head" [attr.id]="'cat-' + s.key">{{ s.title }}<span class="cat-count">{{ s.count }}</span></h2>
           <div class="grid">
-          @for (t of s.tiles; track t.product.id) {
+          @for (t of s.tiles; track t.key) {
             <article class="prod" [attr.id]="t.first ? 'p-' + t.product.id : null" [attr.data-colour]="viewOf(t).colorName" [class.flash]="t.first && flashId() === t.product.id">
               @let v = viewOf(t);
               <a
@@ -259,7 +261,7 @@ interface Shot {
                 <a [routerLink]="['/designer']" [queryParams]="designerParams(t.product, v.colorId)">{{ t.product.name }}</a>
               </h3>
               <div class="prod-price">{{ priceLabel(t.product, v.colorId) }}</div>
-              @if (t.swatches.length > 1 && !swatchVis.hiddenOnShop(t.product.id)) {
+              @if (t.swatches.length > 1 && !swatchVis.hiddenOnShop(t.product.id) && !isExpanded(t.product.id)) {
                 <div class="swatches" role="group" aria-label="Colours">
                   @for (x of t.swatches; track x.id) {
                     <button
@@ -273,6 +275,16 @@ interface Shot {
                     ></button>
                   }
                 </div>
+              }
+              @if (canExpand(t.product.id)) {
+                <button
+                  type="button"
+                  class="show-all"
+                  [class.is-open]="isExpanded(t.product.id)"
+                  [attr.aria-expanded]="isExpanded(t.product.id)"
+                  [attr.aria-label]="(isExpanded(t.product.id) ? 'Collapse ' : 'Show all variants of ') + t.product.name"
+                  (click)="toggleExpanded(t.product.id)"
+                >{{ isExpanded(t.product.id) ? 'Collapse' : 'Show all' }}</button>
               }
 
               @if (t.first && pillsOf(t.product).length) {
@@ -508,6 +520,15 @@ interface Shot {
     .prod.flash .prod-name { background: color-mix(in srgb, var(--forest) 14%, transparent); }
     .prod-price { margin-top: 6px; font-size: 0.74rem; color: var(--muted); }
     .swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 100%; margin-top: 12px; }
+    /* a small pill under the tile: opens every colour variant of the product as its own tile, and closes them again */
+    .show-all {
+      margin-top: 10px; padding: 3px 12px; border: 1px solid var(--line, #d8d4cb); border-radius: 999px;
+      background: transparent; color: var(--muted); font: inherit; font-size: 0.68rem; font-weight: 600;
+      letter-spacing: 0.04em; cursor: pointer; transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .show-all:hover { background: #fff; color: var(--ink, #1a1a1a); border-color: var(--ink, #1a1a1a); }
+    .show-all:focus-visible { outline: 2px solid var(--forest, #3d4b37); outline-offset: 2px; }
+    .show-all.is-open { color: var(--forest, #3d4b37); border-color: var(--forest, #3d4b37); }
     .sw {
       flex: none;
       width: 16px;
@@ -743,7 +764,8 @@ export class ProductsPageComponent implements OnInit {
 
   /** What a tile shows now: its main colour, or the colour picked in its swatch row, each with that colour's first web shoot photo. */
   viewOf(t: Tile): { colorId: string; colorName: string; hex: string; pic: string } {
-    const id = this.clicked()[t.product.id];
+    // opened with "Show all": every tile is its own colour
+    const id = this.expanded().has(t.product.id) ? undefined : this.clicked()[t.product.id];
     const s = id ? t.swatches.find((x) => x.id === id) : undefined;
     return s
       ? { colorId: s.id, colorName: s.name, hex: s.hex, pic: s.pic }
@@ -752,6 +774,33 @@ export class ProductsPageComponent implements OnInit {
 
   pickColour(t: Tile, colorId: string) {
     this.clicked.update((c) => ({ ...c, [t.product.id]: colorId }));
+  }
+
+  /** Products opened with "Show all": one tile for each of their colours instead of one for the product. */
+  readonly expanded = signal<ReadonlySet<string>>(new Set<string>());
+
+  isExpanded(productId: string): boolean {
+    return this.expanded().has(productId);
+  }
+
+  /** "Show all" is offered when the product has more than one colour variant to show (with the filters on, that match them). */
+  canExpand(productId: string): boolean {
+    return (this.matched().get(productId)?.length ?? 0) > 1;
+  }
+
+  toggleExpanded(productId: string) {
+    const open = new Set(this.expanded());
+    if (open.has(productId)) {
+      open.delete(productId);
+      // collapsed: back to the product's own tile, in its main colour
+      this.clicked.update((c) => {
+        const { [productId]: _gone, ...rest } = c;
+        return rest;
+      });
+    } else {
+      open.add(productId);
+    }
+    this.expanded.set(open);
   }
 
   /** The values of a filter for one tile: what is ticked on its colour variant, else what its product has. */
@@ -822,10 +871,21 @@ export class ProductsPageComponent implements OnInit {
    * colours matches, in the first colour that does.
    */
   readonly tiles = computed<Tile[]>(() => {
+    const m = this.matched();
+    const out: Tile[] = [];
+    for (const p of this.ordered()) {
+      const first = m.get(p.id)?.[0];
+      if (first) out.push(first);
+    }
+    return out;
+  });
+
+  /** For each product, its colour tiles that match the filters, in the admin order of the colours. */
+  private readonly matched = computed<Map<string, Tile[]>>(() => {
     const active = this.groups()
       .map((g) => ({ code: g.code, wanted: [...(this.picked()[g.code] || [])] }))
       .filter((a) => a.wanted.length);
-    const out: Tile[] = [];
+    const out = new Map<string, Tile[]>();
     for (const p of this.ordered()) {
       const colours = this.tilesOf(p);
       const match = active.length
@@ -838,7 +898,7 @@ export class ProductsPageComponent implements OnInit {
             }),
           )
         : colours;
-      if (match.length) out.push(match[0]);
+      if (match.length) out.set(p.id, match);
     }
     return out;
   });
@@ -848,13 +908,19 @@ export class ProductsPageComponent implements OnInit {
 
   /** The tiles under their catalogue headings (T-Shirts, Hoodies…), the catalogues in the admin order. */
   readonly tileSections = computed<TileSection[]>(() => {
-    const byProduct = new Map(this.tiles().map((t) => [t.product.id, t] as const));
+    const m = this.matched();
+    const open = this.expanded();
     return this.sections()
-      .map((s) => ({
-        key: s.key,
-        title: s.title,
-        tiles: s.items.map((p) => byProduct.get(p.id)).filter((t): t is Tile => !!t),
-      }))
+      .map((s) => {
+        const products = s.items.filter((p) => m.has(p.id));
+        return {
+          key: s.key,
+          title: s.title,
+          // a product opened with "Show all" stands as one tile for each of its colours
+          tiles: products.flatMap((p) => (open.has(p.id) ? m.get(p.id)! : [m.get(p.id)![0]])),
+          count: products.length,
+        };
+      })
       .filter((s) => s.tiles.length);
   });
 
