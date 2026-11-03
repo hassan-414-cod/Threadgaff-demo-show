@@ -470,12 +470,16 @@ interface Shot {
     .cat .grid { margin-top: 0; }
     .prod { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
     .prod-pic { display: block; width: 100%; }
-    /* the window is as big as its picture, whatever its proportions: the whole picture shows, nothing is cropped */
-    .prod-frame { display: block; overflow: hidden; background: #ececee; border-radius: 8px; }
+    /* The window follows its picture's proportions so the whole picture shows, but never gets taller than about
+       4:5 (a little more, so a 3:4 picture is untouched): a very tall picture is shown whole with a plain margin
+       at the sides, so one tile cannot stretch the whole row. */
+    .prod-frame { display: block; overflow: hidden; background: #fff; border-radius: 8px; container-type: inline-size; }
     .prod-frame img {
       display: block;
       width: 100%;
       height: auto;
+      max-height: 130cqw;
+      object-fit: contain;
       transition: transform 0.35s ease, opacity 0.4s ease;
     }
     .prod-frame img.tg-pending { opacity: 0; }
