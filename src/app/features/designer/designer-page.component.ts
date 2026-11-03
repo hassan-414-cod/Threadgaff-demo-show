@@ -52,6 +52,14 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 /** Where the ticked logo placements are remembered in this browser (with the saved logo). */
 const TICKS_KEY = 'tg_logo_ticks';
 
+/** What Undo brings back: the logo copies, which placements are ticked, and which logo was selected. */
+interface UndoState {
+  placements: LogoPlacement[];
+  ticked: string[];
+  selected: string | null;
+}
+const UNDO_LIMIT = 60;
+
 /** The zoom limits of the preview, in %. */
 const ZOOM_MIN = 60;
 const ZOOM_MAX = 250;
@@ -256,6 +264,9 @@ const ZOOM_MAX = 250;
                 <span>{{ zoom() }}%</span>
                 <button type="button" (click)="zoomBy(25)" [disabled]="zoom() >= 250" aria-label="Zoom in">+</button>
                 <button type="button" class="reset" (click)="resetZoom()">Reset View</button>
+                @if (logoPreview()) {
+                  <button type="button" class="undo" (click)="undo()" [disabled]="!canUndo()" title="Undo the last change to your logos (Ctrl+Z)" aria-label="Undo the last change to your logos">↶ Undo</button>
+                }
                 @if (zoom() > 100) {
                   <span class="zoom-hint">Drag the picture to move it</span>
                 }
@@ -764,6 +775,8 @@ const ZOOM_MAX = 250;
       width: 30px; height: 28px; cursor: pointer; font: inherit;
     }
     .zoom-bar .reset { width: auto; padding: 0 10px; }
+    .zoom-bar .undo { width: auto; padding: 0 12px; margin-left: auto; font-weight: 600; color: var(--ink); }
+    .zoom-bar .undo:not(:disabled):hover { border-color: var(--ink); }
 
     /* a slim step bar: small dots joined by a thin line, the name right under each */
     .stepper-card {
@@ -1707,23 +1720,83 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ── undo: every change to the logos (ticking, moving, resizing, fixing, placing again, removing, another angle) can be taken back
+  private readonly undoStack = signal<UndoState[]>([]);
+  readonly canUndo = computed(() => this.undoStack().length > 0);
+  /** The state before a drag began; it is kept as one step when the drag ends. */
+  private dragFrom: UndoState | null = null;
+
+  private snap(): UndoState {
+    return { placements: this.placements(), ticked: this.tickedValues(), selected: this.selectedId() };
+  }
+
+  /** Keeps the state from before a change as an undo step, unless the change did nothing. */
+  private remember(before: UndoState) {
+    const now = this.snap();
+    if (JSON.stringify([before.placements, before.ticked]) === JSON.stringify([now.placements, now.ticked])) return;
+    this.undoStack.update((list) => [...list.slice(-(UNDO_LIMIT - 1)), before]);
+  }
+
+  private forgetUndo() {
+    this.undoStack.set([]);
+    this.dragFrom = null;
+  }
+
+  /** Takes back the last change to the logos and shows the logo it concerned. */
+  undo() {
+    const prev = this.undoStack().at(-1);
+    if (!prev) return;
+    this.undoStack.update((list) => list.slice(0, -1));
+    this.dragFrom = null;
+    const cur = this.placements();
+    const changed =
+      prev.placements.find((p) => JSON.stringify(cur.find((c) => c.id === p.id)) !== JSON.stringify(p)) ??
+      prev.placements.find((p) => p.id === prev.selected);
+    this.tickedValues.set(prev.ticked);
+    this.saveTicks();
+    this.placements.set(prev.placements);
+    const show = changed ?? prev.placements.find((p) => !p.fixed) ?? null;
+    this.selectedId.set(prev.placements.some((p) => p.id === prev.selected) ? prev.selected : (show?.id ?? null));
+    if (show) this.showPlacement(show);
+    this.savePlacements();
+    void this.rebuildSnapshots();
+    this.revealPreview();
+  }
+
+  /** Ctrl + Z (Cmd + Z on a Mac) undoes, unless a text box has the keyboard. */
+  @HostListener('document:keydown', ['$event'])
+  onUndoKey(e: KeyboardEvent) {
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return;
+    const t = e.target as HTMLElement | null;
+    if (t && (/^(input|textarea|select)$/i.test(t.tagName) || t.isContentEditable)) return;
+    if (!this.canUndo()) return;
+    e.preventDefault();
+    this.undo();
+  }
+
   /** Ticking a placement puts a copy of the logo on its angle picture and shows it; unticking takes it away. */
   onTick(value: string, checked: boolean) {
+    const before = this.snap();
     this.tickedValues.update((list) => (checked ? (list.includes(value) ? list : [...list, value]) : list.filter((v) => v !== value)));
     this.saveTicks();
     this.syncPlacements(checked ? value : null);
+    this.remember(before);
   }
 
   tickAll() {
+    const before = this.snap();
     this.tickedValues.set(this.placementOptions().map((o) => o.value));
     this.saveTicks();
     this.syncPlacements(null);
+    this.remember(before);
   }
 
   untickAll() {
+    const before = this.snap();
     this.tickedValues.set([]);
     this.saveTicks();
     this.syncPlacements(null);
+    this.remember(before);
   }
 
   /** Where a new copy starts: the spot of the placement, beside the design file when that is in the way. */
@@ -1782,6 +1855,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
 
   /** Called once the logo is set: the first placement is ticked when none is, and every ticked placement gets its copy. */
   private afterLogoSet() {
+    this.forgetUndo(); // a new logo starts a new history
     if (!this.tickedValues().length) {
       const first = this.placementOptions()[0];
       if (first) {
@@ -1828,6 +1902,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
 
   /** Puts a logo on another angle picture. */
   setAngle(id: string, key: string) {
+    const before = this.snap();
     this.placements.update((list) => list.map((p) => (p.id === id ? { ...p, angle: key } : p)));
     const p = this.placements().find((x) => x.id === id);
     if (p) {
@@ -1836,50 +1911,64 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     }
     this.savePlacements();
     void this.rebuildSnapshots();
+    this.remember(before);
   }
 
   /** A logo was moved or resized on the angle picture shown. */
   onLogoPlace(ev: { id: string; x: number; y: number; w: number }) {
+    if (!this.dragFrom) this.dragFrom = this.snap(); // the first move of a drag: what it was before
     this.placements.update((list) => list.map((p) => (p.id === ev.id ? { ...p, x: ev.x, y: ev.y, w: ev.w } : p)));
   }
 
   onLogoCommit() {
+    if (this.dragFrom) {
+      this.remember(this.dragFrom); // the whole drag is one step
+      this.dragFrom = null;
+    }
     this.savePlacements();
   }
 
   /** Locks a logo where it is and saves the pictures of the angles with the logos on them. */
   fixPlacement(id: string) {
+    const before = this.snap();
     this.placements.update((list) => list.map((p) => (p.id === id ? { ...p, fixed: true } : p)));
     this.selectedId.set(this.placements().find((p) => !p.fixed)?.id ?? null);
     this.savePlacements();
     void this.rebuildSnapshots();
+    this.remember(before);
   }
 
   fixAll() {
     if (!this.placements().some((p) => !p.fixed)) return;
+    const before = this.snap();
     this.placements.update((list) => list.map((p) => ({ ...p, fixed: true })));
     this.selectedId.set(null);
     this.savePlacements();
     void this.rebuildSnapshots();
+    this.remember(before);
   }
 
   /** Opens a fixed logo to place it again. */
   editPlacement(id: string) {
+    const before = this.snap();
     this.placements.update((list) => list.map((p) => (p.id === id ? { ...p, fixed: false } : p)));
     this.selectedId.set(id);
     const p = this.placements().find((x) => x.id === id);
     if (p) this.showPlacement(p);
     this.savePlacements();
     void this.rebuildSnapshots();
+    this.remember(before);
     this.revealPreview();
   }
 
   /** Puts a logo back at the spot of its placement. */
   resetPlacement(id: string) {
+    const before = this.snap();
     this.placements.update((list) =>
       list.map((p) => (p.id === id ? { ...p, ...keepInside(this.presetFor(p.label), this.logoRatio(), this.stageRatio()) } : p)),
     );
     this.savePlacements();
+    this.remember(before);
   }
 
   removePlacement(p: LogoPlacement) {
@@ -1950,6 +2039,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
       if (prev === p.id) return;
       if (prev) {
         this.placements.set([]); // another garment: it has its own placements
+        this.forgetUndo();
         this.releaseSnapshots();
       }
       if (!this.placements().length) void this.restorePlacements(p.id);
@@ -2311,6 +2401,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.designUpload.setLogo(null);
     this.placements.set([]);
     this.selectedId.set(null);
+    this.forgetUndo();
     this.releaseSnapshots();
     this.designUpload.setPlacements(null);
     this.designUpload.setSnapshots([]);
