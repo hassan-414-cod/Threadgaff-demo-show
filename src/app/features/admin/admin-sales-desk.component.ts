@@ -106,8 +106,19 @@ interface EnquiryView {
           @if (section() === 'enquiries') {
             <button type="button" class="btn" (click)="loadEnquiries()">Refresh</button>
           }
-          <select class="sel exp" aria-label="Export this list" (change)="onListExport($event)">
-            <option value="">Export list…</option>
+          @if (pickedIds().length) {
+            <span class="sel-count">{{ pickedIds().length }} selected</span>
+            <select class="sel exp exp-sel" aria-label="Export the selected rows" (change)="onSelectedExport($event)">
+              <option value="">Export selected…</option>
+              <option value="csv">CSV (Excel)</option>
+              <option value="pdf">PDF</option>
+              <option value="word">Word</option>
+              <option value="print">Print</option>
+            </select>
+            <button type="button" class="btn" (click)="clearPicks()">Clear</button>
+          }
+          <select class="sel exp" aria-label="Export the whole list" (change)="onListExport($event)">
+            <option value="">Export all…</option>
             <option value="csv">CSV (Excel)</option>
             <option value="pdf">PDF</option>
             <option value="word">Word</option>
@@ -180,6 +191,7 @@ interface EnquiryView {
               <table class="data">
                 <thead>
                   <tr>
+                    <th class="pick"><input type="checkbox" aria-label="Select all inquiries" [checked]="allPicked()" [indeterminate]="pickedIds().length > 0 && !allPicked()" (change)="pickAll($any($event.target).checked)" /></th>
                     <th>Ref</th>
                     <th>Received</th>
                     <th>Customer</th>
@@ -192,7 +204,8 @@ interface EnquiryView {
                 </thead>
                 <tbody>
                   @for (e of filteredEnquiries(); track e.id) {
-                    <tr class="row-click" (click)="openEnquiry(e)">
+                    <tr class="row-click" [class.picked]="isPicked(e.id)" (click)="openEnquiry(e)">
+                      <td class="pick" (click)="$event.stopPropagation()"><input type="checkbox" [attr.aria-label]="'Select ' + e.ref" [checked]="isPicked(e.id)" (change)="togglePick(e.id)" /></td>
                       <td><b>{{ e.ref }}</b></td>
                       <td>{{ fmt(e.createdAt) }}</td>
                       <td>
@@ -244,6 +257,7 @@ interface EnquiryView {
               <table class="data">
                 <thead>
                   <tr>
+                    <th class="pick"><input type="checkbox" aria-label="Select all quotations" [checked]="allPicked()" [indeterminate]="pickedIds().length > 0 && !allPicked()" (change)="pickAll($any($event.target).checked)" /></th>
                     <th>No.</th>
                     <th>Customer</th>
                     <th>Inquiry</th>
@@ -255,7 +269,8 @@ interface EnquiryView {
                 </thead>
                 <tbody>
                   @for (q of filteredQuotations(); track q.id) {
-                    <tr class="row-click" (click)="openDoc('quotation', q.id)">
+                    <tr class="row-click" [class.picked]="isPicked(q.id)" (click)="openDoc('quotation', q.id)">
+                      <td class="pick" (click)="$event.stopPropagation()"><input type="checkbox" [attr.aria-label]="'Select ' + q.number" [checked]="isPicked(q.id)" (change)="togglePick(q.id)" /></td>
                       <td><b>{{ q.number }}</b><small>{{ fmt(q.createdAt) }}</small></td>
                       <td>{{ q.customer.name }}<small>{{ q.customer.company || q.customer.email }}</small></td>
                       <td>{{ q.enquiryRef || '—' }}</td>
@@ -322,6 +337,7 @@ interface EnquiryView {
               <table class="data">
                 <thead>
                   <tr>
+                    <th class="pick"><input type="checkbox" aria-label="Select all invoices" [checked]="allPicked()" [indeterminate]="pickedIds().length > 0 && !allPicked()" (change)="pickAll($any($event.target).checked)" /></th>
                     <th>No.</th>
                     <th>Customer</th>
                     <th>From quotation</th>
@@ -333,7 +349,8 @@ interface EnquiryView {
                 </thead>
                 <tbody>
                   @for (i of filteredInvoices(); track i.id) {
-                    <tr class="row-click" (click)="openDoc('invoice', i.id)">
+                    <tr class="row-click" [class.picked]="isPicked(i.id)" (click)="openDoc('invoice', i.id)">
+                      <td class="pick" (click)="$event.stopPropagation()"><input type="checkbox" [attr.aria-label]="'Select ' + i.number" [checked]="isPicked(i.id)" (change)="togglePick(i.id)" /></td>
                       <td><b>{{ i.number }}</b><small>{{ fmt(i.createdAt) }}</small></td>
                       <td>{{ i.customer.name }}<small>{{ i.customer.company || i.customer.email }}</small></td>
                       <td>{{ i.quotationNumber || '—' }}</td>
@@ -382,6 +399,9 @@ interface EnquiryView {
             </button>
           }
         </div>
+        @if (filteredOrders().length) {
+          <label class="pick-all"><input type="checkbox" [checked]="allPicked()" [indeterminate]="pickedIds().length > 0 && !allPicked()" (change)="pickAll($any($event.target).checked)" /> Select all</label>
+        }
         @if (!filteredOrders().length) {
           <div class="panel">
             <div class="empty">
@@ -391,8 +411,9 @@ interface EnquiryView {
         } @else {
           <div class="order-grid">
             @for (o of filteredOrders(); track o.id) {
-              <article class="order-card">
+              <article class="order-card" [class.picked]="isPicked(o.id)">
                 <header>
+                  <input class="pick-box" type="checkbox" [attr.aria-label]="'Select ' + o.number" [checked]="isPicked(o.id)" (change)="togglePick(o.id)" />
                   <div>
                     <b>{{ o.number }}</b>
                     <small>{{ o.customer.name }}{{ o.customer.company ? ' · ' + o.customer.company : '' }}</small>
@@ -942,6 +963,15 @@ interface EnquiryView {
       table.data td small { display: block; color: var(--ui-muted); font-size: 0.76rem; margin-top: 2px; }
       table.data tr:last-child td { border-bottom: 0; }
       .row-click { cursor: pointer; }
+      .picked td { background: #f3f6ee; }
+      th.pick, td.pick { width: 34px; padding-right: 0; }
+      .pick input, .pick-box, .pick-all input { width: 16px; height: 16px; margin: 0; accent-color: #3d4b37; cursor: pointer; }
+      .pick-all { display: inline-flex; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 600; margin: 0 0 12px; cursor: pointer; }
+      .order-card.picked { box-shadow: 0 0 0 2px #3d4b37; }
+      .order-card header .pick-box { margin-right: 10px; flex: none; }
+      .order-card header .pick-box + div { margin-right: auto; }
+      .sel-count { font-size: 0.78rem; font-weight: 700; color: var(--ui-muted); }
+      .exp-sel { border-color: #3d4b37; }
       .row-click:hover td { background: #faf8f3; }
       .right { text-align: right; }
       .nowrap { white-space: nowrap; }
@@ -1176,6 +1206,62 @@ export class AdminSalesDeskComponent implements OnInit {
   readonly enqStatus = signal('');
   readonly docSearch = signal('');
   readonly orderFilter = signal('');
+  // ── ticking rows to export only those (each list keeps its own ticks)
+  readonly picks = signal<Record<string, string[]>>({});
+
+  private visibleIds(): string[] {
+    const sec = this.section();
+    return sec === 'enquiries'
+      ? this.filteredEnquiries().map((e) => e.id)
+      : sec === 'quotations'
+        ? this.filteredQuotations().map((q) => q.id)
+        : sec === 'invoices'
+          ? this.filteredInvoices().map((i) => i.id)
+          : this.filteredOrders().map((o) => o.id);
+  }
+
+  /** The ticked rows that are on screen now (a row hidden by the search or a filter is not exported). */
+  readonly pickedIds = computed(() => {
+    const mine = new Set(this.picks()[this.section()] ?? []);
+    return this.visibleIds().filter((id) => mine.has(id));
+  });
+  readonly allPicked = computed(() => {
+    const n = this.visibleIds().length;
+    return n > 0 && this.pickedIds().length === n;
+  });
+
+  isPicked(id: string): boolean {
+    return (this.picks()[this.section()] ?? []).includes(id);
+  }
+
+  togglePick(id: string) {
+    const sec = this.section();
+    this.picks.update((p) => {
+      const cur = new Set(p[sec] ?? []);
+      if (cur.has(id)) cur.delete(id);
+      else cur.add(id);
+      return { ...p, [sec]: [...cur] };
+    });
+  }
+
+  /** The box in the header: ticks (or unticks) every row that is on screen. */
+  pickAll(on: boolean) {
+    const sec = this.section();
+    this.picks.update((p) => {
+      const cur = new Set(p[sec] ?? []);
+      for (const id of this.visibleIds()) {
+        if (on) cur.add(id);
+        else cur.delete(id);
+      }
+      return { ...p, [sec]: [...cur] };
+    });
+  }
+
+  clearPicks() {
+    const sec = this.section();
+    this.picks.update((p) => ({ ...p, [sec]: [] }));
+  }
+
   readonly selected = signal<Enquiry | null>(null);
   readonly quoteForm = signal<QuoteForm | null>(null);
   notesDraft = '';
@@ -1830,22 +1916,35 @@ export class AdminSalesDeskComponent implements OnInit {
     if (!openPrint(html)) this.error.set('Pop-up blocked. Allow pop-ups to print.');
   }
 
-  /** The list on screen (with its search / filters) as a table. */
-  private listTable(format: ExportFormat): { table: ExportTable; file: string } {
-    const sub = new Date().toLocaleDateString('en-GB') + ' · Threadgaff';
+  /** The list on screen (with its search / filters) as a table; with `onlyPicked`, just the rows ticked in it. */
+  private listTable(format: ExportFormat, onlyPicked = false): { table: ExportTable; file: string } {
+    const picked = new Set(this.pickedIds());
+    const keep = <T extends { id: string }>(list: T[]): T[] => (onlyPicked ? list.filter((x) => picked.has(x.id)) : list);
+    const sub = new Date().toLocaleDateString('en-GB') + ' · Threadgaff' + (onlyPicked ? ' · ' + picked.size + ' selected' : '');
+    const tag = onlyPicked ? '-selected' : '';
     const sec = this.section();
     if (sec === 'enquiries') {
       const columns = ['Ref', 'Received', 'Name', 'Company', 'Email', 'Phone', 'Segment', 'Status'];
-      if (format === 'csv') columns.push('Message');
+      if (format === 'csv') columns.push('Message', 'Garment', 'Logo', 'Buyer notes', 'Private label notes');
       return {
-        file: 'inquiries',
+        file: 'inquiries' + tag,
         table: {
           title: 'Inquiries',
           subtitle: sub,
           columns,
-          rows: this.filteredEnquiries().map((e) => {
+          rows: keep(this.filteredEnquiries()).map((e) => {
             const row = [e.ref, fmtDate(e.createdAt), e.name, e.company || '', e.email, e.phone || '', e.segment || '', e.status];
-            if (format === 'csv') row.push(e.message || '');
+            if (format === 'csv') {
+              const v = this.detailsOf(e.id);
+              const note = (label: string) => v?.notes.find((n) => n.label === label)?.value ?? '';
+              row.push(
+                e.message || '',
+                v?.product ? [v.product.name, v.product.colour].filter(Boolean).join(' · ') : '',
+                v?.logo || '',
+                note('Buyer notes'),
+                note('Private label notes'),
+              );
+            }
             return row;
           }),
         },
@@ -1853,13 +1952,13 @@ export class AdminSalesDeskComponent implements OnInit {
     }
     if (sec === 'quotations') {
       return {
-        file: 'quotations',
+        file: 'quotations' + tag,
         table: {
           title: 'Quotations',
           subtitle: sub,
           columns: ['No.', 'Date', 'Customer', 'Company', 'Inquiry', 'Valid until', 'Total', 'Status'],
           right: [6],
-          rows: this.filteredQuotations().map((q) => [
+          rows: keep(this.filteredQuotations()).map((q) => [
             q.number, fmtDate(q.createdAt), q.customer.name, q.customer.company, q.enquiryRef || '',
             q.validUntil || '', fmtMoney(docTotals(q).total, q.currency), q.status,
           ]),
@@ -1868,13 +1967,13 @@ export class AdminSalesDeskComponent implements OnInit {
     }
     if (sec === 'invoices') {
       return {
-        file: 'invoices',
+        file: 'invoices' + tag,
         table: {
           title: 'Invoices',
           subtitle: sub,
           columns: ['No.', 'Date', 'Customer', 'Quotation', 'Due', 'Total', 'Status'],
           right: [5],
-          rows: this.filteredInvoices().map((i) => [
+          rows: keep(this.filteredInvoices()).map((i) => [
             i.number, fmtDate(i.createdAt), i.customer.name, i.quotationNumber || '', i.dueDate,
             fmtMoney(docTotals(i).total, i.currency), i.status,
           ]),
@@ -1882,13 +1981,13 @@ export class AdminSalesDeskComponent implements OnInit {
       };
     }
     return {
-      file: 'orders',
+      file: 'orders' + tag,
       table: {
         title: 'Orders',
         subtitle: sub,
         columns: ['No.', 'Date', 'Customer', 'Invoice', 'Items', 'Total', 'Stage', 'Tracking'],
         right: [5],
-        rows: this.filteredOrders().map((o) => [
+        rows: keep(this.filteredOrders()).map((o) => [
           o.number, fmtDate(o.createdAt), o.customer.name, o.invoiceNumber || '',
           o.items.map((x) => x.description + ' × ' + x.qty).join('; '),
           fmtMoney(docTotals(o).total, o.currency), this.stageLabel(o.stage), o.tracking || '',
@@ -1903,6 +2002,20 @@ export class AdminSalesDeskComponent implements OnInit {
     sel.value = '';
     if (!format) return;
     const { table, file } = this.listTable(format);
+    this.exportTable(table, file, format);
+  }
+
+  /** Exports only the rows that are ticked in the list. */
+  onSelectedExport(ev: Event) {
+    const sel = ev.target as HTMLSelectElement;
+    const format = sel.value as ExportFormat | '';
+    sel.value = '';
+    if (!format) return;
+    if (!this.pickedIds().length) {
+      this.error.set('Tick the rows you want to export first.');
+      return;
+    }
+    const { table, file } = this.listTable(format, true);
     this.exportTable(table, file, format);
   }
 
