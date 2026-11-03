@@ -1,4 +1,5 @@
-import { Component, OnDestroy, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import { Component, HostListener, OnDestroy, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import {
@@ -17,7 +18,7 @@ import { SiteSettingsService } from '../../core/services/site-settings.service';
 import { SwatchVisibilityService } from '../../core/services/swatch-visibility.service';
 import { LEFT_CHEST, logoZoneFor } from './logo-zones';
 import { LOGO_ACCEPT, LOGO_RULES, checkLogo } from './logo-rules';
-import { LogoPlacement, Spot, keepInside, newPlacement, renderSnapshot, spotOf } from './logo-placement';
+import { LogoPlacement, Spot, keepInside, newPlacement, renderSnapshot } from './logo-placement';
 import { LogoLayerComponent } from './logo-layer.component';
 import { MultiSelectComponent } from '../../shared/multi-select.component';
 import { PlacementPictureComponent } from '../../shared/placement-picture.component';
@@ -50,10 +51,14 @@ const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 /** Where the ticked logo placements are remembered in this browser (with the saved logo). */
 const TICKS_KEY = 'tg_logo_ticks';
 
+/** The zoom limits of the preview, in %. */
+const ZOOM_MIN = 60;
+const ZOOM_MAX = 250;
+
 @Component({
   selector: 'tg-designer-page',
   standalone: true,
-  imports: [RouterLink, FormsModule, PlacementPictureComponent, LogoLayerComponent, MultiSelectComponent],
+  imports: [RouterLink, FormsModule, NgTemplateOutlet, PlacementPictureComponent, LogoLayerComponent, MultiSelectComponent],
   template: `
     <div class="des-page" [class.is-picking]="!product()">
       @if (!product() && loadingProduct()) {
@@ -136,46 +141,31 @@ const TICKS_KEY = 'tg_logo_ticks';
 
           <div class="studio-grid">
             <section class="preview-col" aria-label="Live preview">
-              <div class="preview-main" [class.no-rail]="!outlookViews().length">
-                <aside class="rail" aria-label="Pictures of this garment">
-                  <div class="rail-scroll">
-                    @if (hasShootPhotos()) {
-                      <p class="rail-h">Photos</p>
-                      @for (view of outlookViews(); track view.key; let i = $index) {
-                        @if (view.angle === 'shoot') {
-                          <button type="button" class="thumb" [class.on]="currentViewIndex() === i" (click)="outlookIndex.set(i)" [attr.aria-label]="view.label">
-                            <img [src]="view.url" [alt]="view.label" />
-                            <span>{{ view.label }}</span>
-                          </button>
-                        }
-                      }
+              <div class="preview-main" [class.no-rail]="!railAngles().length">
+                @if (railAngles().length) {
+                  <aside class="rail" aria-label="Angle pictures">
+                    <p class="rail-h">Angles</p>
+                    @for (t of railAngles(); track t.key) {
+                      <ng-container [ngTemplateOutlet]="angleThumb" [ngTemplateOutletContext]="{ $implicit: t }" />
                     }
-                    @if (hasAnglePictures()) {
-                      <p class="rail-h">Angles</p>
-                      @for (view of outlookViews(); track view.key; let i = $index) {
-                        @if (view.angle !== 'shoot') {
-                          <button type="button" class="thumb" [class.on]="currentViewIndex() === i" (click)="outlookIndex.set(i)" [attr.aria-label]="view.label + ' angle'">
-                            <span class="thumb-pic">
-                              <img [src]="view.url" [alt]="view.label" />
-                              @if (logoPreview()) {
-                                @for (p of placements(); track p.id) {
-                                  @let s = spotFor(p, i);
-                                  <img class="mini-logo" [src]="logoPreview()!" alt="" [style.left.%]="s.x" [style.top.%]="s.y" [style.width.%]="s.w" />
-                                }
-                              }
-                            </span>
-                            <span>{{ view.label }}</span>
-                          </button>
-                        }
-                      }
-                    }
-                  </div>
-                </aside>
+                  </aside>
+                }
                 <div class="stage-col">
-                  <div class="stage-wrap" [style.max-width.px]="stageMaxWidth()">
-                    <span class="stage-tag">{{ currentViewLabel() }}</span>
-                    <div class="stage" [style.aspect-ratio]="stageRatio()" [style.transform]="'scale(' + zoom() / 100 + ')'">
-                      <img class="stage-img" [src]="previewSrc()" [alt]="product()!.name" (load)="onStageLoad($event)" />
+                  <div
+                    class="stage-wrap"
+                    [class.pannable]="zoom() > 100"
+                    [class.panning]="panning()"
+                    [style.touch-action]="zoom() > 100 ? 'none' : 'pan-y'"
+                    [style.max-width.px]="stageMaxWidth()"
+                    [style.--ratio]="stageRatio()"
+                    (pointerdown)="onPanDown($event)"
+                    (pointermove)="onPanMove($event)"
+                    (pointerup)="onPanUp($event)"
+                    (pointercancel)="onPanUp($event)"
+                    (wheel)="onWheel($event)"
+                  >
+                    <div class="stage" [style.aspect-ratio]="stageRatio()" [style.transform]="stageTransform()">
+                      <img class="stage-img" [src]="previewSrc()" [alt]="product()!.name" draggable="false" (load)="onStageLoad($event)" />
                       @if (designPreviewUrl()) {
                         <div class="stage-design" [class.blend]="designIsJpeg()">
                           <img [src]="designPreviewUrl()!" alt="Your uploaded design" />
@@ -183,8 +173,7 @@ const TICKS_KEY = 'tg_logo_ticks';
                       }
                       @if (showLogoLayer()) {
                         <tg-logo-layer
-                          [placements]="placements()"
-                          [viewKey]="currentAngleKey()"
+                          [placements]="shownPlacements()"
                           [logoUrl]="logoPreview()!"
                           [logoRatio]="logoRatio()"
                           [stageRatio]="stageRatio()"
@@ -194,12 +183,56 @@ const TICKS_KEY = 'tg_logo_ticks';
                           (commit)="onLogoCommit()"
                           (picked)="selectedId.set($event)"
                           (fix)="fixPlacement($event)"
+                          (again)="editPlacement($event)"
                         />
                       }
                     </div>
                   </div>
+                  @if (stripGroups().length) {
+                    <div class="strip" aria-label="More pictures of this garment">
+                      @for (g of stripGroups(); track g.name) {
+                        <div class="strip-group">
+                          <p class="strip-h">{{ g.name }}</p>
+                          <div class="strip-row">
+                            @for (t of g.items; track t.key) {
+                              <ng-container [ngTemplateOutlet]="t.angle ? angleThumb : shootThumb" [ngTemplateOutletContext]="{ $implicit: t }" />
+                            }
+                          </div>
+                        </div>
+                      }
+                    </div>
+                  }
                 </div>
               </div>
+              <ng-template #angleThumb let-t>
+                <button
+                  type="button"
+                  class="thumb"
+                  [class.on]="currentViewIndex() === t.index"
+                  [class.has]="placementsOn(t.index).length > 0"
+                  (click)="outlookIndex.set(t.index)"
+                  [attr.aria-label]="t.label + ' angle' + (placementsOn(t.index).length ? ', ' + placementsOn(t.index).length + ' logo(s)' : '')"
+                >
+                  <span class="thumb-pic">
+                    <img [src]="t.url" [alt]="t.label" />
+                    @if (logoPreview()) {
+                      @for (p of placementsOn(t.index); track p.id) {
+                        <img class="mini-logo" [src]="logoPreview()!" alt="" [style.left.%]="p.x" [style.top.%]="p.y" [style.width.%]="p.w" />
+                      }
+                      @if (placementsOn(t.index).length) {
+                        <i class="thumb-badge" aria-hidden="true">{{ placementsOn(t.index).length }}</i>
+                      }
+                    }
+                  </span>
+                  <span>{{ t.label }}</span>
+                </button>
+              </ng-template>
+              <ng-template #shootThumb let-t>
+                <button type="button" class="thumb" [class.on]="currentViewIndex() === t.index" (click)="outlookIndex.set(t.index)" [attr.aria-label]="t.label">
+                  <img [src]="t.url" [alt]="t.label" />
+                  <span>{{ t.label }}</span>
+                </button>
+              </ng-template>
               @if (logoHint(); as h) {
                 <p class="logo-note" role="status">
                   {{ h.text }}
@@ -226,10 +259,13 @@ const TICKS_KEY = 'tg_logo_ticks';
                 </div>
               }
               <div class="zoom-bar">
-                <button type="button" (click)="zoomBy(-10)" aria-label="Zoom out">−</button>
+                <button type="button" (click)="zoomBy(-25)" [disabled]="zoom() <= 60" aria-label="Zoom out">−</button>
                 <span>{{ zoom() }}%</span>
-                <button type="button" (click)="zoomBy(10)" aria-label="Zoom in">+</button>
+                <button type="button" (click)="zoomBy(25)" [disabled]="zoom() >= 250" aria-label="Zoom in">+</button>
                 <button type="button" class="reset" (click)="resetZoom()">Reset View</button>
+                @if (zoom() > 100) {
+                  <span class="zoom-hint">Drag the picture to move it</span>
+                }
               </div>
             </section>
 
@@ -376,20 +412,23 @@ const TICKS_KEY = 'tg_logo_ticks';
               </div>
               @if (logoPreview() && placements().length) {
                 <div class="field">
-                  <div class="pl-head">
-                    <span class="lbl">Your logos</span>
-                    <label class="switch">
-                      <input type="checkbox" [checked]="sameOnAll()" (change)="sameOnAll.set($any($event.target).checked)" />
-                      <span>Same position on every angle</span>
-                    </label>
-                  </div>
+                  <span class="lbl">Your logos</span>
+                  <p class="hint">Each logo sits on the angle picture of its placement. Pick another angle for it if you like, fix it, or place it again.</p>
                   <ul class="pl-list">
                     @for (p of placements(); track p.id) {
-                      <li [class.draft]="!p.fixed" [class.sel]="!p.fixed && p.id === selectedId()" (click)="p.fixed ? null : selectedId.set(p.id)">
+                      <li [class.draft]="!p.fixed" [class.sel]="p.id === selectedId()" (click)="selectLogo(p)">
                         <span class="pl-name"><b>{{ p.label }}</b></span>
+                        <label class="pl-on">
+                          <span>on</span>
+                          <select [ngModel]="p.angle" (ngModelChange)="setAngle(p.id, $event)" (click)="$event.stopPropagation()" aria-label="Angle picture for this logo">
+                            @for (s of angleSlots(); track s.key) {
+                              <option [value]="s.key">{{ s.label }}</option>
+                            }
+                          </select>
+                        </label>
                         @if (p.fixed) {
                           <span class="pl-ok">✓ Fixed</span>
-                          <button type="button" class="linkish" (click)="editPlacement(p.id); $event.stopPropagation()">Move</button>
+                          <button type="button" class="linkish" (click)="editPlacement(p.id); $event.stopPropagation()">Place again</button>
                         } @else {
                           <button type="button" class="pl-fix" (click)="fixPlacement(p.id); $event.stopPropagation()">Fix</button>
                           <button type="button" class="linkish" (click)="resetPlacement(p.id); $event.stopPropagation()">Reset</button>
@@ -633,33 +672,45 @@ const TICKS_KEY = 'tg_logo_ticks';
       background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
     }
     .preview-col { padding: 12px; }
-    .preview-main { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; align-items: stretch; }
+    /* The angle pictures stand in a column on the left of the preview box, as many as fit its height (so the column
+       never scrolls). Under the box are the webshoots, and the angle pictures that did not fit in the column. */
+    .preview-main { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; align-items: start; }
     .preview-main.no-rail { grid-template-columns: 1fr; }
-    /* One column beside the preview box holds the model photos and the angle pictures. It is as tall as the
-       preview box and no taller: more pictures than fit slide (scroll) inside it. */
-    .rail { position: relative; min-height: 0; }
-    .rail-scroll {
-      position: absolute; inset: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
-      padding: 0 4px 2px 0; scrollbar-width: thin; scrollbar-color: #c9c5b8 transparent;
-      scroll-behavior: smooth; overscroll-behavior: contain;
-    }
-    .rail-h { flex: none; margin: 2px 0 -2px; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
-    .rail-h:not(:first-child) { margin-top: 8px; }
-    .stage-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .rail { display: flex; flex-direction: column; gap: 8px; }
+    .rail-h, .strip-h { margin: 0; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+    .stage-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
     .stage-col .stage-wrap { margin-inline: auto; }
+    .strip { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+    .strip-group { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+    .strip-row { display: flex; flex-wrap: wrap; gap: 8px; }
     .thumb {
-      flex: none; border: 1px solid var(--line); border-radius: 6px; background: #fff; padding: 0;
+      flex: none; width: 66px; border: 1px solid var(--line); border-radius: 6px; background: #fff; padding: 0;
       overflow: hidden; cursor: pointer; font: inherit; color: inherit;
     }
+    .strip .thumb { width: 62px; }
     .thumb.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+    /* an angle picture that carries logos is marked, so every angle the logos are on can be seen at a glance */
+    .thumb.has:not(.on) { border-color: #3d6b4f; box-shadow: 0 0 0 1px rgba(61, 107, 79, 0.35); }
+    .thumb-badge {
+      position: absolute; right: 4px; top: 4px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 999px;
+      background: #3d4b37; color: #fff; font-style: normal; font-size: 0.6rem; font-weight: 800; line-height: 16px; text-align: center;
+    }
     .thumb img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; display: block; background: #fff; }
     .thumb-pic { position: relative; display: block; }
-    /* the logos, small, on the angle pictures of the column */
+    /* the logos, small, on the angle pictures */
     .thumb .mini-logo { position: absolute; transform: translateX(-50%); height: auto; aspect-ratio: auto; object-fit: contain; background: none; pointer-events: none; }
     .thumb > span:last-child {
       display: block; text-align: center; font-size: 0.58rem; font-weight: 700;
       text-transform: uppercase; padding: 3px; border-top: 1px solid var(--line); color: var(--muted);
     }
+    .zoom-hint { font-size: 0.7rem; color: var(--muted); margin-left: 6px; }
+    .zoom-bar button:disabled { opacity: 0.4; cursor: default; }
+    /* zoomed, the picture can be dragged; at 100% a finger on it still scrolls the page */
+    .stage-wrap { user-select: none; -webkit-user-select: none; }
+    .stage-wrap.pannable { cursor: grab; }
+    .stage-wrap.panning { cursor: grabbing; }
+    .stage-wrap.panning .stage { transition: none; }
+    .stage-wrap img { -webkit-user-drag: none; }
     /* The preview box takes the proportions of the picture it shows (set from the picture itself, 4:5 until it
        loads) and hugs it: the whole picture fills the box, nothing is cropped and there are no white bars,
        however many thumbnails stand beside it. */
@@ -683,14 +734,12 @@ const TICKS_KEY = 'tg_logo_ticks';
     }
     .pl-add { background: #fff; color: #3d4b37; padding: 6px 14px; }
     .stage-wrap { position: relative; }
-    .stage-tag {
-      position: absolute; left: 8px; top: 8px; z-index: 5; background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line);
-      border-radius: 999px; font-size: 0.64rem; font-weight: 700; padding: 3px 10px; color: var(--ink); pointer-events: none;
-    }
     .pl-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 2px; }
     .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; color: var(--muted); cursor: pointer; }
     .switch input { width: 15px; height: 15px; margin: 0; accent-color: #3d4b37; }
-    .pl-list li { cursor: default; }
+    .pl-list li { cursor: pointer; flex-wrap: wrap; }
+    .pl-on { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; color: var(--muted); }
+    .pl-on select { font: inherit; font-size: 0.72rem; font-weight: 600; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); max-width: 110px; }
     .pl-list li.draft { border-color: #cbd6c3; cursor: pointer; background: #fff; }
     .pl-list li.sel { border-color: #3d4b37; background: #f3f6ef; box-shadow: 0 0 0 2px rgba(61, 75, 55, 0.12); }
     .snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin: 10px 0; }
@@ -930,14 +979,38 @@ const TICKS_KEY = 'tg_logo_ticks';
       .summary-col { position: static; }
       .value-bar, .info-grid { grid-template-columns: 1fr 1fr; }
     }
+    /* Phones: the picture comes first, sized to fit the screen, with a small swipeable strip of the other
+       pictures right under it (the model photos, then the angles). Nothing runs off the edge. */
     @media (max-width: 700px) {
-      .preview-main { grid-template-columns: 1fr; }
-      .rail { position: static; }
-      .rail-scroll { position: static; flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 0 0 4px; }
-      .rail-h { display: none; }
-      .thumb { min-width: 72px; }
-      .value-bar, .info-grid, .field.two, .cta-row { grid-template-columns: 1fr; }
+      .des-page { padding: 12px 12px 40px; }
+      /* a tighter heading and step bar, so the picture starts higher on the screen */
+      .studio-back { margin-bottom: 4px; }
+      .studio-head h1 { font-size: 1.5rem; margin-bottom: 4px; }
+      .studio-head p {
+        margin-bottom: 10px; font-size: 0.8rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
       }
+      .stepper-card { padding: 7px 10px 6px; margin-bottom: 10px; }
+      .st-label { font-size: 0.62rem; }
+      .preview-col { padding: 10px; }
+      /* "Your logos": the name on its own line, then the angle, Fix and the rest */
+      .pl-list li { gap: 6px 10px; }
+      .pl-name { flex: 1 0 100%; }
+      .preview-main { grid-template-columns: 1fr; gap: 8px; }
+      .thumb, .strip .thumb { width: 58px; }
+      .thumb > span:last-child { font-size: 0.5rem; padding: 2px 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .thumb-badge { right: 3px; top: 3px; min-width: 15px; height: 15px; line-height: 15px; font-size: 0.56rem; }
+      .strip { gap: 8px 16px; }
+      /* the whole picture always fits the screen: never taller than about 58% of it */
+      .stage-wrap { max-width: min(100%, calc(var(--ratio, 0.8) * 58vh)) !important; }
+      .zoom-bar { margin-top: 6px; flex-wrap: wrap; }
+      .logo-note { font-size: 0.7rem; }
+      .value-bar, .info-grid, .field.two, .cta-row { grid-template-columns: 1fr; }
+    }
+    @supports (height: 1svh) {
+      @media (max-width: 700px) {
+        .stage-wrap { max-width: min(100%, calc(var(--ratio, 0.8) * 58svh)) !important; }
+      }
+    }
   `,
 })
 
@@ -993,8 +1066,6 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   readonly tickedValues = signal<string[]>([]);
   /** The logo copy that is selected on the preview (the one with the handle and the Fix button). */
   readonly selectedId = signal<string | null>(null);
-  /** Moving or resizing a logo changes it on every angle picture (when off: on the picture shown only). */
-  readonly sameOnAll = signal(true);
   readonly buyerNotes = signal('');
   readonly saveMsg = signal('');
   readonly privateLabelValues = signal<string[]>([]);
@@ -1104,7 +1175,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   readonly draftCount = computed(() => this.placements().filter((p) => !p.fixed).length);
   readonly placementSummary = computed(() =>
     this.fixedPlacements()
-      .map((p) => p.label)
+      .map((p) => `${p.label} (${this.angleLabelOf(p.angle)})`)
       .join('; '),
   );
 
@@ -1118,31 +1189,89 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
   readonly hasShootPhotos = computed(() => this.outlookViews().some((v) => v.angle === 'shoot'));
   readonly hasAnglePictures = computed(() => this.outlookViews().some((v) => v.angle !== 'shoot'));
 
+  /** Every picture of this colour as a thumbnail: the angle pictures and the model (web shoot) photos. */
+  private readonly thumbs = computed(() => {
+    const slots = this.angleSlots();
+    return this.outlookViews().map((v, index) => ({
+      key: v.key,
+      index,
+      url: v.url,
+      label: v.label,
+      angle: v.angle !== 'shoot',
+      slot: slots.find((s) => s.index === index)?.key ?? '',
+    }));
+  });
+  readonly angleThumbs = computed(() => this.thumbs().filter((t) => t.angle));
+  readonly shootThumbs = computed(() => this.thumbs().filter((t) => !t.angle));
+
+  /** The height of the preview box, measured, to know how many angle pictures fit beside it. */
+  readonly stageHeight = signal(0);
+  /** True on a phone, where there is no column beside the picture. */
+  readonly narrow = signal(typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches);
+
+  /** How many angle pictures stand in the column beside the preview: as many as fit the height of the box, so it never scrolls. */
+  readonly railCapacity = computed(() => {
+    if (this.narrow()) return 0;
+    const h = this.stageHeight();
+    return h > 0 ? Math.max(1, Math.floor((h - 22 + 8) / 112)) : 4;
+  });
+  readonly railAngles = computed(() => this.angleThumbs().slice(0, this.railCapacity()));
+
+  /** Under the preview: the webshoots, and the angle pictures that did not fit in the column (all of them on a phone). */
+  readonly stripGroups = computed(() => {
+    const more = this.angleThumbs().slice(this.railCapacity());
+    const shoots = this.shootThumbs();
+    const groups: Array<{ name: string; items: typeof more }> = [];
+    if (this.narrow()) {
+      if (more.length) groups.push({ name: 'Angles', items: more });
+      if (shoots.length) groups.push({ name: 'Webshots', items: shoots });
+    } else {
+      if (shoots.length) groups.push({ name: 'Webshots', items: shoots });
+      if (more.length) groups.push({ name: 'More angles', items: more });
+    }
+    return groups;
+  });
+
   /** True while a model (web shoot) photo is shown: a logo cannot be placed on those. */
   readonly onModelPhoto = computed(() => this.outlookViews()[this.currentViewIndex()]?.angle === 'shoot');
 
-  /** The slot of an angle picture among the angle pictures (a0, a1 …); '' for a model photo. It stays the same when the colour changes. */
+  /** The angle pictures in order, with their slot (a0, a1 …), their position in the column and a name (a repeated name gets a number). */
+  readonly angleSlots = computed(() => {
+    const out: Array<{ key: string; label: string; index: number; angle: string }> = [];
+    const seen = new Map<string, number>();
+    this.outlookViews().forEach((v, index) => {
+      if (v.angle === 'shoot') return;
+      const n = (seen.get(v.label) ?? 0) + 1;
+      seen.set(v.label, n);
+      out.push({ key: 'a' + out.length, label: n > 1 ? `${v.label} ${n}` : v.label, index, angle: v.angle });
+    });
+    return out;
+  });
+
+  /** The slot of the angle picture at a position of the column; '' for a model photo. */
   angleKeyOf(index: number): string {
-    const views = this.outlookViews();
-    if (!views[index] || views[index].angle === 'shoot') return '';
-    let n = -1;
-    for (let i = 0; i <= index; i++) if (views[i].angle !== 'shoot') n++;
-    return 'a' + n;
+    return this.angleSlots().find((s) => s.index === index)?.key ?? '';
   }
   readonly currentAngleKey = computed(() => this.angleKeyOf(this.currentViewIndex()));
 
-  /** Where a logo sits on one picture of the rail (for its small preview). */
-  spotFor(p: LogoPlacement, index: number): Spot {
-    return spotOf(p, this.angleKeyOf(index));
+  angleLabelOf(key: string): string {
+    return this.angleSlots().find((s) => s.key === key)?.label ?? 'angle';
   }
 
-  readonly currentViewLabel = computed(() => {
-    const v = this.outlookViews()[this.currentViewIndex()];
-    return v ? (v.angle === 'shoot' ? `Model photo · ${v.label}` : `${v.label} angle`) : '';
+  /** The logos on the angle picture at a position of the column (for its small preview and its badge). */
+  placementsOn(index: number): LogoPlacement[] {
+    const key = this.angleKeyOf(index);
+    return key ? this.placements().filter((p) => p.angle === key) : [];
+  }
+
+  /** The logos on the angle picture shown in the preview. */
+  readonly shownPlacements = computed(() => {
+    const key = this.currentAngleKey();
+    return key ? this.placements().filter((p) => p.angle === key) : [];
   });
 
   /** The logos are laid over the angle pictures only. */
-  readonly showLogoLayer = computed(() => !!this.logoPreview() && this.placements().length > 0 && !this.onModelPhoto());
+  readonly showLogoLayer = computed(() => !!this.logoPreview() && this.shownPlacements().length > 0 && !this.onModelPhoto());
 
   /** Said under the preview when a model photo is shown while logos are placed. */
   readonly logoHint = computed<{ text: string; go?: string } | null>(() =>
@@ -1290,9 +1419,12 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.revokeDesignPreview();
+    this.stageObserver?.disconnect();
+    this.phoneQuery?.removeEventListener('change', this.onPhoneChange);
   }
 
   ngOnInit() {
+    this.phoneQuery?.addEventListener('change', this.onPhoneChange);
     this.site.load(); // the templates of attribute options live in the site settings
     // Bring back the uploads saved from an earlier visit (design file + logo).
     void this.designUpload.restore().then((f) => {
@@ -1397,19 +1529,182 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.goStep(this.currentStep() - 1);
   }
 
+  // ── zoom (up to 250%) and moving the picture while it is zoomed: drag it, pinch it, double-tap it
+  readonly panX = signal(0);
+  readonly panY = signal(0);
+  readonly panning = signal(false);
+  readonly stageTransform = computed(() => `translate(${this.panX()}px, ${this.panY()}px) scale(${this.zoom() / 100})`);
+  private readonly pointers = new Map<number, { x: number; y: number }>();
+  private panStart: { x: number; y: number; px: number; py: number } | null = null;
+  private pinch: { dist: number; zoom: number } | null = null;
+  private lastTap: { t: number; x: number; y: number } | null = null;
+  private downAt: { x: number; y: number } | null = null;
+  private tapMoved = false;
+
+  /** Keeps the picture covering the box: it can be moved only as far as the zoom has made it bigger than the box. */
+  private clampPan(px: number, py: number, zoom: number): { x: number; y: number } {
+    const el = document.querySelector<HTMLElement>('.stage-wrap');
+    if (!el || zoom <= 100) return { x: 0, y: 0 };
+    const mx = ((zoom / 100 - 1) * el.clientWidth) / 2;
+    const my = ((zoom / 100 - 1) * el.clientHeight) / 2;
+    return { x: Math.min(mx, Math.max(-mx, px)), y: Math.min(my, Math.max(-my, py)) };
+  }
+
+  setZoom(value: number) {
+    const z = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value)));
+    this.zoom.set(z);
+    const c = this.clampPan(this.panX(), this.panY(), z);
+    this.panX.set(c.x);
+    this.panY.set(c.y);
+  }
+
   zoomBy(delta: number) {
-    this.zoom.update((z) => Math.min(160, Math.max(60, z + delta)));
+    this.setZoom(this.zoom() + delta);
   }
 
   resetZoom() {
     this.zoom.set(100);
+    this.panX.set(0);
+    this.panY.set(0);
   }
+
+  onPanDown(ev: PointerEvent) {
+    if ((ev.target as HTMLElement).closest('tg-logo-layer .logo')) return; // a logo handles its own dragging
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    try {
+      (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+    } catch {
+      /* the pointer is already gone */
+    }
+    if (this.pointers.size === 1) {
+      this.tapMoved = false;
+      this.downAt = { x: ev.clientX, y: ev.clientY };
+    }
+    if (this.pointers.size === 2) {
+      const [a, b] = [...this.pointers.values()];
+      this.pinch = { dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), zoom: this.zoom() };
+      this.panStart = null;
+      this.tapMoved = true;
+    } else if (this.zoom() > 100) {
+      this.panStart = { x: ev.clientX, y: ev.clientY, px: this.panX(), py: this.panY() };
+      this.panning.set(true);
+    }
+  }
+
+  onPanMove(ev: PointerEvent) {
+    const p = this.pointers.get(ev.pointerId);
+    if (!p) return;
+    p.x = ev.clientX;
+    p.y = ev.clientY;
+    if (this.downAt && Math.hypot(ev.clientX - this.downAt.x, ev.clientY - this.downAt.y) > 6) this.tapMoved = true;
+    if (this.pointers.size === 2 && this.pinch) {
+      const [a, b] = [...this.pointers.values()];
+      this.setZoom((this.pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / this.pinch.dist);
+      return;
+    }
+    if (this.panStart) {
+      const c = this.clampPan(this.panStart.px + (ev.clientX - this.panStart.x), this.panStart.py + (ev.clientY - this.panStart.y), this.zoom());
+      this.panX.set(c.x);
+      this.panY.set(c.y);
+    }
+  }
+
+  onPanUp(ev: PointerEvent) {
+    const had = this.pointers.delete(ev.pointerId);
+    try {
+      (ev.currentTarget as HTMLElement).releasePointerCapture(ev.pointerId);
+    } catch {
+      /* already released */
+    }
+    if (this.pointers.size < 2) this.pinch = null;
+    if (this.pointers.size === 0) {
+      this.panStart = null;
+      this.panning.set(false);
+    }
+    // a double tap (or double click) zooms in on the spot, or back out again
+    if (had && ev.type === 'pointerup' && !this.tapMoved && this.pointers.size === 0) {
+      const now = Date.now();
+      if (this.lastTap && now - this.lastTap.t < 320 && Math.hypot(ev.clientX - this.lastTap.x, ev.clientY - this.lastTap.y) < 30) {
+        this.lastTap = null;
+        this.toggleZoomAt(ev.clientX, ev.clientY);
+      } else {
+        this.lastTap = { t: now, x: ev.clientX, y: ev.clientY };
+      }
+    }
+  }
+
+  private toggleZoomAt(cx: number, cy: number) {
+    if (this.zoom() > 100) return this.resetZoom();
+    const el = document.querySelector<HTMLElement>('.stage-wrap');
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const s = 2;
+    const c = this.clampPan(-(s - 1) * (cx - (r.left + r.width / 2)), -(s - 1) * (cy - (r.top + r.height / 2)), s * 100);
+    this.zoom.set(s * 100);
+    this.panX.set(c.x);
+    this.panY.set(c.y);
+  }
+
+  /** Ctrl + wheel (or a trackpad pinch) zooms; the wheel moves the picture up and down while it is zoomed. */
+  onWheel(ev: WheelEvent) {
+    if (ev.ctrlKey || ev.metaKey) {
+      ev.preventDefault();
+      this.setZoom(this.zoom() * (ev.deltaY < 0 ? 1.1 : 1 / 1.1));
+      return;
+    }
+    if (this.zoom() > 100) {
+      ev.preventDefault();
+      const c = this.clampPan(this.panX() - ev.deltaX, this.panY() - ev.deltaY, this.zoom());
+      this.panX.set(c.x);
+      this.panY.set(c.y);
+    }
+  }
+
+  /** A new picture starts in the middle. */
+  private readonly panReset = effect(() => {
+    this.currentViewIndex();
+    untracked(() => {
+      this.panX.set(0);
+      this.panY.set(0);
+    });
+  });
+
+  // ── the height of the preview box (for how many angle pictures fit beside it) and the phone width
+  private stageObserver: ResizeObserver | null = null;
+  private observedStage: Element | null = null;
+  private readonly phoneQuery = typeof window !== 'undefined' ? window.matchMedia('(max-width: 700px)') : null;
+  private readonly onPhoneChange = (e: MediaQueryListEvent) => {
+    this.narrow.set(e.matches);
+    this.resetZoom();
+  };
+  private readonly stageWatch = effect(() => {
+    this.product();
+    untracked(() => setTimeout(() => this.watchStage(), 0));
+  });
+
+  private watchStage() {
+    const el = document.querySelector('.stage-wrap');
+    if (!el || el === this.observedStage || typeof ResizeObserver === 'undefined') return;
+    this.stageObserver?.disconnect();
+    this.observedStage = el;
+    this.stageObserver = new ResizeObserver(() => this.stageHeight.set(Math.round((el as HTMLElement).offsetHeight)));
+    this.stageObserver.observe(el);
+  }
+
+  @HostListener('window:resize')
+  onWindowResize() {
+    const c = this.clampPan(this.panX(), this.panY(), this.zoom());
+    this.panX.set(c.x);
+    this.panY.set(c.y);
+  }
+
 
   setDecoration(value: string) {
     this.decorationValue.set(value);
   }
 
-  // ── logo placements: tick where the logo goes, then move, resize and fix each copy
+  // ── logo placements: tick where the logo goes, then move, resize, fix and place again each copy
   private tickedLabels(): string[] {
     const on = this.tickedValues();
     return this.placementOptions()
@@ -1425,7 +1720,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Ticking a placement puts a copy of the logo there (shown on every angle picture); unticking takes it away. */
+  /** Ticking a placement puts a copy of the logo on its angle picture and shows it; unticking takes it away. */
   onTick(value: string, checked: boolean) {
     this.tickedValues.update((list) => (checked ? (list.includes(value) ? list : [...list, value]) : list.filter((v) => v !== value)));
     this.saveTicks();
@@ -1451,6 +1746,22 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     return { x: z.x, y: z.y, w: z.w };
   }
 
+  /**
+   * The angle picture a placement belongs to: the Back picture for a back placement, the Sleeve picture for a
+   * sleeve, the Front picture for the rest. A colour without that picture uses the front one (or the next one
+   * for a back), so a placement always has a picture; the customer can pick another in the list.
+   */
+  private defaultAngleFor(label: string): string {
+    const slots = this.angleSlots();
+    if (!slots.length) return '';
+    const named = (name: string) => slots.find((s) => s.angle.trim().toLowerCase() === name);
+    const closeUps = ['back', 'sleeve', 'collar', 'side', 'neck', 'detail'];
+    const front = named('front') ?? slots.find((s) => !closeUps.includes(s.angle.trim().toLowerCase())) ?? slots[0];
+    if (/sleeve/i.test(label)) return (named('sleeve') ?? front).key;
+    if (logoZoneFor(label).view === 'back') return (named('back') ?? [...slots].reverse().find((s) => s !== front) ?? front).key;
+    return front.key;
+  }
+
   /** Makes the logo copies match the ticks: a ticked placement has its copy, an unticked one has none. */
   private syncPlacements(focus: string | null) {
     const ticked = this.tickedValues();
@@ -1462,7 +1773,11 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
         if (list.some((p) => p.value === value)) continue;
         const option = this.placementOptions().find((o) => o.value === value);
         if (!option) continue;
-        const p = keepInside(newPlacement(option.value, option.label, this.presetFor(option.label)), this.logoRatio(), this.stageRatio());
+        const p = keepInside(
+          newPlacement(option.value, option.label, this.defaultAngleFor(option.label), this.presetFor(option.label)),
+          this.logoRatio(),
+          this.stageRatio(),
+        );
         list = [...list, p];
         if (!added || value === focus) added = p;
       }
@@ -1471,8 +1786,8 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.savePlacements();
     if (added) {
       this.selectedId.set(added.id);
-      this.goToAngle();
-    } else if (!list.some((p) => p.id === this.selectedId() && !p.fixed)) {
+      this.showPlacement(added);
+    } else if (!list.some((p) => p.id === this.selectedId())) {
       this.selectedId.set(list.find((p) => !p.fixed)?.id ?? null);
     }
     if (added || list.length !== before.length) void this.rebuildSnapshots();
@@ -1489,32 +1804,63 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     }
     this.syncPlacements(null);
     void this.rebuildSnapshots();
+    this.revealPreview(); // on a phone: show the customer their logo on the garment
   }
 
-  /** Shows the first angle picture when a model photo is shown, so the logo is seen. */
+  /** Turns the preview to the angle picture a logo is on. */
+  private showPlacement(p: LogoPlacement) {
+    const slot = this.angleSlots().find((s) => s.key === p.angle);
+    if (slot) this.outlookIndex.set(slot.index);
+  }
+
+  /** Shows the first angle picture when a model photo is shown, so the logos are seen. */
   goToAngle() {
     if (!this.onModelPhoto()) return;
-    const at = this.outlookViews().findIndex((v) => v.angle !== 'shoot');
-    if (at >= 0) this.outlookIndex.set(at);
+    const first = this.placements()[0];
+    const slot = (first && this.angleSlots().find((s) => s.key === first.angle)) || this.angleSlots()[0];
+    if (slot) this.outlookIndex.set(slot.index);
   }
 
-  /** A logo was moved or resized on the angle picture shown: on every angle (the default), or on this one only. */
+  /** Clicking a logo in the list selects it and shows its angle picture. */
+  selectLogo(p: LogoPlacement) {
+    this.selectedId.set(p.id);
+    this.showPlacement(p);
+    this.revealPreview();
+  }
+
+  /** On a phone the controls are below the picture: bring the picture into view when something is done to it. */
+  private revealPreview() {
+    if (typeof window === 'undefined' || window.innerWidth > 700) return;
+    setTimeout(() => {
+      const box = document.querySelector('.stage-wrap');
+      if (!box) return;
+      const r = box.getBoundingClientRect();
+      if (r.top < 120 || r.bottom > window.innerHeight) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+  }
+
+  /** Puts a logo on another angle picture. */
+  setAngle(id: string, key: string) {
+    this.placements.update((list) => list.map((p) => (p.id === id ? { ...p, angle: key } : p)));
+    const p = this.placements().find((x) => x.id === id);
+    if (p) {
+      this.selectedId.set(id);
+      this.showPlacement(p);
+    }
+    this.savePlacements();
+    void this.rebuildSnapshots();
+  }
+
+  /** A logo was moved or resized on the angle picture shown. */
   onLogoPlace(ev: { id: string; x: number; y: number; w: number }) {
-    const key = this.currentAngleKey();
-    const spot: Spot = { x: ev.x, y: ev.y, w: ev.w };
-    this.placements.update((list) =>
-      list.map((p) => {
-        if (p.id !== ev.id) return p;
-        return this.sameOnAll() || !key ? { ...p, ...spot, over: undefined } : { ...p, over: { ...(p.over ?? {}), [key]: spot } };
-      }),
-    );
+    this.placements.update((list) => list.map((p) => (p.id === ev.id ? { ...p, x: ev.x, y: ev.y, w: ev.w } : p)));
   }
 
   onLogoCommit() {
     this.savePlacements();
   }
 
-  /** Locks a logo copy where it is and saves the pictures of the angles with the logos on them. */
+  /** Locks a logo where it is and saves the pictures of the angles with the logos on them. */
   fixPlacement(id: string) {
     this.placements.update((list) => list.map((p) => (p.id === id ? { ...p, fixed: true } : p)));
     this.selectedId.set(this.placements().find((p) => !p.fixed)?.id ?? null);
@@ -1530,23 +1876,21 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     void this.rebuildSnapshots();
   }
 
-  /** Opens a fixed logo to move it again. */
+  /** Opens a fixed logo to place it again. */
   editPlacement(id: string) {
     this.placements.update((list) => list.map((p) => (p.id === id ? { ...p, fixed: false } : p)));
     this.selectedId.set(id);
-    this.goToAngle();
+    const p = this.placements().find((x) => x.id === id);
+    if (p) this.showPlacement(p);
     this.savePlacements();
     void this.rebuildSnapshots();
+    this.revealPreview();
   }
 
-  /** Puts a logo copy back at the spot of its placement, on every angle. */
+  /** Puts a logo back at the spot of its placement. */
   resetPlacement(id: string) {
     this.placements.update((list) =>
-      list.map((p) => {
-        if (p.id !== id) return p;
-        const start = keepInside({ ...this.presetFor(p.label) }, this.logoRatio(), this.stageRatio());
-        return { ...p, ...start, over: undefined };
-      }),
+      list.map((p) => (p.id === id ? { ...p, ...keepInside(this.presetFor(p.label), this.logoRatio(), this.stageRatio()) } : p)),
     );
     this.savePlacements();
   }
@@ -1574,7 +1918,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.snapshots.set([]);
   }
 
-  /** One picture for every angle picture (up to 6) that has fixed logos: the garment picture with them on it. */
+  /** One picture for every angle picture that has fixed logos on it: the garment picture with those logos placed. */
   private async buildSnapshots() {
     const logo = this.logoPreview();
     const views = this.outlookViews();
@@ -1582,24 +1926,16 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     const out: Array<{ id: string; label: string; name: string; blob: Blob; url: string; garment?: string }> = [];
     let failed = false;
     if (logo && fixed.length) {
-      const seen = new Map<string, number>();
-      for (let i = 0; i < views.length && out.length + (failed ? 1 : 0) < 6; i++) {
-        if (views[i].angle === 'shoot') continue;
-        const key = this.angleKeyOf(i);
-        const count = (seen.get(views[i].label) ?? 0) + 1;
-        seen.set(views[i].label, count);
-        const title = count > 1 ? `${views[i].label} ${count}` : views[i].label;
+      for (const slot of this.angleSlots()) {
+        const here = fixed.filter((p) => p.angle === slot.key);
+        const view = views[slot.index];
+        if (!here.length || !view) continue;
         try {
-          const shot = await renderSnapshot(
-            views[i].url,
-            logo,
-            this.logoRatio(),
-            fixed.map((p) => spotOf(p, key)),
-          );
+          const shot = await renderSnapshot(view.url, logo, this.logoRatio(), here);
           out.push({
-            id: key,
-            label: `${title} picture: ${fixed.map((p) => p.label).join(' + ')}`,
-            name: `Logo placement - ${title} picture - ${fixed.map((p) => p.label).join(' + ')}${shot.garment ? ' (logo layer)' : ''}.${shot.garment ? 'png' : 'jpg'}`,
+            id: slot.key,
+            label: `${slot.label} picture: ${here.map((p) => p.label).join(' + ')}`,
+            name: `Logo placement - ${slot.label} picture - ${here.map((p) => p.label).join(' + ')}${shot.garment ? ' (logo layer)' : ''}.${shot.garment ? 'png' : 'jpg'}`,
             blob: shot.blob,
             url: URL.createObjectURL(shot.blob),
             garment: shot.garment,
@@ -1641,7 +1977,8 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     for (const x of draft.placements) {
       const value = x.value ?? options.find((o) => o.label === x.label)?.value;
       if (!value || list.some((p) => p.value === value)) continue;
-      list.push({ id: 'pl-' + value, value, label: x.label, x: x.x, y: x.y, w: x.w, fixed: x.fixed, over: x.over });
+      const angle = x.angle && this.angleSlots().some((s) => s.key === x.angle) ? x.angle : this.defaultAngleFor(x.label);
+      list.push({ id: 'pl-' + value, value, label: x.label, angle, x: x.x, y: x.y, w: x.w, fixed: x.fixed });
     }
     this.placements.set(list);
     this.tickedValues.update((on) => [...new Set([...on, ...list.map((p) => p.value)])]);
@@ -2160,7 +2497,7 @@ export class DesignerPageComponent implements OnInit, OnDestroy {
     this.decorationValue.set(decor[0] || '');
     this.serviceAddOns.set(this.serviceAddOnsFromProduct(p));
     this.currentStep.set(1);
-    this.zoom.set(100);
+    this.resetZoom();
   }
 
   private serviceAddOnsFromProduct(p: Product): Record<string, number> {

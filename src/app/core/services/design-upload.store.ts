@@ -30,8 +30,8 @@ export interface SavedPlacement {
   label: string;
   /** The option it was ticked from (placements saved before this was kept have only the label). */
   value?: string;
-  /** Positions set on single angle pictures, by angle slot. */
-  over?: Record<string, { x: number; y: number; w: number }>;
+  /** The angle picture it sits on, by its slot among the angle pictures (a0, a1 …). */
+  angle?: string;
   /** Older placements were tied to the front or the back picture. */
   view?: 'front' | 'back';
   /** Centre of the logo, as a % of the preview's width. */

@@ -1,8 +1,8 @@
 /**
- * Logos placed on the garment's angle pictures. Each ticked placement (Left Chest, Back Centre …) is one
- * copy of the customer's logo. The copy is shown on every angle picture at the same position, which the
- * customer can move and resize on the preview and lock with "Fix"; with "same position on every angle"
- * switched off a copy can be set differently on a single angle picture.
+ * Logos placed on the garment's angle pictures. Each ticked placement (Left Chest, Back Centre, Right Sleeve …)
+ * is one copy of the customer's logo, put on the angle picture that belongs to it (the Back picture for Back
+ * Centre, the Sleeve picture for a sleeve …). The customer can move and resize it on the preview, lock it
+ * with "Fix", and place it again later.
  *
  * Positions are in % of the preview, which has the proportions of the picture it shows, so they map
  * exactly onto it.
@@ -24,8 +24,8 @@ export interface LogoPlacement extends Spot {
   label: string;
   /** True once the customer pressed Fix on it. */
   fixed: boolean;
-  /** Positions set on single angle pictures (by angle slot), where they differ from the common one. */
-  over?: Record<string, Spot>;
+  /** The angle picture it sits on, by its slot among the angle pictures (a0, a1 …). */
+  angle: string;
 }
 
 export const MIN_LOGO_W = 4;
@@ -33,14 +33,8 @@ export const MAX_LOGO_W = 90;
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
-/** Where a placement sits on one angle picture. */
-export function spotOf(p: LogoPlacement, key: string): Spot {
-  const o = p.over?.[key];
-  return o ? { x: o.x, y: o.y, w: o.w } : { x: p.x, y: p.y, w: p.w };
-}
-
-export function newPlacement(value: string, label: string, start: Spot): LogoPlacement {
-  return { id: 'pl-' + value, value, label, x: start.x, y: start.y, w: start.w, fixed: false };
+export function newPlacement(value: string, label: string, angle: string, start: Spot): LogoPlacement {
+  return { id: 'pl-' + value, value, label, angle, x: start.x, y: start.y, w: start.w, fixed: false };
 }
 
 /** Height of a logo as a % of the preview's height (logoRatio and stageRatio are width / height). */
