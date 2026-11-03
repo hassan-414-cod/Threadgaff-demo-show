@@ -10,23 +10,22 @@ import { SwatchPlace, SwatchVisibilityService } from '../core/services/swatch-vi
   selector: 'tg-swatch-toggle',
   standalone: true,
   template: `
-    @if (colours() < 2) {
-      <span class="none" title="This product has one colour, so it has no swatches">One colour</span>
-    } @else {
-      <div class="st">
-        <label [attr.title]="'Show the colour dots under this product on the products page'">
-          <input type="checkbox" [checked]="!vis.hiddenOnShop(productId())" [disabled]="busy()" (change)="flip('shop', $event)" />
-          Products page
-        </label>
-        <label [attr.title]="'Show the Garment Colour swatches in the Custom Designer'">
-          <input type="checkbox" [checked]="!vis.hiddenInDesigner(productId())" [disabled]="busy()" (change)="flip('designer', $event)" />
-          Custom Designer
-        </label>
-        @if (error()) {
-          <span class="err" role="alert">{{ error() }}</span>
-        }
-      </div>
-    }
+    <div class="st">
+      <label [attr.title]="'Show the colour (its dot and name, and the colour dots when there are several) under this product on the products page'">
+        <input type="checkbox" [checked]="!vis.hiddenOnShop(productId())" [disabled]="busy()" (change)="flip('shop', $event)" />
+        Products page
+      </label>
+      <label [attr.title]="'Show the colour (the Garment Colour swatches and the colour in the summary) in the Custom Designer'">
+        <input type="checkbox" [checked]="!vis.hiddenInDesigner(productId())" [disabled]="busy()" (change)="flip('designer', $event)" />
+        Custom Designer
+      </label>
+      @if (colours() < 2) {
+        <span class="none">One colour</span>
+      }
+      @if (error()) {
+        <span class="err" role="alert">{{ error() }}</span>
+      }
+    </div>
   `,
   styles: `
     :host { display: block; }
