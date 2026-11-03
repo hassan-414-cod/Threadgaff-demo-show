@@ -11,11 +11,11 @@ import { SwatchPlace, SwatchVisibilityService } from '../core/services/swatch-vi
   standalone: true,
   template: `
     <div class="st">
-      <label [attr.title]="'Show the colour (its dot and name, and the colour dots when there are several) under this product on the products page'">
+      <label [attr.title]="'Show the colour dots under this product on the products page (colour names are only shown in the Custom Designer)'">
         <input type="checkbox" [checked]="!vis.hiddenOnShop(productId())" [disabled]="busy()" (change)="flip('shop', $event)" />
         Products page
       </label>
-      <label [attr.title]="'Show the colour (the Garment Colour swatches and the colour in the summary) in the Custom Designer'">
+      <label [attr.title]="'Show the colour name and the Garment Colour swatches in the Custom Designer'">
         <input type="checkbox" [checked]="!vis.hiddenInDesigner(productId())" [disabled]="busy()" (change)="flip('designer', $event)" />
         Custom Designer
       </label>

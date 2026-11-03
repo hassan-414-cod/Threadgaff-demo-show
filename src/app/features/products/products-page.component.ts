@@ -236,19 +236,19 @@ interface Shot {
           <h2 class="cat-head" [attr.id]="'cat-' + s.key">{{ s.title }}<span class="cat-count">{{ s.tiles.length }}</span></h2>
           <div class="grid">
           @for (t of s.tiles; track t.product.id) {
-            <article class="prod" [attr.id]="t.first ? 'p-' + t.product.id : null" [class.flash]="t.first && flashId() === t.product.id">
+            <article class="prod" [attr.id]="t.first ? 'p-' + t.product.id : null" [attr.data-colour]="viewOf(t).colorName" [class.flash]="t.first && flashId() === t.product.id">
               @let v = viewOf(t);
               <a
                 class="prod-pic"
                 [routerLink]="['/designer']"
                 [queryParams]="designerParams(t.product, v.colorId)"
-                [attr.aria-label]="'Customise ' + t.product.name + (v.colorName ? ' in ' + v.colorName : '')"
+                [attr.aria-label]="'Customise ' + t.product.name"
                 (pointerenter)="catalog.prefetchProduct(t.product.id)"
                 (touchstart)="catalog.prefetchProduct(t.product.id)"
               >
                 <span class="prod-frame">
                   @if (v.pic) {
-                    <img tgFadeIn [src]="v.pic" [alt]="t.product.name + (v.colorName ? ' ' + v.colorName : '')" loading="lazy" decoding="async" />
+                    <img tgFadeIn [src]="v.pic" [alt]="t.product.name" loading="lazy" decoding="async" />
                   } @else {
                     <span class="prod-empty">No picture yet</span>
                   }
@@ -257,9 +257,6 @@ interface Shot {
               <h3 class="prod-name">
                 <a [routerLink]="['/designer']" [queryParams]="designerParams(t.product, v.colorId)">{{ t.product.name }}</a>
               </h3>
-              @if (v.colorName && !swatchVis.hiddenOnShop(t.product.id)) {
-                <div class="prod-colour"><span class="sw-dot" [style.background]="v.hex"></span>{{ v.colorName }}</div>
-              }
               <div class="prod-price">{{ priceLabel(t.product, v.colorId) }}</div>
               @if (t.swatches.length > 1 && !swatchVis.hiddenOnShop(t.product.id)) {
                 <div class="swatches" role="group" aria-label="Colours">
@@ -269,7 +266,6 @@ interface Shot {
                       class="sw"
                       [class.on]="x.id === v.colorId"
                       [style.background]="x.hex"
-                      [attr.title]="x.name"
                       [attr.aria-label]="x.name"
                       [attr.aria-pressed]="x.id === v.colorId"
                       (click)="pickColour(t, x.id)"
@@ -510,8 +506,6 @@ interface Shot {
     .prod-name a:hover { text-decoration: underline; text-underline-offset: 3px; }
     .prod.flash .prod-name { background: color-mix(in srgb, var(--forest) 14%, transparent); }
     .prod-price { margin-top: 6px; font-size: 0.74rem; color: var(--muted); }
-    .prod-colour { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.72rem; color: var(--muted); }
-    .sw-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.18); }
     .swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 100%; margin-top: 12px; }
     .sw {
       flex: none;
