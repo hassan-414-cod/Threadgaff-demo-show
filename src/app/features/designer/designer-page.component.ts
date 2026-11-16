@@ -23,6 +23,7 @@ import { LogoPlacement, Spot, heightPct, keepInside, newPlacement, renderSnapsho
 import { LogoLayerComponent } from './logo-layer.component';
 import { MultiSelectComponent } from '../../shared/multi-select.component';
 import { PlacementPictureComponent } from '../../shared/placement-picture.component';
+import { FadeInDirective } from '../../shared/fade-in.directive';
 import { hasDisplayHex } from '../../core/utils/hex';
 import { cardDescription } from '../../core/utils/description';
 import {
@@ -67,7 +68,7 @@ const ZOOM_MAX = 250;
 @Component({
   selector: 'tg-designer-page',
   standalone: true,
-  imports: [RouterLink, FormsModule, NgTemplateOutlet, PlacementPictureComponent, LogoLayerComponent, MultiSelectComponent],
+  imports: [RouterLink, FormsModule, NgTemplateOutlet, PlacementPictureComponent, LogoLayerComponent, MultiSelectComponent, FadeInDirective],
   template: `
     <div class="des-page" [class.is-picking]="!product()">
       @if (!product() && loadingProduct()) {
@@ -98,7 +99,7 @@ const ZOOM_MAX = 250;
             <div class="des-pick-grid">
               @for (p of pickList(); track p.id) {
                 <button type="button" class="des-pick-card" (click)="selectProduct(p)">
-                  <img [src]="catalog.mainImageUrl(p)" [alt]="p.name" />
+                  <img tgFadeIn [src]="catalog.mainImageUrl(p)" [alt]="p.name" loading="lazy" decoding="async" />
                   <span class="des-pick-name">{{ p.name }}</span>
                   <span class="des-pick-meta">{{ p.category?.name || p.template || 'Apparel' }}</span>
                   @if (descriptionFor(p)) {
@@ -173,7 +174,7 @@ const ZOOM_MAX = 250;
                     (wheel)="onWheel($event)"
                   >
                     <div class="stage" [style.aspect-ratio]="stageRatio()" [style.transform]="stageTransform()">
-                      <img class="stage-img" [src]="previewSrc()" [alt]="product()!.name" draggable="false" (load)="onStageLoad($event)" />
+                      <img tgFadeIn class="stage-img" [src]="previewSrc()" [alt]="product()!.name" draggable="false" fetchpriority="high" decoding="async" (load)="onStageLoad($event)" />
                       @if (designPreviewUrl()) {
                         <div class="stage-design" [class.blend]="designIsJpeg()">
                           <img [src]="designPreviewUrl()!" alt="Your uploaded design" />
@@ -248,7 +249,7 @@ const ZOOM_MAX = 250;
                   [attr.aria-label]="t.label + (t.angle ? ' angle' : ' photo') + (placementsOn(t.index).length ? ', ' + placementsOn(t.index).length + ' logo(s)' : '')"
                 >
                   <span class="thumb-pic">
-                    <img [src]="t.url" [alt]="t.label" />
+                    <img tgFadeIn [src]="t.url" [alt]="t.label" loading="lazy" decoding="async" fetchpriority="low" />
                     @if (logoPreview()) {
                       @for (p of placementsOn(t.index); track p.id) {
                         <img class="mini-logo" [src]="logoPreview()!" alt="" [style.left.%]="p.x" [style.top.%]="p.y" [style.width.%]="p.w" [style.transform]="miniTransform(p)" />
@@ -733,8 +734,11 @@ const ZOOM_MAX = 250;
       position: absolute; right: 4px; top: 4px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 999px;
       background: #3d4b37; color: #fff; font-style: normal; font-size: 0.6rem; font-weight: 800; line-height: 16px; text-align: center;
     }
-    .thumb img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; display: block; background: #fff; }
+    .thumb img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; display: block; background: #fff; transition: opacity 0.4s ease, filter 0.5s ease; }
     .thumb-pic { position: relative; display: block; }
+    /* while a picture is on its way: the soft placeholder (see --tg-ph in styles.scss), then it sharpens in */
+    .thumb-pic:has(> img.tg-pending) { background: var(--tg-ph); background-size: 60%, 220% 100%; animation: tgPh 1.6s linear infinite; }
+    .thumb-pic > img.tg-pending { opacity: 0; filter: blur(8px); }
     /* the logos, small, on the angle pictures */
     .thumb .mini-logo { position: absolute; transform: translateX(-50%); height: auto; aspect-ratio: auto; object-fit: contain; background: none; pointer-events: none; }
     .thumb > span:last-child {
@@ -758,7 +762,9 @@ const ZOOM_MAX = 250;
       display: grid; place-items: center; overflow: hidden;
     }
     .stage { position: relative; width: 100%; aspect-ratio: 4 / 5; background: #fff; transition: transform 0.15s ease; }
-    .stage-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; z-index: 1; }
+    .stage-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; z-index: 1; transition: opacity 0.5s ease, filter 0.6s ease; }
+    .stage:has(> img.stage-img.tg-pending) { background: var(--tg-ph); animation: tgPh 1.6s linear infinite; }
+    .stage-img.tg-pending { opacity: 0; filter: blur(14px); }
     /* the logo is laid over the static garment picture at its placement (left, top and width are set per placement) */
     .logo-rules { margin: 6px 0 0; padding-left: 18px; font-size: 0.72rem; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
     .pl-list { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -1029,6 +1035,11 @@ const ZOOM_MAX = 250;
     .des-pick-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px; text-align: left; cursor: pointer; font: inherit; color: inherit; display: flex; flex-direction: column; gap: 10px; transition: transform 0.2s, box-shadow 0.2s; }
     .des-pick-card:hover { border-color: var(--ink); transform: translateY(-3px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
     .des-pick-card img { width: 100%; aspect-ratio: 4/5; object-fit: contain; background: var(--paper); border-radius: 6px; }
+    /* while the picture is on its way, the picture's own box shows the soft placeholder (see --tg-ph) */
+    .des-pick-card img.tg-pending { background: var(--tg-ph); animation: tgPh 1.6s linear infinite; color: transparent; }
+    @media (prefers-reduced-motion: reduce) {
+      .stage:has(> img.stage-img.tg-pending), .thumb-pic:has(> img.tg-pending), .des-pick-card img.tg-pending { animation: none; }
+    }
     .des-pick-name { font-weight: 650; font-size: 1.1rem; }
     .des-pick-meta { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
     .des-pick-desc {
