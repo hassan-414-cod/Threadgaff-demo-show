@@ -158,7 +158,7 @@ import { RouterLink } from '@angular/router';
             </div>
           </div>
           <div class="about-img">
-            <img src="/assets/images/about-serve.jpg" alt="Who We Serve" />
+            <img src="/assets/images/about-serve.jpg" alt="Who We Serve" loading="lazy" decoding="async" />
           </div>
         </div>
       </div>

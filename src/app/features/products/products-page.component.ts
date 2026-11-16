@@ -1092,10 +1092,25 @@ export class ProductsPageComponent implements OnInit {
     this.sort.set((event.target as HTMLSelectElement).value);
   }
 
-  /** Fetches the attribute details quietly a moment after the list is shown. */
+  /**
+   * Fetches the attribute details quietly once the pictures on screen have arrived, so the
+   * ~20 detail requests don't compete with the pictures for the same server. Gives up waiting
+   * after 8 s. Opening the filters fetches them straight away (see toggleFilters).
+   */
   private scheduleDetails() {
     if (this.hydrateTimer) clearTimeout(this.hydrateTimer);
-    this.hydrateTimer = setTimeout(() => this.fetchDetails(3), 1200);
+    const started = Date.now();
+    const check = () => {
+      const pending = Array.from(
+        document.querySelectorAll<HTMLImageElement>('.prod-frame img.tg-pending'),
+      ).some((img) => {
+        const r = img.getBoundingClientRect();
+        return r.bottom > 0 && r.top < window.innerHeight;
+      });
+      if (!pending || Date.now() - started > 8000) this.fetchDetails(2);
+      else this.hydrateTimer = setTimeout(check, 400);
+    };
+    this.hydrateTimer = setTimeout(check, 400);
   }
 
   /** The list has no attributes; the full record of each variant has them. A few at a time. */

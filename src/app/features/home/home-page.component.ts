@@ -94,7 +94,9 @@ export interface HomeCard {
                     [src]="card.image"
                     [alt]="card.name"
                     [class.is-ready]="heroReady()[card.key]"
-                    fetchpriority="high"
+                    [attr.fetchpriority]="i < 3 ? 'high' : 'low'"
+                    [attr.loading]="i < 3 ? 'eager' : 'lazy'"
+                    decoding="async"
                     (load)="heroImageDone(card.key)"
                     (error)="heroImageDone(card.key)"
                   />
@@ -229,7 +231,7 @@ export interface HomeCard {
       grid-template-columns: minmax(320px, 1fr) minmax(0, 1.06fr);
       height: calc(100vh - 118px);
       min-height: 560px;
-      background: #f1ece2 url('/assets/images/hero-bg-studio.png') right center / cover no-repeat;
+      background: #f1ece2 url('/assets/images/hero-bg-studio.jpg') right center / cover no-repeat;
       overflow: hidden;
     }
     .home-hero-copy {
