@@ -497,16 +497,16 @@ interface Shot {
       height: auto;
       max-height: 130cqw;
       object-fit: contain;
-      transition: transform 0.35s ease, opacity 0.4s ease;
+      transition: transform 0.35s ease, opacity 0.5s ease, filter 0.6s ease;
     }
-    .prod-frame img.tg-pending { opacity: 0; }
+    /* the photo sharpens in from a soft blur once it has arrived */
+    .prod-frame img.tg-pending { opacity: 0; filter: blur(14px); }
     /* while the picture is on its way the window holds a portrait place, so the page does not jump */
     .prod-frame:has(img.tg-pending) {
       aspect-ratio: 4 / 5;
-      background: linear-gradient(100deg, #e8e8ea 30%, #f4f4f5 50%, #e8e8ea 70%) 0 0 / 220% 100%;
-      animation: shotShimmer 1.4s linear infinite;
+      background: var(--tg-ph);
+      animation: tgPh 1.6s linear infinite;
     }
-    @keyframes shotShimmer { to { background-position: -120% 0; } }
     .prod-pic:hover img { transform: scale(1.04); }
     .prod-pic:focus-visible { outline: 2px solid var(--forest); outline-offset: 4px; border-radius: 10px; }
     .prod-empty { display: grid; place-items: center; aspect-ratio: 4 / 5; color: var(--muted); font-size: 0.78rem; }

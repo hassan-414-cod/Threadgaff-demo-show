@@ -76,15 +76,14 @@ export interface HomeCard {
         >
           @if (slidesLoading()) {
             @for (n of heroSkeletons; track n) {
-              <div class="hero-card is-loading" role="status" aria-label="Loading">
-                <span class="hero-spinner"></span>
-              </div>
+              <div class="hero-card is-loading" role="status" aria-label="Loading"></div>
             }
           } @else {
             @for (card of slides(); track card.key; let i = $index) {
               <a
                 class="hero-card"
                 [class.is-pending]="card.image && !heroReady()[card.key]"
+                [attr.aria-busy]="card.image && !heroReady()[card.key] ? 'true' : null"
                 [style.animation-delay]="(i * 0.04) + 's'"
                 [routerLink]="['/products']"
                 [queryParams]="card.slug ? { collection: card.slug } : {}"
@@ -100,9 +99,6 @@ export interface HomeCard {
                     (load)="heroImageDone(card.key)"
                     (error)="heroImageDone(card.key)"
                   />
-                  @if (!heroReady()[card.key]) {
-                    <span class="hero-spinner" role="status" aria-label="Loading"></span>
-                  }
                 }
                 @if (card.name) {
                   <div class="hero-card-meta">
@@ -151,9 +147,7 @@ export interface HomeCard {
         <div class="cat-grid">
           @if (cataloguesLoading()) {
             @for (n of [0, 1, 2]; track n) {
-              <div class="cat-card is-loading" role="status" aria-label="Loading">
-                <span class="hero-spinner"></span>
-              </div>
+              <div class="cat-card is-loading" role="status" aria-label="Loading"></div>
             }
           } @else {
             @for (c of catalogues(); track c.key) {
@@ -440,28 +434,19 @@ export interface HomeCard {
       object-fit: cover;
       object-position: center;
       opacity: 0;
-      transition: transform 0.45s ease, opacity 0.35s ease;
+      filter: blur(14px);
+      transition: transform 0.45s ease, opacity 0.5s ease, filter 0.6s ease;
     }
-    .hero-card img.is-ready { opacity: 1; }
+    .hero-card img.is-ready { opacity: 1; filter: none; }
     /* the name appears together with the picture, never before it */
     .hero-card.is-pending .hero-card-meta { opacity: 0; }
     .hero-card-meta { transition: opacity 0.35s ease; }
-    .hero-card.is-loading, .hero-card.is-pending { background: #d9d4c7; }
-    .hero-card.is-loading { pointer-events: none; }
-    .hero-spinner {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 34px;
-      height: 34px;
-      margin: -17px 0 0 -17px;
-      border-radius: 50%;
-      border: 3px solid rgba(60, 69, 54, 0.22);
-      border-top-color: #3c4536;
-      animation: heroSpin 0.8s linear infinite;
-      z-index: 2;
+    /* soft placeholder while the photo is on its way (shared look, see --tg-ph in styles.scss) */
+    .hero-card.is-loading, .hero-card.is-pending {
+      background: var(--tg-ph);
+      animation: heroFadeUp 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) forwards, tgPh 1.6s linear infinite;
     }
-    @keyframes heroSpin { to { transform: rotate(360deg); } }
+    .hero-card.is-loading { pointer-events: none; }
     .hero-card:hover img { transform: scale(1.04); }
     .hero-card-meta {
       position: absolute;
@@ -600,6 +585,14 @@ export interface HomeCard {
       isolation: isolate;
     }
     .cat-card.is-loading { pointer-events: none; }
+    .cat-card.is-loading, .cat-card:has(img.tg-pending) {
+      background: var(--tg-ph);
+      animation: tgPh 1.6s linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .cat-card.is-loading, .cat-card:has(img.tg-pending) { animation: none; }
+      .hero-card.is-loading, .hero-card.is-pending { animation: heroFadeUp 0.01s forwards; }
+    }
     .cat-card img {
       position: absolute;
       inset: 0;
@@ -607,9 +600,9 @@ export interface HomeCard {
       height: 100%;
       object-fit: cover;
       object-position: center;
-      transition: transform 0.6s ease, opacity 0.45s ease;
+      transition: transform 0.6s ease, opacity 0.5s ease, filter 0.6s ease;
     }
-    .cat-card img.tg-pending { opacity: 0; }
+    .cat-card img.tg-pending { opacity: 0; filter: blur(14px); }
     .cat-card:hover img { transform: scale(1.045); }
     .cat-card:not(.is-loading)::after {
       content: '';
